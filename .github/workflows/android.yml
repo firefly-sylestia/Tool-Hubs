@@ -36,7 +36,9 @@ jobs:
           gradle-version: '9.1.0'
 
       - name: Build debug APK
-        run: gradle :tools:calculator:assembleDebug --stacktrace
+        env:
+          GRADLE_OPTS: -Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
+        run: gradle :tools:calculator:assembleDebug --stacktrace --no-parallel --max-workers=2
 
       - name: Upload downloadable debug APK
         if: success()
