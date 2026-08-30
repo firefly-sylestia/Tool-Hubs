@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,7 +29,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Operator(val symbol: String) { ADD("+"), SUBTRACT("−"), MULTIPLY("×"), DIVIDE("÷") }
+private enum class CalcOperator(val symbol: String) { ADD("+"), SUBTRACT("−"), MULTIPLY("×"), DIVIDE("÷") }
 private data class Calculation(val expression: String, val result: String)
 
 @Composable
@@ -36,25 +37,25 @@ private fun CalculatorScreen() {
     var display by rememberSaveable { mutableStateOf("0") }
     var expression by rememberSaveable { mutableStateOf("") }
     var accumulator by rememberSaveable { mutableStateOf<Double?>(null) }
-    var operator by rememberSaveable { mutableStateOf<Operator?>(null) }
+    var pendingOperator by rememberSaveable { mutableStateOf<CalcOperator?>(null) }
     var typing by rememberSaveable { mutableStateOf(false) }
     var history by remember { mutableStateOf(emptyList<Calculation>()) }
     var showHistory by remember { mutableStateOf(false) }
 
-    fun value() = display.toDoubleOrNull() ?: 0.0
+    fun value(): Double = display.toDoubleOrNull() ?: 0.0
     fun format(n: Double): String {
         if (!n.isFinite()) return "Error"
         if (abs(n) < 1e-10) return "0"
         if (abs(n - n.toLong()) < 1e-10) return n.toLong().toString()
         return String.format(Locale.US, "%.10f", n).trimEnd('0').trimEnd('.')
     }
-    fun calculate(a: Double, b: Double, op: Operator) = when (op) {
-        Operator.ADD -> a + b
-        Operator.SUBTRACT -> a - b
-        Operator.MULTIPLY -> a * b
-        Operator.DIVIDE -> if (b == 0.0) Double.NaN else a / b
+    fun calculate(a: Double, b: Double, op: CalcOperator): Double = when (op) {
+        CalcOperator.ADD -> a + b
+        CalcOperator.SUBTRACT -> a - b
+        CalcOperator.MULTIPLY -> a * b
+        CalcOperator.DIVIDE -> if (b == 0.0) Double.NaN else a / b
     }
-    fun clear() { display = "0"; expression = ""; accumulator = null; operator = null; typing = false }
+    fun clear() { display = "0"; expression = ""; accumulator = null; pendingOperator = null; typing = false }
     fun input(s: String) {
         if (display == "Error") clear()
         display = if (!typing) s else when {
@@ -65,29 +66,31 @@ private fun CalculatorScreen() {
         }
         typing = true
     }
-    fun chooseOperator(next: Operator) {
+    fun chooseOperator(next: CalcOperator) {
         if (display == "Error") return
-        if (accumulator != null && operator != null && typing) {
-            val result = calculate(accumulator!!, value(), operator!!)
+        val current = accumulator
+        val currentOp = pendingOperator
+        if (current != null && currentOp != null && typing) {
+            val result = calculate(current, value(), currentOp)
             display = format(result)
             accumulator = if (result.isFinite()) result else null
-        } else accumulator = value()
-        operator = next
+        } else if (current == null) accumulator = value()
+        pendingOperator = next
         typing = false
         expression = "${format(accumulator ?: 0.0)} ${next.symbol}"
     }
     fun equals() {
         val a = accumulator ?: return
-        val op = operator ?: return
+        val op = pendingOperator ?: return
         val b = value()
         val result = format(calculate(a, b, op))
         history = (listOf(Calculation("${format(a)} ${op.symbol} ${format(b)}", result)) + history).take(30)
         display = result
-        accumulator = null; operator = null; expression = ""; typing = false
+        accumulator = null; pendingOperator = null; expression = ""; typing = false
     }
     fun backspace() { if (typing) display = if (display.length <= 1 || display == "-0") "0" else display.dropLast(1) }
     fun percent() { display = format(value() / 100.0); typing = true }
-    fun sign() { if (display != "0" && display != "Error") display = if (display.startsWith("-")) display.drop(1) else "-$display" }
+    fun toggleSign() { if (display != "0" && display != "Error") display = if (display.startsWith("-")) display.drop(1) else "-$display" }
 
     Column(Modifier.fillMaxSize().background(CurioCream).padding(horizontal = 16.dp, vertical = 12.dp)) {
         Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -117,8 +120,8 @@ private fun CalculatorScreen() {
                     val fg = if (equalsKey || operatorKey) Color.White else CurioInk
                     Box(Modifier.weight(1f).aspectRatio(1.48f).clip(RoundedCornerShape(18.dp)).background(bg).clickable {
                         when (key) {
-                            "AC" -> clear(); "±" -> sign(); "%" -> percent(); "⌫" -> backspace(); "." -> input(".")
-                            "=" -> equals(); "÷" -> chooseOperator(Operator.DIVIDE); "×" -> chooseOperator(Operator.MULTIPLY); "−" -> chooseOperator(Operator.SUBTRACT); "+" -> chooseOperator(Operator.ADD)
+                            "AC" -> clear(); "±" -> toggleSign(); "%" -> percent(); "⌫" -> backspace(); "." -> input(".")
+                            "=" -> equals(); "÷" -> chooseOperator(CalcOperator.DIVIDE); "×" -> chooseOperator(CalcOperator.MULTIPLY); "−" -> chooseOperator(CalcOperator.SUBTRACT); "+" -> chooseOperator(CalcOperator.ADD)
                             else -> input(key)
                         }
                     }, contentAlignment = Alignment.Center) { Text(key, color = fg, fontSize = if (key == "⌫") 21.sp else 23.sp, fontWeight = FontWeight.Bold) }
