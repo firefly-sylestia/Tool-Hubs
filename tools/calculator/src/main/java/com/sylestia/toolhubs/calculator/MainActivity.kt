@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.sylestia.toolhubs.calculator
 
 import android.os.Bundle
@@ -40,7 +42,7 @@ class MainActivity:ComponentActivity(){override fun onCreate(b:Bundle?){super.on
 private data class Calculation(val expression:String,val result:String)
 private enum class AngleMode{DEG,RAD}
 private fun fmt(n:Double):String=when{!n.isFinite()->"Error";abs(n)<1e-10->"0";abs(n-n.toLong())<1e-10->n.toLong().toString();else->String.format(Locale.US,"%.10f",n).trimEnd('0').trimEnd('.')}
-private class Parser(private val s:String){private var i=0;private fun skip(){while(i<s.length&&s[i].isWhitespace())i++};fun expr():Double{var v=term();while(true){skip();if(i>=s.length||s[i]!='+'&&s[i]!='-')return v;val c=s[i++];val r=term();v=if(c=='+')v+r else v-r}};private fun term():Double{var v=factor();while(true){skip();if(i>=s.length||s[i]!='*'&&s[i]!='/')return v;val c=s[i++];val r=factor();v=if(c=='*')v*r else if(r==0.0)Double.NaN else v/r}};private fun factor():Double{skip();if(i<s.length&&(s[i]=='+'||s[i]=='-')){val neg=s[i++]=='-';val v=factor();return if(neg)-v else v};if(i<s.length&&s[i]=='('){i++;val v=expr();skip();if(i<s.length&&s[i]==')')i++;return v};val st=i;while(i<s.length&&(s[i].isDigit()||s[i]=='.'))i++;return s.substring(st,i).toDoubleOrNull()?:Double.NaN}}
+private class Parser(private val s:String){private var i=0;private fun skip(){while(i<s.length&&s[i].isWhitespace())i++};fun expr():Double{var v=term();while(true){skip();if(i>=s.length||s[i]!='+'&&s[i]!='-')return v;val c=s[i++];val r=term();v=if(c=='+')v+r else v-r}};private fun term():Double{var v=factor();while(true){skip();if(i>=s.length||s[i]!='*'&&s[i]!='/')return v;val c=s[i++];val r=factor();v=if(c=='*')v*r else if(r==0.0)Double.NaN else v/r};return v};private fun factor():Double{skip();if(i<s.length&&(s[i]=='+'||s[i]=='-')){val neg=s[i++]=='-';val v=factor();return if(neg)-v else v};if(i<s.length&&s[i]=='('){i++;val v=expr();skip();if(i<s.length&&s[i]==')')i++;return v};val st=i;while(i<s.length&&(s[i].isDigit()||s[i]=='.'))i++;return s.substring(st,i).toDoubleOrNull()?:Double.NaN}}
 private fun eval(s:String)=Parser(s.replace('×','*').replace('÷','/').replace('−','-').replace("π",Math.PI.toString()).replace("e",Math.E.toString())).expr()
 
 @Composable private fun CalculatorScreen(){
