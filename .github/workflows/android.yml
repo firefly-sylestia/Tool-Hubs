@@ -32,12 +32,11 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
-
-      - name: Make Gradle executable
-        run: chmod +x ./gradlew
+        with:
+          gradle-version: '9.1.0'
 
       - name: Build debug APK
-        run: ./gradlew :tools:calculator:assembleDebug --stacktrace
+        run: gradle :tools:calculator:assembleDebug --stacktrace
 
       - name: Upload downloadable debug APK
         if: success()
