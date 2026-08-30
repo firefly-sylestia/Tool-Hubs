@@ -16,7 +16,12 @@ android {
     buildFeatures { compose = true }
     signingConfigs {
         getByName("debug")
-        create("debugRelease") { initWith(getByName("debug")) }
+        create("debugRelease") {
+            storeFile = rootProject.file(".ci/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
     buildTypes {
         getByName("release") {
