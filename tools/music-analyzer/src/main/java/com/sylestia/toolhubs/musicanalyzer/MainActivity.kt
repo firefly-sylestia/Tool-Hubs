@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AudioFile
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Mic
@@ -31,7 +30,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -44,8 +42,6 @@ import com.sylestia.toolhubs.designsystem.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 import kotlin.math.*
 
 data class AudioAnalysis(val name:String,val durationMs:Long,val sampleRate:Int,val channels:Int,val rmsDb:Float,val peakDb:Float,val dominantHz:Float,val note:String,val waveform:List<Float>,val spectrum:List<Float>,val analyzedAt:Long=System.currentTimeMillis())
@@ -66,7 +62,7 @@ private fun analyzePcm(pcm:FloatArray,rate:Int,ch:Int):Triple<List<Float>,List<F
 
 private fun displayName(c:Context,u:Uri):String{var n="Audio file";c.contentResolver.query(u,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use{if(it.moveToFirst())n=it.getString(0)?:n};return n}
 
-private fun decodeAudio(c:Context,u:Uri):AudioAnalysis{val ex=MediaExtractor();ex.setDataSource(c,u,null);var track=-1;var fmt:MediaFormat?=null;for(i in 0 until ex.trackCount){val f=ex.getTrackFormat(i);if((f.getString(MediaFormat.KEY_MIME)? : "").startsWith("audio/")){track=i;fmt=f;break}};if(track<0||fmt==null){ex.release();throw IllegalArgumentException("No audio track")};ex.selectTrack(track);val f=fmt!!;val rate=f.getInteger(MediaFormat.KEY_SAMPLE_RATE,44100);val ch=f.getInteger(MediaFormat.KEY_CHANNEL_COUNT,1);val duration=f.getLong(MediaFormat.KEY_DURATION,0L)/1000L;val codec=MediaCodec.createDecoderByType(f.getString(MediaFormat.KEY_MIME)!!);codec.configure(f,null,null,0);codec.start();val out=ArrayList<Float>();val info=MediaCodec.BufferInfo();var inputDone=false;var outputDone=false;try{while(!outputDone&&out.size<rate*ch*120){if(!inputDone){val ii=codec.dequeueInputBuffer(10000);if(ii>=0){val b=codec.getInputBuffer(ii)!!;val size=ex.readSampleData(b,0);if(size<0){codec.queueInputBuffer(ii,0,0,0,MediaCodec.BUFFER_FLAG_END_OF_STREAM);inputDone=true}else{codec.queueInputBuffer(ii,0,size,ex.sampleTime,0);ex.advance()}}};val oi=codec.dequeueOutputBuffer(info,10000);if(oi>=0){if(info.size>0){val b=codec.getOutputBuffer(oi)!!;b.position(info.offset);b.limit(info.offset+info.size);while(b.remaining()>=2){val lo=b.get().toInt()and 255;val hi=b.get().toInt();out.add(((((hi shl 8)or lo).toShort()).toInt()/32768f).coerceIn(-1f,1f))}};codec.releaseOutputBuffer(oi,false);if(info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM!=0)outputDone=true}else if(oi==MediaCodec.INFO_TRY_AGAIN_LATER&&inputDone&&out.size>rate*ch*8)outputDone=true}}finally{runCatching{codec.stop()};codec.release();ex.release()};var sum=0.0;var peak=0.0;for(v in out){sum+=v*v;peak=kotlin.math.max(peak,abs(v.toDouble()))};val rms=sqrt(sum/kotlin.math.max(1,out.size));val a=analyzePcm(out.toFloatArray(),rate,ch);return AudioAnalysis(displayName(c,u),duration,rate,ch,db(rms),db(peak),a.third.toFloat(),noteFor(a.third),a.first,a.second)}
+private fun decodeAudio(c:Context,u:Uri):AudioAnalysis{val ex=MediaExtractor();ex.setDataSource(c,u,null);var track=-1;var fmt:MediaFormat?=null;for(i in 0 until ex.trackCount){val f=ex.getTrackFormat(i);if((f.getString(MediaFormat.KEY_MIME) ?: "").startsWith("audio/")){track=i;fmt=f;break}};if(track<0||fmt==null){ex.release();throw IllegalArgumentException("No audio track")};ex.selectTrack(track);val f=fmt!!;val rate=f.getInteger(MediaFormat.KEY_SAMPLE_RATE,44100);val ch=f.getInteger(MediaFormat.KEY_CHANNEL_COUNT,1);val duration=f.getLong(MediaFormat.KEY_DURATION,0L)/1000L;val codec=MediaCodec.createDecoderByType(f.getString(MediaFormat.KEY_MIME)!!);codec.configure(f,null,null,0);codec.start();val out=ArrayList<Float>();val info=MediaCodec.BufferInfo();var inputDone=false;var outputDone=false;try{while(!outputDone&&out.size<rate*ch*120){if(!inputDone){val ii=codec.dequeueInputBuffer(10000);if(ii>=0){val b=codec.getInputBuffer(ii)!!;val size=ex.readSampleData(b,0);if(size<0){codec.queueInputBuffer(ii,0,0,0,MediaCodec.BUFFER_FLAG_END_OF_STREAM);inputDone=true}else{codec.queueInputBuffer(ii,0,size,ex.sampleTime,0);ex.advance()}}};val oi=codec.dequeueOutputBuffer(info,10000);if(oi>=0){if(info.size>0){val b=codec.getOutputBuffer(oi)!!;b.position(info.offset);b.limit(info.offset+info.size);while(b.remaining()>=2){val lo=b.get().toInt()and 255;val hi=b.get().toInt();out.add(((((hi shl 8)or lo).toShort()).toInt()/32768f).coerceIn(-1f,1f))}};codec.releaseOutputBuffer(oi,false);if(info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM!=0)outputDone=true}else if(oi==MediaCodec.INFO_TRY_AGAIN_LATER&&inputDone&&out.size>rate*ch*8)outputDone=true}}finally{runCatching{codec.stop()};codec.release();ex.release()};var sum=0.0;var peak=0.0;for(v in out){sum+=v*v;peak=kotlin.math.max(peak,abs(v.toDouble()))};val rms=sqrt(sum/kotlin.math.max(1,out.size));val a=analyzePcm(out.toFloatArray(),rate,ch);return AudioAnalysis(displayName(c,u),duration,rate,ch,db(rms),db(peak),a.third.toFloat(),noteFor(a.third),a.first,a.second)}
 
 @Composable private fun Graph(title:String,values:List<Float>){Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(Color.White.copy(.48f)).padding(15.dp)){Text(title,color=CurioInk,fontWeight=FontWeight.ExtraBold,fontSize=15.sp);Spacer(Modifier.height(9.dp));Canvas(Modifier.fillMaxWidth().height(125.dp)){if(values.isEmpty())return@Canvas;val path=Path();values.forEachIndexed{idx,v->val x=idx.toFloat()*size.width/kotlin.math.max(1,values.size-1);val y=size.height-v.coerceIn(0f,1f)*size.height;if(idx==0)path.moveTo(x,y)else path.lineTo(x,y)};drawPath(path,Brush.horizontalGradient(listOf(CurioRoseWood,CurioRoseDark)),style=androidx.compose.ui.graphics.drawscope.Stroke(3f,cap=StrokeCap.Round))}}}
 
