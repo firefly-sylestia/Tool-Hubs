@@ -14,6 +14,18 @@ android {
         versionName = "0.1.0"
     }
     buildFeatures { compose = true }
+    signingConfigs {
+        getByName("debug")
+        create("debugRelease") {
+            initWith(getByName("debug"))
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("debugRelease")
+            isMinifyEnabled = false
+        }
+    }
 }
 
 dependencies {
