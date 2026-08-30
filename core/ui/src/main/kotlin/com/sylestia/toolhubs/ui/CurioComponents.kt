@@ -36,7 +36,10 @@ fun CurioIcon(name: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun CurioTopBar(onMenu: () -> Unit, onProfile: () -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), Arrangement.SpaceBetween) {
+    Row(
+        modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
         CurioCircleButton("menu", onMenu)
         CurioCircleButton("person", onProfile)
     }
@@ -44,7 +47,10 @@ fun CurioTopBar(onMenu: () -> Unit, onProfile: () -> Unit, modifier: Modifier = 
 
 @Composable
 fun CurioCircleButton(icon: String, onClick: () -> Unit) {
-    Box(Modifier.size(42.dp).clip(CircleShape).background(CurioRoseWood.copy(.82f)).clickable(onClick = onClick), Alignment.Center) {
+    Box(
+        Modifier.size(42.dp).clip(CircleShape).background(CurioRoseWood.copy(.82f)).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
         CurioIcon(icon)
     }
 }
@@ -64,16 +70,19 @@ fun CurioTornHero(title: String, subtitle: String, modifier: Modifier = Modifier
 
 @Composable
 fun CurioStatsBar(streak: String, saved: String, topics: String) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(.10f)).padding(vertical = 10.dp), Alignment.CenterVertically) {
-        CurioStat("fire", streak, "Streak"); CurioDivider()
-        CurioStat("cabinet", saved, "Cabinet"); CurioDivider()
-        CurioStat("sparkles", topics, "Topics")
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(.10f)).padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        CurioStat("fire", streak, "Streak", Modifier.weight(1f)); CurioDivider()
+        CurioStat("cabinet", saved, "Cabinet", Modifier.weight(1f)); CurioDivider()
+        CurioStat("sparkles", topics, "Topics", Modifier.weight(1f))
     }
 }
 
 @Composable
-private fun CurioStat(icon: String, value: String, label: String) {
-    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+private fun CurioStat(icon: String, value: String, label: String, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         CurioIcon(icon, Modifier.size(20.dp))
         Text(value, color = Color.White, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold)
         Text(label, color = Color.White.copy(.8f), style = MaterialTheme.typography.labelSmall)
@@ -84,21 +93,24 @@ private fun CurioStat(icon: String, value: String, label: String) {
 
 @Composable
 fun CurioQuestRow(title: String = "Shuffle the deck", description: String = "A fresh mix of ideas, picked for you", onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp).clickable(onClick = onClick), Alignment.CenterVertically) {
-        Box(Modifier.size(46.dp).clip(CircleShape).background(CurioRoseWood.copy(.12f)), Alignment.Center) { Text("✦", color = CurioRoseWood) }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp).clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(46.dp).clip(CircleShape).background(CurioRoseWood.copy(.12f)), contentAlignment = Alignment.Center) { Text("✦", color = CurioRoseWood) }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text("TODAY'S QUEST", color = CurioRoseDark, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold)
             Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
             Text(description, color = MaterialTheme.colorScheme.onSurface.copy(.45f), style = MaterialTheme.typography.bodySmall)
         }
-        Box(Modifier.size(54.dp).clip(CircleShape).background(CurioRoseWood), Alignment.Center) { Text("◈", color = Color.White, style = MaterialTheme.typography.titleLarge) }
+        Box(Modifier.size(54.dp).clip(CircleShape).background(CurioRoseWood), contentAlignment = Alignment.Center) { Text("◈", color = Color.White, style = MaterialTheme.typography.titleLarge) }
     }
 }
 
 @Composable
 fun CurioSectionTitle(title: String, action: (() -> Unit)? = null) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         if (action != null) Text("View all  ›", Modifier.clickable(onClick = action), fontWeight = FontWeight.Bold)
     }
@@ -106,8 +118,11 @@ fun CurioSectionTitle(title: String, action: (() -> Unit)? = null) {
 
 @Composable
 fun CurioToolCard(title: String, description: String, icon: String, accent: Color = CurioRoseWood, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp).clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surface).clickable(onClick = onClick).padding(14.dp), Alignment.CenterVertically) {
-        Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(accent.copy(.12f)), Alignment.Center) { Text("✧", color = accent) }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp).clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surface).clickable(onClick = onClick).padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(accent.copy(.12f)), contentAlignment = Alignment.Center) { Text("✧", color = accent) }
         Spacer(Modifier.width(13.dp))
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
@@ -122,7 +137,7 @@ private fun tornPath(width: Float, height: Float): Path {
     val steps = 72
     for (i in steps downTo 0) {
         val x = width * i / steps
-        val wave = kotlin.math.sin(i * .31 + 1.7) * 4.8f + kotlin.math.sin(i * .91 + 2.4) * 2.2f
+        val wave = (kotlin.math.sin(i * .31 + 1.7) * 4.8 + kotlin.math.sin(i * .91 + 2.4) * 2.2).toFloat()
         path.lineTo(x, height + wave)
     }
     path.close(); return path
