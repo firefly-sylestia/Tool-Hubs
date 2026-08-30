@@ -48,6 +48,8 @@ private fun fft(real: DoubleArray, imag: DoubleArray) {
 }
 private fun noteFor(freq:Double):String { if(freq<20) return "—"; val names=arrayOf("C","C♯","D","D♯","E","F","F♯","G","G♯","A","A♯","B"); val midi=(69+12*log2(freq/440.0)).roundToInt(); return "${names[(midi%12+12)%12]}${midi/12-1}" }
 
+@Composable private fun InfoCard(title:String,value:String,modifier:Modifier){Column(modifier.clip(RoundedCornerShape(20.dp)).background(Color.White.copy(.42f)).padding(13.dp)){Text(title,color=CurioRoseDark,fontSize=9.sp,fontWeight=FontWeight.Bold,letterSpacing=1.sp);Spacer(Modifier.height(3.dp));Text(value,color=CurioInk,fontSize=18.sp,fontWeight=FontWeight.ExtraBold,maxLines=1)}}
+
 @Composable private fun MusicAnalyzerScreen() {
     val context=LocalContext.current;val activity=context as MainActivity
     var active by remember { mutableStateOf(false) };var level by remember { mutableStateOf(0f) };var peak by remember { mutableStateOf(0f) };var frequency by remember { mutableStateOf(0.0) };var bars by remember { mutableStateOf(List(32){0f}) }
@@ -60,5 +62,3 @@ private fun noteFor(freq:Double):String { if(freq<20) return "—"; val names=ar
         Spacer(Modifier.height(9.dp));Text("Live spectrum • dominant frequency • musical note",color=CurioRoseDark.copy(.58f),fontSize=11.sp,modifier=Modifier.fillMaxWidth(),textAlign=TextAlign.Center);Spacer(Modifier.height(4.dp))
     }
 }
-
-@Composable private fun InfoCard(title:String,value:String,modifier:Modifier){Column(modifier.clip(RoundedCornerShape(20.dp)).background(Color.White.copy(.42f)).padding(13.dp)){Text(title,color=CurioRoseDark,fontSize=9.sp,fontWeight=FontWeight.Bold,letterSpacing=1.sp);Spacer(Modifier.height(3.dp));Text(value,color=CurioInk,fontSize=18.sp,fontWeight=FontWeight.ExtraBold,maxLines=1)}}
