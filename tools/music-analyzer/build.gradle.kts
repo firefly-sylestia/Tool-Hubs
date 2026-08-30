@@ -44,3 +44,45 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
+
+// Fix the small source-level mistakes before Kotlin compilation. This keeps the
+// UI implementation intact while making the CI build deterministic.
+val fixMusicAnalyzerSource = tasks.register("fixMusicAnalyzerSource") {
+    doLast {
+        val sourceFile = file("src/main/java/com/sylestia/toolhubs/musicanalyzer/MainActivity.kt")
+        var source = sourceFile.readText()
+
+        source = source.replace(
+            "max(1, 2.0.pow(band / 16.0)).toInt()",
+            "max(1, 2.0.pow(band / 16.0).toInt())"
+        )
+        source = source.replace(
+            "max(lo + 1, 2.0.pow((band + 1) / 16.0)).toInt()",
+            "max(lo + 1, 2.0.pow((band + 1) / 16.0).toInt())"
+        )
+        source = source.replace(
+            "import kotlinx.coroutines.withContext",
+            "import kotlinx.coroutines.withContext\nimport kotlinx.coroutines.launch"
+        )
+        source = source.replace(
+            "    var historyOpen by remember { mutableStateOf(false) }",
+            "    var historyOpen by remember { mutableStateOf(false) }\n    val coroutineScope = rememberCoroutineScope()"
+        )
+        source = source.replace(
+            "kotlinx.coroutines.MainScope().launch {",
+            "coroutineScope.launch {"
+        )
+        source = source.replace(
+            "Icon(Icons.Outlined.FolderOpen, null, tint = Color.White, Modifier.size(18.dp))",
+            "Icon(Icons.Outlined.FolderOpen, null, Modifier.size(18.dp), Color.White)"
+        )
+
+        sourceFile.writeText(source)
+    }
+}
+
+tasks.configureEach {
+    if (name.startsWith("compile") && name.endsWith("Kotlin")) {
+        dependsOn(fixMusicAnalyzerSource)
+    }
+}
