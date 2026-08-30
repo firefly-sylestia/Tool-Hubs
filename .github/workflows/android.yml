@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build debug APK
+    name: Build release APKs (debug-signed)
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -35,16 +35,18 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Build debug APK
+      - name: Build release APKs with debug keys
         env:
           GRADLE_OPTS: -Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
-        run: gradle :tools:calculator:assembleDebug --stacktrace --no-parallel --max-workers=2
+        run: gradle :tools:calculator:assembleRelease :tools:music-analyzer:assembleRelease --stacktrace --no-parallel --max-workers=2
 
-      - name: Upload downloadable debug APK
+      - name: Upload downloadable release APKs
         if: success()
         uses: actions/upload-artifact@v6
         with:
-          name: tool-hubs-debug-apk-${{ github.run_number }}
-          path: tools/calculator/build/outputs/apk/debug/*.apk
+          name: tool-hubs-release-apks-${{ github.run_number }}
+          path: |
+            tools/calculator/build/outputs/apk/release/*.apk
+            tools/music-analyzer/build/outputs/apk/release/*.apk
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
