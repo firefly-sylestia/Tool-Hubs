@@ -74,7 +74,6 @@ class MainActivity : ComponentActivity() {
                     }
                     status = result
 
-                    // Prevent a fast LTE <-> 5G loop. The modem gets time to settle.
                     delay(20_000)
                     running = false
                 } else {
@@ -90,11 +89,7 @@ class MainActivity : ComponentActivity() {
                 .navigationBarsPadding()
                 .padding(20.dp)
         ) {
-            Text(
-                "5G RECONNECT",
-                color = CurioRoseDark,
-                fontSize = 11.sp
-            )
+            Text("5G RECONNECT", color = CurioRoseDark, fontSize = 11.sp)
             Spacer(Modifier.height(6.dp))
             Text(
                 "Re-trigger 5G after an LTE fallback.",
@@ -128,16 +123,26 @@ class MainActivity : ComponentActivity() {
                 Column(Modifier.weight(1f)) {
                     Text("Automatic 5G reconnect")
                     Text(
-                        "When 5G falls to LTE, briefly allow LTE only, then restore NR + LTE.",
+                        "LTE fallback → LTE reset → restore NR + LTE.",
                         fontSize = 12.sp,
                         color = CurioInk.copy(alpha = .55f)
                     )
                 }
                 Switch(
                     checked = auto,
-                    onCheckedChange = {
-                        auto = it
-                        status = if (it) "Watching for LTE…" else "Paused"
+                    onCheckedChange = { enabled ->
+                        if (!enabled) {
+                            auto = false
+                            status = "Paused"
+                        } else if (!Shizuku.pingBinder()) {
+                            status = "Start Shizuku first."
+                        } else if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
+                            status = "Requesting Shizuku permission…"
+                            Shizuku.requestPermission(100)
+                        } else {
+                            auto = true
+                            status = "Watching for LTE…"
+                        }
                     }
                 )
             }
@@ -146,11 +151,18 @@ class MainActivity : ComponentActivity() {
 
             Button(
                 onClick = {
-                    status = "Re-triggering 5G…"
-                    Thread {
-                        val result = NetworkSwitcherBridge(context).reconnect5G()
-                        runOnUiThread { status = result }
-                    }.start()
+                    if (!Shizuku.pingBinder()) {
+                        status = "Start Shizuku first."
+                    } else if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
+                        status = "Requesting Shizuku permission…"
+                        Shizuku.requestPermission(100)
+                    } else {
+                        status = "Re-triggering 5G…"
+                        Thread {
+                            val result = NetworkSwitcherBridge(context).reconnect5G()
+                            runOnUiThread { status = result }
+                        }.start()
+                    }
                 },
                 enabled = !running,
                 shape = RoundedCornerShape(18.dp)
