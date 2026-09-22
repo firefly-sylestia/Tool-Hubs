@@ -1,6 +1,6 @@
 package com.sylestia.toolhubs.networkswitcher;
 
 interface INetworkModeService {
-    void destroy();
-    String reconnect5G();
+    void destroy() = 16777114;
+    String reconnect5G() = 1;
 }
