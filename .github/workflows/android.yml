@@ -2,9 +2,9 @@ name: Tool Hubs Android CI
 
 on:
   push:
-    branches: [dev]
+    branches: [main, dev]
   pull_request:
-    branches: [dev]
+    branches: [main, dev]
   workflow_dispatch:
 
 permissions:
@@ -51,7 +51,7 @@ jobs:
       - name: Build release APKs with debug keys
         env:
           GRADLE_OPTS: -Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
-        run: gradle :tools:calculator:assembleRelease :tools:music-analyzer:assembleRelease --stacktrace --no-parallel --max-workers=2
+        run: gradle :tools:calculator:assembleRelease :tools:music-analyzer:assembleRelease :tools:network-switcher:assembleRelease --stacktrace --no-parallel --max-workers=2
 
       - name: Upload downloadable release APKs
         if: success()
@@ -61,5 +61,6 @@ jobs:
           path: |
             tools/calculator/build/outputs/apk/release/*.apk
             tools/music-analyzer/build/outputs/apk/release/*.apk
+            tools/network-switcher/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 7
