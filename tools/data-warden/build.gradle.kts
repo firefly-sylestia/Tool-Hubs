@@ -6,7 +6,7 @@ android {
     namespace = "com.sylestia.toolhubs.datawarden"
     compileSdk = 37
     defaultConfig { applicationId = "com.sylestia.toolhubs.datawarden"; minSdk = 24; targetSdk = 37; versionCode = 1; versionName = "0.1.0" }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; aidl = true }
     signingConfigs {
         getByName("debug")
         create("debugRelease") { storeFile = rootProject.file(".ci/debug.keystore"); storePassword = "android"; keyAlias = "androiddebugkey"; keyPassword = "android" }
