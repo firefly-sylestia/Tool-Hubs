@@ -29,11 +29,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.History
 import androidx.core.content.ContextCompat
 import com.sylestia.toolhubs.designsystem.CurioCream
 import com.sylestia.toolhubs.designsystem.CurioInk
 import com.sylestia.toolhubs.designsystem.CurioRoseDark
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import rikka.shizuku.Shizuku
 
 class MainActivity : ComponentActivity() {
@@ -224,6 +228,10 @@ class MainActivity : ComponentActivity() {
                     Text(status, color = CurioInk.copy(alpha = .62f))
                 }
             }
+
+            Spacer(Modifier.height(18.dp))
+
+            HistoryView(context)
 
             Spacer(Modifier.height(20.dp))
 
@@ -429,3 +437,67 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+@Composable
+private fun HistoryView(context: android.content.Context) {
+    var entries by remember { mutableStateOf(readNetworkHistory(context)) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            entries = readNetworkHistory(context)
+            delay(2_000)
+        }
+    }
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .62f))
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.History, null, tint = CurioRoseDark)
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Network history")
+                    Text("Recent 5G, LTE and reconnect events", fontSize = 11.sp, color = CurioInk.copy(alpha = .55f))
+                }
+                TextButton(onClick = {
+                    context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
+                        .edit().remove(AutoReconnectService.PREF_HISTORY).apply()
+                    entries = emptyList()
+                }) { Text("Clear") }
+            }
+            Spacer(Modifier.height(10.dp))
+            if (entries.isEmpty()) {
+                Text("No network changes recorded yet.", fontSize = 12.sp, color = CurioInk.copy(alpha = .5f))
+            } else {
+                entries.take(12).forEachIndexed { index, entry ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.Top) {
+                        Column(Modifier.weight(1f)) {
+                            Text(entry.network, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = CurioInk)
+                            if (entry.detail.isNotBlank()) Text(entry.detail, fontSize = 10.sp, color = CurioInk.copy(alpha = .52f))
+                        }
+                        Text(entry.time, fontSize = 10.sp, color = CurioRoseDark)
+                    }
+                    if (index < entries.take(12).lastIndex) HorizontalDivider(color = CurioInk.copy(alpha = .08f))
+                }
+            }
+        }
+    }
+}
+
+private data class HistoryEntry(val time: String, val network: String, val detail: String)
+
+private fun readNetworkHistory(context: android.content.Context): List<HistoryEntry> {
+    val values = context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
+        .getStringSet(AutoReconnectService.PREF_HISTORY, emptySet()).orEmpty()
+    val format = SimpleDateFormat("dd MMM · HH:mm:ss", Locale.getDefault())
+    return values.mapNotNull { raw ->
+        runCatching {
+            val json = org.json.JSONObject(raw)
+            HistoryEntry(format.format(Date(json.getLong("time"))), json.optString("network", "Unknown"), json.optString("detail", ""))
+        }.getOrNull()
+    }.sortedByDescending { entry ->
+        runCatching { SimpleDateFormat("dd MMM · HH:mm:ss", Locale.getDefault()).parse(entry.time)?.time ?: 0L }.getOrDefault(0L)
+    }
+}
+
+
