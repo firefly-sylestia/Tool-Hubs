@@ -22,6 +22,11 @@ object ShizukuFirewall {
     fun setPackageNetworking(context: Context, packageName: String, enabled: Boolean): Boolean =
         execute(context) { it.setPackageNetworking(enabled, packageName) }
 
+    fun setPackagesNetworking(context: Context, packageNames: Collection<String>, enabled: Boolean): Boolean {
+        if (packageNames.isEmpty()) return true
+        return execute(context) { it.setPackagesNetworking(enabled, packageNames.toTypedArray()) }
+    }
+
     private fun execute(context: Context, call: (INetworkControlService) -> String): Boolean {
         if (!isReady()) return false
         val latch = CountDownLatch(1)
