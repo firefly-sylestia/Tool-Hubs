@@ -31,5 +31,14 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Continuous monitoring of cellular network state to automatically re-trigger 5G after an LTE fallback, only while explicitly enabled by the user." />
         </service>
+        <service
+            android:name=".NetworkReconnectTileService"
+            android:label="5G Reconnect"
+            android:exported="true"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>
