@@ -149,7 +149,6 @@ class DataWardenService : Service() {
         const val KEY_THRESHOLD_MB = "threshold_mb"
         const val KEY_INCLUDE_SYSTEM = "include_system"
         const val KEY_BACKGROUND = "background_enabled"
-        const val KEY_PROTECTION_ENABLED = "protection_enabled"
         const val KEY_BLOCKED_PACKAGES = "blocked_packages"
         const val KEY_AUTO_BLOCKED_PACKAGES = "auto_blocked_packages"
         const val KEY_BLOCKED_DAY = "blocked_day"
