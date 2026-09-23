@@ -35,6 +35,8 @@ class AutoReconnectService : Service() {
         const val PREF_INTERVAL_MS = "trigger_interval_ms"
         const val PREF_MAX_ATTEMPTS = "max_attempts_per_minute"
         const val PREF_AUTO_ENABLED = "auto_reconnect_enabled"
+        const val PREF_HISTORY = "network_history"
+        const val MAX_HISTORY = 200
         const val DEFAULT_INTERVAL_MS = 30_000L
         const val MIN_INTERVAL_MS = 30_000L
         const val MAX_INTERVAL_MS = 600_000L
@@ -56,6 +58,7 @@ class AutoReconnectService : Service() {
     private var maxAttempts = DEFAULT_MAX_ATTEMPTS
     private var nextAttemptAt = 0L
     private var lastLimiterNotificationAt = 0L
+    private var lastObservedNetwork: String? = null
 
     private val phoneStateListener = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         object : PhoneStateListener() {
@@ -161,9 +164,38 @@ class AutoReconnectService : Service() {
         return currentDataType() == TelephonyManager.NETWORK_TYPE_LTE && !isActually5G()
     }
 
+    private fun recordHistory(network: String, detail: String = "") {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val entry = org.json.JSONObject().apply {
+            put("time", System.currentTimeMillis())
+            put("network", network)
+            put("detail", detail)
+        }.toString()
+        val history = prefs.getStringSet(PREF_HISTORY, emptySet()).orEmpty().toMutableSet()
+        // Set is only used as compact persistence; the timestamp makes every entry unique.
+        history.add(entry)
+        while (history.size > MAX_HISTORY) history.remove(history.minByOrNull { runCatching { org.json.JSONObject(it).optLong("time") }.getOrDefault(Long.MAX_VALUE) } ?: break)
+        prefs.edit().putStringSet(PREF_HISTORY, history).apply()
+    }
+
+    private fun observeNetwork() {
+        val current = when {
+            isActually5G() -> "5G"
+            currentDataType() == TelephonyManager.NETWORK_TYPE_LTE -> "4G / LTE"
+            currentDataType() == TelephonyManager.NETWORK_TYPE_HSPAP || currentDataType() == TelephonyManager.NETWORK_TYPE_HSPA || currentDataType() == TelephonyManager.NETWORK_TYPE_HSDPA || currentDataType() == TelephonyManager.NETWORK_TYPE_HSUPA || currentDataType() == TelephonyManager.NETWORK_TYPE_UMTS -> "3G"
+            currentDataType() == TelephonyManager.NETWORK_TYPE_EDGE || currentDataType() == TelephonyManager.NETWORK_TYPE_GPRS -> "2G"
+            else -> "Unknown"
+        }
+        if (current != lastObservedNetwork) {
+            if (lastObservedNetwork != null) recordHistory(current, "Network changed from $lastObservedNetwork")
+            lastObservedNetwork = current
+        }
+    }
+
     private fun startWatcher() {
         scope.launch {
             while (isActive) {
+                observeNetwork()
                 if (!paused && !operationRunning && isLteFallback() &&
                     System.currentTimeMillis() >= nextAttemptAt
                 ) {
@@ -191,6 +223,7 @@ class AutoReconnectService : Service() {
 
         operationRunning = true
         attemptTimes.addLast(now)
+        recordHistory("4G / LTE", "Automatic 5G reconnect attempt started")
         val attempt = attemptTimes.size
         updateNotification("Trying 5G · attempt " + attempt + "/" + maxAttempts)
 
@@ -198,9 +231,11 @@ class AutoReconnectService : Service() {
         val switchedTo5G = waitFor5G(12_000L)
 
         if (switchedTo5G) {
+            recordHistory("5G", "Automatic reconnect confirmed")
             nextAttemptAt = 0L
             updateNotification("5G switch confirmed · attempt " + attempt + "/" + maxAttempts)
         } else {
+            recordHistory("4G / LTE", "Reconnect attempt failed")
             nextAttemptAt = System.currentTimeMillis() + triggerIntervalMs
             val detail = if (result.startsWith("5G re-selection triggered")) {
                 "5G not detected after trigger"
