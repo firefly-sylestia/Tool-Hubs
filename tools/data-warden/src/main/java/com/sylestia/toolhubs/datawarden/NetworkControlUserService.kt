@@ -22,5 +22,19 @@ class NetworkControlUserService : INetworkControlService.Stub() {
         return run(arrayOf("cmd", "connectivity", "set-package-networking-enabled", enabled.toString(), safe))
     }
 
+    override fun setPackagesNetworking(enabled: Boolean, packageNames: Array<out String>): String {
+        var failures = 0
+        packageNames.forEach { packageName ->
+            val safe = packageName.replace(Regex("[^A-Za-z0-9._-]"), "")
+            if (safe != packageName || safe.isBlank()) {
+                failures++
+            } else {
+                val result = run(arrayOf("cmd", "connectivity", "set-package-networking-enabled", enabled.toString(), safe))
+                if (!result.startsWith("exit=0")) failures++
+            }
+        }
+        return if (failures == 0) "exit=0" else "exit=1\nfailed=$failures"
+    }
+
     override fun destroy() { exitProcess(0) }
 }
