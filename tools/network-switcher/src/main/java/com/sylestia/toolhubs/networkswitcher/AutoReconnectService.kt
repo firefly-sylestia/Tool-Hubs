@@ -177,18 +177,6 @@ class AutoReconnectService : Service() {
         )
     }
 
-    private fun notify(title: String, text: String) {
-        getSystemService(NotificationManager::class.java).notify(
-            title.hashCode() + System.currentTimeMillis().toInt(),
-            NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_menu_upload)
-                .setContentTitle(title)
-                .setContentText(text)
-                .setAutoCancel(true)
-                .build()
-        )
-    }
-
     override fun onDestroy() {
         isRunning = false
         scope.cancel()
