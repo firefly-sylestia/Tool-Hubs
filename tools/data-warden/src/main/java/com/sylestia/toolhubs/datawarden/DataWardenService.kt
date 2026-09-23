@@ -52,6 +52,11 @@ class DataWardenService : VpnService() {
     }
 
     private fun enforceThreshold() {
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        if (prefs.getString(KEY_BLOCKED_DAY, "") != today()) {
+            prefs.edit().putStringSet(KEY_BLOCKED_PACKAGES, emptySet()).putString(KEY_BLOCKED_DAY, today()).apply()
+            rebuildFirewall()
+        }
         if (!usageAccessGranted()) return
         val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
         val threshold = prefs.getFloat(KEY_THRESHOLD_MB, 500f)
