@@ -74,7 +74,7 @@ class AutoReconnectService : Service() {
             display5G = info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA ||
                 info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE
         }
-    }
+    } }
 
     private fun reloadSettings() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
