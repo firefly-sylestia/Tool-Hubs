@@ -150,7 +150,7 @@ class AutoReconnectService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_data_connected)
+            .setSmallIcon(android.R.drawable.ic_menu_upload)
             .setContentTitle("5G Reconnect")
             .setContentText(text)
             .setOngoing(true)
@@ -175,7 +175,7 @@ class AutoReconnectService : Service() {
         getSystemService(NotificationManager::class.java).notify(
             title.hashCode() + System.currentTimeMillis().toInt(),
             NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_sys_data_connected)
+                .setSmallIcon(android.R.drawable.ic_menu_upload)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setAutoCancel(true)
