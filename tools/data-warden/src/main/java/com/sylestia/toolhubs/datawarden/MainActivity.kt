@@ -73,7 +73,7 @@ class MainActivity:ComponentActivity(){
   when(tab){
    0->Overview(apps,threshold,p,{refresh()})
    1->Apps(context,apps,p,{refresh()})
-   else->Settings(context,threshold,{v->threshold=v;context.getSharedPreferences("data_warden",0).edit().putFloat(DataWardenService.KEY_THRESHOLD_MB,v).apply()},includeSystem,{v->includeSystem=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_INCLUDE_SYSTEM,v).apply()},protection,{v->protection=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_PROTECTION_ENABLED,v).apply();if(v){if(!usageAccessGranted(context)){protection=false;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_PROTECTION_ENABLED,false).apply()}else startProtection(context)}else stopProtection(context)},background,{v->background=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_BACKGROUND,v).apply();if(v&&protection)startProtection(context) else if(!v)stopProtection(context)},shizuku,p)
+   else->Settings(context,threshold,{v->threshold=v;context.getSharedPreferences("data_warden",0).edit().putFloat(DataWardenService.KEY_THRESHOLD_MB,v).apply()},includeSystem,{v->includeSystem=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_INCLUDE_SYSTEM,v).apply()},protection,{v->protection=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_PROTECTION_ENABLED,v).apply();if(v){if(!usageAccessGranted(context)){protection=false;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_PROTECTION_ENABLED,false).apply()}else if(background) startProtection(context)}else {clearAutomaticBlocks(context);stopProtection(context)}},background,{v->background=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_BACKGROUND,v).apply();if(v&&protection)startProtection(context) else if(!v)stopProtection(context)},shizuku,p)
   }
  }
 }
@@ -161,6 +161,19 @@ private fun toggleBlock(c:Context,a:AppUsage){
   ShizukuFirewall.setFirewallEnabled(c,true)
   ShizukuFirewall.setPackageNetworking(c,a.packageName,!block)
  }
+}
+
+private fun clearAutomaticBlocks(c:Context){
+ val prefs=c.getSharedPreferences(PREFS,0)
+ val auto=prefs.getStringSet(DataWardenService.KEY_AUTO_BLOCKED_PACKAGES,emptySet()).orEmpty().toSet()
+ if(auto.isEmpty()) return
+ Thread {
+  if(ShizukuFirewall.isReady()) auto.forEach{ShizukuFirewall.setPackageNetworking(c,it,true)}
+  val blocked=prefs.getStringSet(DataWardenService.KEY_BLOCKED_PACKAGES,emptySet()).orEmpty().toMutableSet()
+  blocked.removeAll(auto)
+  prefs.edit().putStringSet(DataWardenService.KEY_BLOCKED_PACKAGES,blocked)
+   .putStringSet(DataWardenService.KEY_AUTO_BLOCKED_PACKAGES,emptySet()).apply()
+ }.start()
 }
 private fun safeShizukuBinder():Boolean=runCatching{Shizuku.pingBinder()&&!Shizuku.isPreV11()}.getOrDefault(false)
 private fun safeShizukuStatus():Boolean=runCatching{safeShizukuBinder()&&Shizuku.checkSelfPermission()==PackageManager.PERMISSION_GRANTED&&Build.VERSION.SDK_INT>=Build.VERSION_CODES.S}.getOrDefault(false)
