@@ -34,6 +34,12 @@ import kotlinx.coroutines.delay
 import rikka.shizuku.Shizuku
 
 class MainActivity : ComponentActivity() {
+    private val shizukuPermissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
+        if (requestCode == 100 && grantResult == PackageManager.PERMISSION_GRANTED) {
+            runOnUiThread { shizukuGranted = true }
+        }
+    }
+    private var shizukuGranted by mutableStateOf(false)
     private val telephony by lazy { getSystemService(TelephonyManager::class.java) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,9 +52,16 @@ class MainActivity : ComponentActivity() {
         ) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 43)
         }
+        shizukuGranted = Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+        Shizuku.addRequestPermissionResultListener(shizukuPermissionListener)
         setContent {
             com.sylestia.toolhubs.designsystem.ToolHubsTheme { NetworkScreen() }
         }
+    }
+
+    override fun onDestroy() {
+        Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener)
+        super.onDestroy()
     }
 
     private fun currentNetwork(): String = when (telephony.dataNetworkType) {
@@ -144,7 +157,7 @@ class MainActivity : ComponentActivity() {
                             status = "Background watcher stopped."
                         } else if (!Shizuku.pingBinder()) {
                             status = "Start Shizuku first."
-                        } else if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
+                        } else if (!shizukuGranted) {
                             status = "Requesting Shizuku permission…"
                             Shizuku.requestPermission(100)
                         } else {
@@ -219,7 +232,7 @@ class MainActivity : ComponentActivity() {
                     if (!Shizuku.pingBinder()) {
                         status = "Start Shizuku first."
                         pressed = false
-                    } else if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
+                    } else if (!shizukuGranted) {
                         status = "Requesting Shizuku permission…"
                         Shizuku.requestPermission(100)
                         pressed = false
