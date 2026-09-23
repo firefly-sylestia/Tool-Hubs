@@ -132,6 +132,7 @@ class DataWardenService : VpnService() {
                 .setSession("Data Warden")
                 .setMtu(1500)
                 .addAddress("10.88.0.1", 32)
+                .addAddress("fd00:88:88::1", 128)
                 .addRoute("0.0.0.0", 0)
 
             if (android.os.Build.VERSION.SDK_INT >= 21) {
