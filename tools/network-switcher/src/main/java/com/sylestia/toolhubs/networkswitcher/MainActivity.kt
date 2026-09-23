@@ -15,6 +15,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -208,8 +210,12 @@ class MainActivity : ComponentActivity() {
         }
 
         Column(
-            Modifier.fillMaxSize().background(CurioCream).statusBarsPadding()
-                .navigationBarsPadding().padding(20.dp)
+            Modifier.fillMaxSize()
+                .background(CurioCream)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp)
         ) {
             Text("5G RECONNECT", color = CurioRoseDark, fontSize = 11.sp)
             Spacer(Modifier.height(6.dp))
@@ -411,7 +417,10 @@ class MainActivity : ComponentActivity() {
                     }
                 },
                 enabled = !running,
-                modifier = Modifier.fillMaxWidth().scale(buttonScale),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 58.dp)
+                    .scale(buttonScale),
                 colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
                 shape = RoundedCornerShape(18.dp),
                 contentPadding = PaddingValues(vertical = 17.dp)
