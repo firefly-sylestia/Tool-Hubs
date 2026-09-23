@@ -9,6 +9,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.os.Bundle
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -36,6 +37,7 @@ import com.sylestia.toolhubs.designsystem.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import rikka.shizuku.Shizuku
 import java.text.DecimalFormat
 
 private data class AppUsage(val label:String,val packageName:String,val uid:Int,val bytes:Long,val system:Boolean,val blocked:Boolean)
@@ -50,8 +52,10 @@ class MainActivity:ComponentActivity(){
  var tab by rememberSaveable{mutableIntStateOf(0)}
  var apps by remember{mutableStateOf(emptyList<AppUsage>())}
  var threshold by rememberSaveable{mutableFloatStateOf(500f)}
- var includeSystem by rememberSaveable{mutableStateOf(true)}
+ var includeSystem by rememberSaveable{mutableStateOf(context.getSharedPreferences("data_warden",0).getBoolean(DataWardenService.KEY_INCLUDE_SYSTEM,true))}
+ var background by rememberSaveable{mutableStateOf(context.getSharedPreferences("data_warden",0).getBoolean("background_enabled",false))}
  var loading by remember{mutableStateOf(false)}
+ LaunchedEffect(Unit){threshold=context.getSharedPreferences("data_warden",0).getFloat(DataWardenService.KEY_THRESHOLD_MB,500f)}
  val scope=rememberCoroutineScope()
  fun refresh(){loading=true;scope.launch{val loaded=withContext(Dispatchers.IO){loadUsage(context,includeSystem)};withContext(Dispatchers.IO){enforceThreshold(context,loaded,threshold)};apps=withContext(Dispatchers.IO){loadUsage(context,includeSystem)};loading=false}}
  LaunchedEffect(includeSystem,threshold){refresh()}
@@ -64,7 +68,7 @@ class MainActivity:ComponentActivity(){
   when(tab){
    0->Overview(apps,threshold,p,refresh)
    1->Apps(context,apps,p,refresh)
-   else->Settings(context,threshold,{threshold=it},includeSystem,{includeSystem=it},p)
+   else->Settings(context,threshold,{v->threshold=v;context.getSharedPreferences("data_warden",0).edit().putFloat(DataWardenService.KEY_THRESHOLD_MB,v).apply()},includeSystem,{v->includeSystem=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_INCLUDE_SYSTEM,v).apply()},background,{v->background=v;context.getSharedPreferences("data_warden",0).edit().putBoolean("background_enabled",v).apply();if(v)startProtection(context) else stopProtection(context)},p)
   }
  }
 }
@@ -108,14 +112,15 @@ class MainActivity:ComponentActivity(){
  }
 }
 
-@Composable private fun Settings(context:Context,threshold:Float,onThreshold:(Float)->Unit,includeSystem:Boolean,onSystem:(Boolean)->Unit,p:PaddingValues){
+@Composable private fun Settings(context:Context,threshold:Float,onThreshold:(Float)->Unit,includeSystem:Boolean,onSystem:(Boolean)->Unit,background:Boolean,onBackground:(Boolean)->Unit,p:PaddingValues){
  val usage=remember{usageAccessGranted(context)};val shizuku=remember{shizukuReady()}
  LazyColumn(Modifier.fillMaxSize().padding(p),contentPadding=PaddingValues(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
   item{Header("CONTROL ROOM","Rules & permissions")}
   item{Setting("Usage access","Required to inspect other apps.",{Button(onClick={context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))}){Text(if(usage)"Granted" else "Grant access")}})}
   item{Setting("Daily threshold","Crossing this amount marks an app for blocking.",{Text(formatMb(threshold)+" MB per day",fontWeight=FontWeight.ExtraBold,color=CurioInk);Slider(threshold,{onThreshold(it)},50f..5000f,49)})}
   item{Setting("System apps","Keep Android and preinstalled services visible.",{Switch(includeSystem,onSystem)})}
-  item{Setting("Block engine","Shizuku is used for per-UID network policy.",{Text(if(shizuku)"Shizuku connected" else "Shizuku not connected",fontWeight=FontWeight.Bold,color=CurioRoseDark)})}
+  item{Setting("Background protection","Keep Data Warden watching while the app is closed. Requires Usage Access and Shizuku for automatic blocking.",{Row(verticalAlignment=Alignment.CenterVertically){Text(if(background)"Active" else "Off",modifier=Modifier.weight(1f),color=CurioInk,fontWeight=FontWeight.Bold);Switch(background,onBackground)}})}
+  item{Setting("Block engine","Shizuku is used only when Data Warden needs to enforce a per-app limit.",{Column{Text(if(shizuku)"Shizuku connected" else "Shizuku not connected",fontWeight=FontWeight.Bold,color=CurioRoseDark);if(!shizuku){Spacer(Modifier.height(8.dp));Button(onClick={Shizuku.requestPermission(100)}){Text("Grant Shizuku permission")}}}})}
   item{Text("Important: Android's public netpolicy blacklist restricts background data on metered networks. It is not a universal all-network kill switch. The UI deliberately reports this limitation.",color=CurioRoseDark,fontSize=11.sp)}
  }
 }
@@ -148,3 +153,6 @@ private fun formatBytes(b:Long):String{if(b<1024)return b.toString()+" B";var v=
 private fun formatMb(m:Float)=if(m>=1024)DecimalFormat("0.##").format(m/1024f)+" GB" else DecimalFormat("0").format(m)
 
 private fun enforceThreshold(c:Context,apps:List<AppUsage>,threshold:Float){if(!shizukuReady())return;val limit=(threshold*1024f*1024f).toLong();apps.filter{it.bytes>=limit&&!it.blocked}.forEach{toggleBlock(c,it)}}
+
+private fun startProtection(c:Context){if(Build.VERSION.SDK_INT>=26)androidx.core.content.ContextCompat.startForegroundService(c,Intent(c,DataWardenService::class.java))else c.startService(Intent(c,DataWardenService::class.java))}
+private fun stopProtection(c:Context){c.stopService(Intent(c,DataWardenService::class.java).apply{action=DataWardenService.ACTION_STOP})}
