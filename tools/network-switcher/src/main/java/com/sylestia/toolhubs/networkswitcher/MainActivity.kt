@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.rounded.Settings
 import androidx.core.content.ContextCompat
 import com.sylestia.toolhubs.designsystem.CurioCream
 import com.sylestia.toolhubs.designsystem.CurioInk
@@ -75,6 +76,12 @@ class MainActivity : ComponentActivity() {
         })
     }
 
+    private fun formatInterval(seconds: Int): String = when {
+        seconds < 60 -> "${seconds}s"
+        seconds % 60 == 0 && seconds < 3600 -> "${seconds / 60} min"
+        else -> "${seconds / 60}m ${seconds % 60}s"
+    }
+
     @Composable
     private fun NetworkScreen() {
         val context = this
@@ -83,6 +90,10 @@ class MainActivity : ComponentActivity() {
         var status by remember { mutableStateOf("Ready") }
         var running by remember { mutableStateOf(false) }
         var pressed by remember { mutableStateOf(false) }
+        var intervalSeconds by rememberSaveable {
+            mutableIntStateOf((getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE)
+                .getLong(AutoReconnectService.PREF_INTERVAL_MS, AutoReconnectService.DEFAULT_INTERVAL_MS) / 1000L).toInt())
+        }
 
         LaunchedEffect(Unit) {
             while (true) {
@@ -145,6 +156,51 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
+            Spacer(Modifier.height(18.dp))
+
+            Card(
+                Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .62f))
+            ) {
+                Column(Modifier.padding(18.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Settings, null, tint = CurioRoseDark)
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text("Reconnect interval")
+                            Text(
+                                "Wait this long before another automatic trigger.",
+                                fontSize = 11.sp,
+                                color = CurioInk.copy(alpha = .55f)
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            formatInterval(intervalSeconds),
+                            color = CurioRoseDark,
+                            fontSize = 13.sp
+                        )
+                    }
+                    Slider(
+                        value = intervalSeconds.toFloat(),
+                        onValueChange = { intervalSeconds = it.toInt() },
+                        onValueChangeFinished = {
+                            getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE)
+                                .edit()
+                                .putLong(AutoReconnectService.PREF_INTERVAL_MS, intervalSeconds * 1000L)
+                                .apply()
+                        },
+                        valueRange = 30f..600f,
+                        steps = 18
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("30 sec", fontSize = 10.sp, color = CurioInk.copy(alpha = .45f))
+                        Text("10 min", fontSize = 10.sp, color = CurioInk.copy(alpha = .45f))
+                    }
+                }
+            }
+
             Spacer(Modifier.height(20.dp))
 
             val buttonScale by animateFloatAsState(
@@ -200,7 +256,7 @@ class MainActivity : ComponentActivity() {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Automatic mode pauses after 2 attempts within 60 seconds, then resumes as the window expires.",
+                "Automatic mode allows at most 2 triggers in any rolling 60-second window. The interval above controls the normal wait between triggers.",
                 fontSize = 11.sp,
                 color = CurioInk.copy(alpha = .45f)
             )
