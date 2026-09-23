@@ -53,7 +53,7 @@ class DataWardenService : Service() {
         val limit = (threshold * 1024f * 1024f).toLong()
         val over = apps.count { it.bytes >= limit }
         apps.filter { it.bytes >= limit && !blockedUids().contains(it.uid) }.forEach { block(it.uid) }
-        updateNotification("Watching " + over + " app" + if (over == 1) "" else "s" + " over limit")
+        updateNotification("Watching " + over + " app" + (if (over == 1) "" else "s") + " over limit")
     }
 
     private data class Usage(val uid: Int, val bytes: Long)
