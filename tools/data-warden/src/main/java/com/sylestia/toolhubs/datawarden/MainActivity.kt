@@ -63,7 +63,7 @@ class MainActivity:ComponentActivity(){
  LaunchedEffect(Unit){threshold=context.getSharedPreferences("data_warden",0).getFloat(DataWardenService.KEY_THRESHOLD_MB,500f)}
  val scope=rememberCoroutineScope()
  fun refresh(){loading=true;scope.launch{apps=withContext(Dispatchers.IO){loadUsage(context,includeSystem)};loading=false}}
- LaunchedEffect(includeSystem,threshold){refresh()}
+ LaunchedEffect(includeSystem){refresh()}
  Scaffold(containerColor=CurioCream,bottomBar={
   NavigationBar(containerColor=CurioCream){
    val nav=listOf(Triple(Icons.Outlined.DataUsage,"Overview",0),Triple(Icons.Outlined.Apps,"Apps",1),Triple(Icons.Outlined.Settings,"Settings",2))
@@ -160,26 +160,33 @@ private fun blockedPackages(c:Context):Set<String>{
  return p.getStringSet(DataWardenService.KEY_BLOCKED_PACKAGES,emptySet()).orEmpty()
 }
 private fun toggleBlock(c:Context,a:AppUsage){
+ val prefs=c.getSharedPreferences(PREFS,0)
  val set=blockedPackages(c).toMutableSet()
  val block=!a.blocked
  if(block)set.add(a.packageName)else set.remove(a.packageName)
- c.getSharedPreferences(PREFS,0).edit().putStringSet(DataWardenService.KEY_BLOCKED_PACKAGES,set).putString(DataWardenService.KEY_BLOCKED_DAY,today()).apply()
- if(ShizukuFirewall.isReady()){
-  ShizukuFirewall.setFirewallEnabled(c,true)
-  ShizukuFirewall.setPackageNetworking(c,a.packageName,!block)
- }
+ prefs.edit().putStringSet(DataWardenService.KEY_BLOCKED_PACKAGES,set).putString(DataWardenService.KEY_BLOCKED_DAY,today()).apply()
+ Thread {
+  if(ShizukuFirewall.isReady()){
+   val changed=ShizukuFirewall.setPackageNetworking(c,a.packageName,!block)
+   if(changed) ShizukuFirewall.setFirewallEnabled(c,set.isNotEmpty())
+  }
+ }.start()
 }
 
 private fun clearAutomaticBlocks(c:Context){
  val prefs=c.getSharedPreferences(PREFS,0)
  val auto=prefs.getStringSet(DataWardenService.KEY_AUTO_BLOCKED_PACKAGES,emptySet()).orEmpty().toSet()
- if(auto.isEmpty()) return
+ val blocked=prefs.getStringSet(DataWardenService.KEY_BLOCKED_PACKAGES,emptySet()).orEmpty().toMutableSet()
+ if(auto.isEmpty()){
+  Thread { if(ShizukuFirewall.isReady()) ShizukuFirewall.setFirewallEnabled(c,blocked.isNotEmpty()) }.start()
+  return
+ }
  Thread {
-  if(ShizukuFirewall.isReady()) auto.forEach{ShizukuFirewall.setPackageNetworking(c,it,true)}
-  val blocked=prefs.getStringSet(DataWardenService.KEY_BLOCKED_PACKAGES,emptySet()).orEmpty().toMutableSet()
+  if(ShizukuFirewall.isReady()) ShizukuFirewall.setPackagesNetworking(c,auto,true)
   blocked.removeAll(auto)
   prefs.edit().putStringSet(DataWardenService.KEY_BLOCKED_PACKAGES,blocked)
    .putStringSet(DataWardenService.KEY_AUTO_BLOCKED_PACKAGES,emptySet()).apply()
+  if(ShizukuFirewall.isReady()) ShizukuFirewall.setFirewallEnabled(c,blocked.isNotEmpty())
  }.start()
 }
 private fun safeShizukuBinder():Boolean=runCatching{Shizuku.pingBinder()&&!Shizuku.isPreV11()}.getOrDefault(false)
