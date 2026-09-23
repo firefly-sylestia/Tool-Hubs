@@ -145,16 +145,22 @@ class AutoReconnectService : Service() {
         }
     }
 
-    private fun isActually5G(): Boolean {
-        val dataType = runCatching { telephony.dataNetworkType }
+    private fun currentDataType(): Int =
+        runCatching { telephony.dataNetworkType }
             .getOrDefault(TelephonyManager.NETWORK_TYPE_UNKNOWN)
-        return dataType == TelephonyManager.NETWORK_TYPE_NR || display5G
+
+    private fun isActually5G(): Boolean {
+        return currentDataType() == TelephonyManager.NETWORK_TYPE_NR || display5G
+    }
+
+    private fun isLteFallback(): Boolean {
+        return currentDataType() == TelephonyManager.NETWORK_TYPE_LTE && !isActually5G()
     }
 
     private fun startWatcher() {
         scope.launch {
             while (isActive) {
-                if (!paused && !operationRunning && !isActually5G() &&
+                if (!paused && !operationRunning && isLteFallback() &&
                     System.currentTimeMillis() >= nextAttemptAt
                 ) {
                     attemptReconnect()
