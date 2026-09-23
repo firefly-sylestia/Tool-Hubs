@@ -55,13 +55,14 @@ class MainActivity:ComponentActivity(){
  var apps by remember{mutableStateOf(emptyList<AppUsage>())}
  var threshold by rememberSaveable{mutableFloatStateOf(500f)}
  var includeSystem by rememberSaveable{mutableStateOf(context.getSharedPreferences("data_warden",0).getBoolean(DataWardenService.KEY_INCLUDE_SYSTEM,true))}
- var background by rememberSaveable{mutableStateOf(context.getSharedPreferences("data_warden",0).getBoolean("background_enabled",false))}
+ var background by rememberSaveable{mutableStateOf(context.getSharedPreferences("data_warden",0).getBoolean(DataWardenService.KEY_BACKGROUND,false))}
+ var protection by rememberSaveable{mutableStateOf(context.getSharedPreferences("data_warden",0).getBoolean(DataWardenService.KEY_PROTECTION_ENABLED,false))}
  var shizuku by remember{mutableStateOf(safeShizukuStatus())}
  DisposableEffect(Unit){val received=Shizuku.OnBinderReceivedListener{shizuku=safeShizukuStatus()};val dead=Shizuku.OnBinderDeadListener{shizuku=false};val permission=Shizuku.OnRequestPermissionResultListener{_,result->shizuku=result==PackageManager.PERMISSION_GRANTED};Shizuku.addBinderReceivedListenerSticky(received);Shizuku.addBinderDeadListener(dead);Shizuku.addRequestPermissionResultListener(permission);onDispose{Shizuku.removeBinderReceivedListener(received);Shizuku.removeBinderDeadListener(dead);Shizuku.removeRequestPermissionResultListener(permission)}}
  var loading by remember{mutableStateOf(false)}
  LaunchedEffect(Unit){threshold=context.getSharedPreferences("data_warden",0).getFloat(DataWardenService.KEY_THRESHOLD_MB,500f)}
  val scope=rememberCoroutineScope()
- fun refresh(){loading=true;scope.launch{val loaded=withContext(Dispatchers.IO){loadUsage(context,includeSystem)};withContext(Dispatchers.IO){enforceThreshold(context,loaded,threshold)};apps=withContext(Dispatchers.IO){loadUsage(context,includeSystem)};loading=false}}
+ fun refresh(){loading=true;scope.launch{apps=withContext(Dispatchers.IO){loadUsage(context,includeSystem)};loading=false}}
  LaunchedEffect(includeSystem,threshold){refresh()}
  Scaffold(containerColor=CurioCream,bottomBar={
   NavigationBar(containerColor=CurioCream){
@@ -72,7 +73,7 @@ class MainActivity:ComponentActivity(){
   when(tab){
    0->Overview(apps,threshold,p,{refresh()})
    1->Apps(context,apps,p,{refresh()})
-   else->Settings(context,threshold,{v->threshold=v;context.getSharedPreferences("data_warden",0).edit().putFloat(DataWardenService.KEY_THRESHOLD_MB,v).apply()},includeSystem,{v->includeSystem=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_INCLUDE_SYSTEM,v).apply()},background,{v->background=v;context.getSharedPreferences("data_warden",0).edit().putBoolean("background_enabled",v).apply();if(v)startProtection(context) else stopProtection(context)},shizuku,p)
+   else->Settings(context,threshold,{v->threshold=v;context.getSharedPreferences("data_warden",0).edit().putFloat(DataWardenService.KEY_THRESHOLD_MB,v).apply()},includeSystem,{v->includeSystem=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_INCLUDE_SYSTEM,v).apply()},protection,{v->protection=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_PROTECTION_ENABLED,v).apply();if(v){if(!usageAccessGranted(context)){protection=false;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_PROTECTION_ENABLED,false).apply()}else startProtection(context)}else stopProtection(context)},background,{v->background=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_BACKGROUND,v).apply();if(v&&protection)startProtection(context) else if(!v)stopProtection(context)},shizuku,p)
   }
  }
 }
@@ -116,14 +117,15 @@ class MainActivity:ComponentActivity(){
  }
 }
 
-@Composable private fun Settings(context:Context,threshold:Float,onThreshold:(Float)->Unit,includeSystem:Boolean,onSystem:(Boolean)->Unit,background:Boolean,onBackground:(Boolean)->Unit,shizuku:Boolean,p:PaddingValues){
+@Composable private fun Settings(context:Context,threshold:Float,onThreshold:(Float)->Unit,includeSystem:Boolean,onSystem:(Boolean)->Unit,protection:Boolean,onProtection:(Boolean)->Unit,background:Boolean,onBackground:(Boolean)->Unit,shizuku:Boolean,p:PaddingValues){
  val usage=remember{usageAccessGranted(context)}
  LazyColumn(Modifier.fillMaxSize().padding(p),contentPadding=PaddingValues(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
   item{Header("CONTROL ROOM","Rules & permissions")}
   item{Setting("Usage access","Required to inspect other apps.",{Button(onClick={context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))}){Text(if(usage)"Granted" else "Grant access")}})}
-  item{Setting("Daily threshold","Crossing this amount marks an app for blocking.",{Text(formatMb(threshold)+" MB per day",fontWeight=FontWeight.ExtraBold,color=CurioInk);Slider(value=threshold,onValueChange=onThreshold,valueRange=50f..5000f,steps=49)})}
+  item{Setting("Daily threshold","Choose the amount an app may use before Data Warden blocks it.",{Column{Text(formatMb(threshold)+" per day",fontWeight=FontWeight.ExtraBold,color=CurioInk);Slider(value=threshold,onValueChange=onThreshold,valueRange=50f..5000f,steps=49);Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){listOf(100f,250f,500f,1024f,2048f,5120f).forEach{v->FilterChip(selected=threshold==v,onClick={onThreshold(v)},label={Text(formatMb(v),fontSize=10.sp)},modifier=Modifier.weight(1f))}}}})}
   item{Setting("System apps","Keep Android and preinstalled services visible.",{Switch(includeSystem,onSystem)})}
-  item{Setting("Background protection","Keep Data Warden watching while the app is closed. Requires Usage Access and Shizuku for automatic blocking.",{Row(verticalAlignment=Alignment.CenterVertically){Text(if(background)"Active" else "Off",modifier=Modifier.weight(1f),color=CurioInk,fontWeight=FontWeight.Bold);Switch(background,onBackground)}})}
+  item{Setting("Protection","Actually enforce the daily threshold. Nothing is automatically blocked while this is off.",{Row(verticalAlignment=Alignment.CenterVertically){Text(if(protection)"Protection active" else "Protection off",modifier=Modifier.weight(1f),color=if(protection)CurioRoseDark else CurioInk,fontWeight=FontWeight.Bold);Switch(protection,onProtection)}})}
+  item{Setting("Background protection","Keep Data Warden watching while the app is closed. Requires Protection to be enabled.",{Row(verticalAlignment=Alignment.CenterVertically){Text(if(background)"Background active" else "Background off",modifier=Modifier.weight(1f),color=CurioInk,fontWeight=FontWeight.Bold);Switch(background,onBackground)}})}
   item{Setting("Block engine","Shizuku is used only when Data Warden needs to enforce a per-app limit.",{Column{Text(if(shizuku)"Shizuku connected" else "Shizuku not connected",fontWeight=FontWeight.Bold,color=CurioRoseDark);if(!shizuku){Spacer(Modifier.height(8.dp));Button(onClick={requestShizukuPermission()}){Text(if(safeShizukuBinder())"Grant Shizuku permission" else "Start Shizuku first")}}}})}
   item{Text("Important: Android's public netpolicy blacklist restricts background data on metered networks. It is not a universal all-network kill switch. The UI deliberately reports this limitation.",color=CurioRoseDark,fontSize=11.sp)}
  }
@@ -159,12 +161,6 @@ private fun toggleBlock(c:Context,a:AppUsage){
   ShizukuFirewall.setFirewallEnabled(c,true)
   ShizukuFirewall.setPackageNetworking(c,a.packageName,!block)
  }
-}
-private fun enforceThreshold(c:Context,apps:List<AppUsage>,threshold:Float){
- if(!ShizukuFirewall.isReady())return
- ShizukuFirewall.setFirewallEnabled(c,true)
- val limit=(threshold*1024f*1024f).toLong()
- apps.filter{it.bytes>=limit&&!it.blocked}.forEach{toggleBlock(c,it)}
 }
 private fun safeShizukuBinder():Boolean=runCatching{Shizuku.pingBinder()&&!Shizuku.isPreV11()}.getOrDefault(false)
 private fun safeShizukuStatus():Boolean=runCatching{safeShizukuBinder()&&Shizuku.checkSelfPermission()==PackageManager.PERMISSION_GRANTED&&Build.VERSION.SDK_INT>=Build.VERSION_CODES.S}.getOrDefault(false)
