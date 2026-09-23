@@ -68,12 +68,20 @@ class AutoReconnectService : Service() {
     }
 
     @RequiresApi(Build.VERSION_CODES.S)
-    private val telephonyCallback = object : android.telephony.TelephonyCallback(),
+    private val telephonyCallback by lazy { object : android.telephony.TelephonyCallback(),
         android.telephony.TelephonyCallback.DisplayInfoListener {
         override fun onDisplayInfoChanged(info: TelephonyDisplayInfo) {
             display5G = info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA ||
                 info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE
         }
+    }
+
+    private fun reloadSettings() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        triggerIntervalMs = prefs.getLong(PREF_INTERVAL_MS, DEFAULT_INTERVAL_MS)
+            .coerceIn(MIN_INTERVAL_MS, MAX_INTERVAL_MS)
+        maxAttempts = prefs.getInt(PREF_MAX_ATTEMPTS, DEFAULT_MAX_ATTEMPTS)
+            .coerceIn(MIN_MAX_ATTEMPTS, MAX_MAX_ATTEMPTS)
     }
 
     override fun onCreate() {
@@ -82,12 +90,7 @@ class AutoReconnectService : Service() {
         telephony = getSystemService(TelephonyManager::class.java)
         bridge = NetworkSwitcherBridge(this)
 
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        triggerIntervalMs = prefs.getLong(PREF_INTERVAL_MS, DEFAULT_INTERVAL_MS)
-            .coerceIn(MIN_INTERVAL_MS, MAX_INTERVAL_MS)
-        maxAttempts = prefs.getInt(PREF_MAX_ATTEMPTS, DEFAULT_MAX_ATTEMPTS)
-            .coerceIn(MIN_MAX_ATTEMPTS, MAX_MAX_ATTEMPTS)
-
+        reloadSettings()
         registerNetworkObserver()
         createChannel()
         startForeground(NOTIFICATION_ID, buildNotification("Starting 5G check…"))
@@ -96,6 +99,10 @@ class AutoReconnectService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_START -> {
+                reloadSettings()
+                nextAttemptAt = 0L
+            }
             ACTION_STOP -> {
                 stopSelf()
                 return START_NOT_STICKY
