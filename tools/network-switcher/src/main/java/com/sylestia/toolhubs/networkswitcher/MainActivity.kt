@@ -8,14 +8,20 @@ import android.os.Bundle
 import android.telephony.TelephonyManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,7 +37,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 42)
         }
@@ -40,11 +45,8 @@ class MainActivity : ComponentActivity() {
         ) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 43)
         }
-
         setContent {
-            com.sylestia.toolhubs.designsystem.ToolHubsTheme {
-                NetworkScreen()
-            }
+            com.sylestia.toolhubs.designsystem.ToolHubsTheme { NetworkScreen() }
         }
     }
 
@@ -62,12 +64,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startBackgroundWatcher() {
-        ContextCompat.startForegroundService(
-            this,
-            Intent(this, AutoReconnectService::class.java).apply {
-                action = AutoReconnectService.ACTION_START
-            }
-        )
+        ContextCompat.startForegroundService(this, Intent(this, AutoReconnectService::class.java).apply {
+            action = AutoReconnectService.ACTION_START
+        })
     }
 
     private fun stopBackgroundWatcher() {
@@ -83,6 +82,7 @@ class MainActivity : ComponentActivity() {
         var network by remember { mutableStateOf(currentNetwork()) }
         var status by remember { mutableStateOf("Ready") }
         var running by remember { mutableStateOf(false) }
+        var pressed by remember { mutableStateOf(false) }
 
         LaunchedEffect(Unit) {
             while (true) {
@@ -92,28 +92,18 @@ class MainActivity : ComponentActivity() {
         }
 
         Column(
-            Modifier.fillMaxSize()
-                .background(CurioCream)
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(20.dp)
+            Modifier.fillMaxSize().background(CurioCream).statusBarsPadding()
+                .navigationBarsPadding().padding(20.dp)
         ) {
             Text("5G RECONNECT", color = CurioRoseDark, fontSize = 11.sp)
             Spacer(Modifier.height(6.dp))
-            Text(
-                "Re-trigger 5G after an LTE fallback.",
-                color = CurioInk,
-                fontSize = 27.sp
-            )
-
+            Text("Re-trigger 5G after an LTE fallback.", color = CurioInk, fontSize = 27.sp)
             Spacer(Modifier.height(24.dp))
 
             Card(
                 Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = Color.White.copy(alpha = .72f)
-                )
+                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .72f))
             ) {
                 Column(Modifier.padding(22.dp)) {
                     Text("CURRENT NETWORK", color = CurioRoseDark, fontSize = 10.sp)
@@ -125,14 +115,11 @@ class MainActivity : ComponentActivity() {
 
             Spacer(Modifier.height(20.dp))
 
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Automatic 5G reconnect")
                     Text(
-                        "Runs in the background · max " + AutoReconnectService.LIMIT + " automatic attempts/day.",
+                        "Background monitoring · max 2 automatic attempts per minute.",
                         fontSize = 12.sp,
                         color = CurioInk.copy(alpha = .55f)
                     )
@@ -158,15 +145,28 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(20.dp))
+
+            val buttonScale by animateFloatAsState(
+                targetValue = if (pressed) .96f else 1f,
+                animationSpec = spring(dampingRatio = .55f),
+                label = "buttonScale"
+            )
+            val buttonColor by animateColorAsState(
+                targetValue = if (pressed) CurioRoseDark.copy(alpha = .88f) else MaterialTheme.colorScheme.primary,
+                label = "buttonColor"
+            )
 
             Button(
                 onClick = {
+                    pressed = true
                     if (!Shizuku.pingBinder()) {
                         status = "Start Shizuku first."
+                        pressed = false
                     } else if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
                         status = "Requesting Shizuku permission…"
                         Shizuku.requestPermission(100)
+                        pressed = false
                     } else {
                         running = true
                         status = "Re-triggering 5G…"
@@ -175,28 +175,32 @@ class MainActivity : ComponentActivity() {
                             runOnUiThread {
                                 status = result
                                 running = false
+                                pressed = false
                             }
                         }.start()
                     }
                 },
                 enabled = !running,
-                shape = RoundedCornerShape(18.dp)
+                modifier = Modifier.fillMaxWidth().scale(buttonScale),
+                colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
+                shape = RoundedCornerShape(18.dp),
+                contentPadding = PaddingValues(vertical = 17.dp)
             ) {
-                Text("Re-trigger 5G now")
+                Icon(Icons.Rounded.Bolt, null)
+                Spacer(Modifier.width(8.dp))
+                Text(if (running) "Re-triggering…" else "Re-trigger 5G now")
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(14.dp))
 
             Text(
                 if (Shizuku.pingBinder()) "Shizuku: connected" else "Shizuku: not running",
                 fontSize = 12.sp,
                 color = CurioInk.copy(alpha = .55f)
             )
-
             Spacer(Modifier.height(8.dp))
-
             Text(
-                "Automatic limit resets at midnight. Manual reconnect remains available.",
+                "Automatic mode pauses after 2 attempts within 60 seconds, then resumes as the window expires.",
                 fontSize = 11.sp,
                 color = CurioInk.copy(alpha = .45f)
             )
