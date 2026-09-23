@@ -60,7 +60,14 @@ class MainActivity:ComponentActivity(){
  var shizuku by remember{mutableStateOf(safeShizukuStatus())}
  DisposableEffect(Unit){val received=Shizuku.OnBinderReceivedListener{shizuku=safeShizukuStatus()};val dead=Shizuku.OnBinderDeadListener{shizuku=false};val permission=Shizuku.OnRequestPermissionResultListener{_,result->shizuku=result==PackageManager.PERMISSION_GRANTED};Shizuku.addBinderReceivedListenerSticky(received);Shizuku.addBinderDeadListener(dead);Shizuku.addRequestPermissionResultListener(permission);onDispose{Shizuku.removeBinderReceivedListener(received);Shizuku.removeBinderDeadListener(dead);Shizuku.removeRequestPermissionResultListener(permission)}}
  var loading by remember{mutableStateOf(false)}
- LaunchedEffect(Unit){threshold=context.getSharedPreferences("data_warden",0).getFloat(DataWardenService.KEY_THRESHOLD_MB,500f)}
+ LaunchedEffect(Unit){
+  val prefs=context.getSharedPreferences("data_warden",0)
+  threshold=prefs.getFloat(DataWardenService.KEY_THRESHOLD_MB,500f)
+  // Recover from an older install/session that may have left Chain-3 enabled.
+  if(!protection){
+   Thread { if(ShizukuFirewall.isReady()) ShizukuFirewall.setFirewallEnabled(context,false) }.start()
+  }
+ }
  val scope=rememberCoroutineScope()
  fun refresh(){loading=true;scope.launch{apps=withContext(Dispatchers.IO){loadUsage(context,includeSystem)};loading=false}}
  LaunchedEffect(includeSystem){refresh()}
