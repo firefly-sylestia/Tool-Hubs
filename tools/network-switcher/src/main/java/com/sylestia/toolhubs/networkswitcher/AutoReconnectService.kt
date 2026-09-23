@@ -28,7 +28,11 @@ class AutoReconnectService : Service() {
         const val NOTIFICATION_ID = 501
         const val BURST_LIMIT = 2
         const val BURST_WINDOW_MS = 60_000L
-        const val COOLDOWN_MS = 20_000L
+        const val PREFS_NAME = "network_switcher"
+        const val PREF_INTERVAL_MS = "trigger_interval_ms"
+        const val DEFAULT_INTERVAL_MS = 30_000L
+        const val MIN_INTERVAL_MS = 30_000L
+        const val MAX_INTERVAL_MS = 600_000L
         @Volatile var isRunning = false
             private set
     }
@@ -40,12 +44,16 @@ class AutoReconnectService : Service() {
     private var operationRunning = false
     private var paused = false
     private val attemptTimes = ArrayDeque<Long>()
+    private var triggerIntervalMs = DEFAULT_INTERVAL_MS
 
     override fun onCreate() {
         super.onCreate()
         isRunning = true
         telephony = getSystemService(TelephonyManager::class.java)
         bridge = NetworkSwitcherBridge(this)
+        triggerIntervalMs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .getLong(PREF_INTERVAL_MS, DEFAULT_INTERVAL_MS)
+            .coerceIn(MIN_INTERVAL_MS, MAX_INTERVAL_MS)
         createChannel()
         startForeground(NOTIFICATION_ID, buildNotification("Starting 5G check…"))
         startWatcher()
@@ -116,15 +124,13 @@ class AutoReconnectService : Service() {
         }
 
         if (result.startsWith("5G re-selection triggered")) {
-            notify("5G reconnect triggered", "Automatic attempt $attempt/2 completed.")
-            updateNotification("Watching · $attempt/2 attempts used")
+            updateNotification("5G reconnect triggered · attempt $attempt/2")
         } else {
-            notify("5G reconnect failed", result)
-            updateNotification("Reconnect failed · watching")
+            updateNotification("Reconnect failed · ${result.take(120)}")
         }
 
         operationRunning = false
-        delay(COOLDOWN_MS)
+        delay(triggerIntervalMs)
     }
 
     private fun createChannel() {
