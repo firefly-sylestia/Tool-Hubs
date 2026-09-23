@@ -23,10 +23,9 @@ class AutoReconnectService : Service() {
         const val ACTION_STOP = "com.sylestia.toolhubs.networkswitcher.STOP"
         const val CHANNEL_ID = "network_switcher"
         const val NOTIFICATION_ID = 501
-        const val LIMIT = 5
-        private const val PREFS = "network_switcher"
-        private const val KEY_COUNT = "daily_count"
-        private const val KEY_DAY = "daily_day"
+        const val BURST_LIMIT = 2
+        const val BURST_WINDOW_MS = 60_000L
+        const val COOLDOWN_MS = 20_000L
     }
 
     private val scope = CoroutineScope(Dispatchers.Default + Job())
@@ -34,6 +33,7 @@ class AutoReconnectService : Service() {
     private lateinit var bridge: NetworkSwitcherBridge
     private var lastNetwork = TelephonyManager.NETWORK_TYPE_UNKNOWN
     private var operationRunning = false
+    private val attemptTimes = ArrayDeque<Long>()
 
     override fun onCreate() {
         super.onCreate()
@@ -72,57 +72,37 @@ class AutoReconnectService : Service() {
     }
 
     private suspend fun attemptReconnect() {
-        if (dailyCount() >= LIMIT) {
-            notify("Daily limit reached", "5G reconnect has reached " + LIMIT + " automatic attempts today.")
-            updateNotification("Daily limit reached · watching only")
-            delay(30_000)
+        val now = System.currentTimeMillis()
+        while (attemptTimes.isNotEmpty() && now - attemptTimes.first() >= BURST_WINDOW_MS) {
+            attemptTimes.removeFirst()
+        }
+
+        if (attemptTimes.size >= BURST_LIMIT) {
+            updateNotification("Reconnect paused · 2 attempts used in the last minute")
+            delay(BURST_WINDOW_MS - (now - attemptTimes.first()))
             return
         }
 
         operationRunning = true
-        val attempt = incrementDailyCount()
-        updateNotification("Re-triggering 5G · attempt " + attempt + "/" + LIMIT)
+        attemptTimes.addLast(now)
+        val attempt = attemptTimes.size
+
+        updateNotification("Re-triggering 5G · burst $attempt/2")
 
         val result = withContext(Dispatchers.IO) {
             bridge.reconnect5G()
         }
 
         if (result.startsWith("5G re-selection triggered")) {
-            notify("5G reconnect triggered", "Automatic attempt " + attempt + "/" + LIMIT + " completed.")
-            updateNotification("Watching for 5G drops · " + attempt + "/" + LIMIT + " used today")
+            notify("5G reconnect triggered", "Automatic reconnect completed · burst $attempt/2.")
+            updateNotification("Watching for 5G drops · $attempt/2 used")
         } else {
             notify("5G reconnect failed", result)
             updateNotification("Reconnect failed · watching for next LTE drop")
         }
 
         operationRunning = false
-        delay(20_000)
-    }
-
-    private fun todayKey(): String {
-        val calendar = java.util.Calendar.getInstance()
-        return calendar.get(java.util.Calendar.YEAR).toString() + "-" +
-            calendar.get(java.util.Calendar.DAY_OF_YEAR).toString()
-    }
-
-    private fun dailyCount(): Int {
-        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
-        if (prefs.getString(KEY_DAY, null) != todayKey()) return 0
-        return prefs.getInt(KEY_COUNT, 0)
-    }
-
-    private fun incrementDailyCount(): Int {
-        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
-        val count = if (prefs.getString(KEY_DAY, null) == todayKey()) {
-            dailyCount() + 1
-        } else {
-            1
-        }
-        prefs.edit()
-            .putString(KEY_DAY, todayKey())
-            .putInt(KEY_COUNT, count)
-            .apply()
-        return count
+        delay(COOLDOWN_MS)
     }
 
     private fun createChannel() {
@@ -156,7 +136,7 @@ class AutoReconnectService : Service() {
 
     private fun notify(title: String, text: String) {
         getSystemService(NotificationManager::class.java).notify(
-            title.hashCode(),
+            title.hashCode() + System.currentTimeMillis().toInt(),
             NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_data_connected)
                 .setContentTitle(title)
