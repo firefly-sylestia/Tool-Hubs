@@ -21,10 +21,12 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 class DataWardenService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val operationRunning = AtomicBoolean(false)
     private val checker = object : Runnable {
         override fun run() {
             val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
@@ -34,7 +36,15 @@ class DataWardenService : Service() {
                 stopSelf()
                 return
             }
-            serviceScope.launch { enforceThreshold() }
+            if (operationRunning.compareAndSet(false, true)) {
+                serviceScope.launch {
+                    try {
+                        enforceThreshold()
+                    } finally {
+                        operationRunning.set(false)
+                    }
+                }
+            }
             handler.postDelayed(this, 60000L)
         }
     }
@@ -59,19 +69,35 @@ class DataWardenService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        serviceScope.launch { enforceThreshold() }
+        if (operationRunning.compareAndSet(false, true)) {
+            serviceScope.launch {
+                try {
+                    enforceThreshold()
+                } finally {
+                    operationRunning.set(false)
+                }
+            }
+        }
         return START_STICKY
     }
 
     private fun enforceThreshold() {
         val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
         if (prefs.getString(KEY_BLOCKED_DAY, "") != today()) {
-            prefs.edit().putStringSet(KEY_BLOCKED_PACKAGES, emptySet()).putString(KEY_BLOCKED_DAY, today()).apply()
-            if (ShizukuFirewall.isReady()) ShizukuFirewall.setFirewallEnabled(this, true)
+            val previous = prefs.getStringSet(KEY_BLOCKED_PACKAGES, emptySet()).orEmpty().toSet()
+            if (previous.isNotEmpty() && ShizukuFirewall.isReady()) {
+                ShizukuFirewall.setPackagesNetworking(this, previous, true)
+            }
+            prefs.edit()
+                .putStringSet(KEY_BLOCKED_PACKAGES, emptySet())
+                .putStringSet(KEY_AUTO_BLOCKED_PACKAGES, emptySet())
+                .putString(KEY_BLOCKED_DAY, today())
+                .apply()
+            if (ShizukuFirewall.isReady()) {
+                ShizukuFirewall.setFirewallEnabled(this, false)
+            }
         }
         if (!usageAccessGranted() || !ShizukuFirewall.isReady()) return
-
-        ShizukuFirewall.setFirewallEnabled(this, true)
         val threshold = prefs.getFloat(KEY_THRESHOLD_MB, 500f)
         val includeSystem = prefs.getBoolean(KEY_INCLUDE_SYSTEM, true)
         val blocked = prefs.getStringSet(KEY_BLOCKED_PACKAGES, emptySet()).orEmpty().toMutableSet()
@@ -84,6 +110,9 @@ class DataWardenService : Service() {
                 autoBlocked.add(it.packageName)
             }
         }
+
+        // Chain-3 is only active while at least one package is actually blocked.
+        ShizukuFirewall.setFirewallEnabled(this, blocked.isNotEmpty())
 
         prefs.edit()
             .putStringSet(KEY_BLOCKED_PACKAGES, blocked)
