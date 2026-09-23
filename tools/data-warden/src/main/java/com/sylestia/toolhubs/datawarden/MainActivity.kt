@@ -53,8 +53,8 @@ class MainActivity:ComponentActivity(){
  var includeSystem by rememberSaveable{mutableStateOf(true)}
  var loading by remember{mutableStateOf(false)}
  val scope=rememberCoroutineScope()
- fun refresh(){loading=true;scope.launch{apps=withContext(Dispatchers.IO){loadUsage(context,includeSystem)};loading=false}}
- LaunchedEffect(includeSystem){refresh()}
+ fun refresh(){loading=true;scope.launch{val loaded=withContext(Dispatchers.IO){loadUsage(context,includeSystem)};withContext(Dispatchers.IO){enforceThreshold(context,loaded,threshold)};apps=withContext(Dispatchers.IO){loadUsage(context,includeSystem)};loading=false}}
+ LaunchedEffect(includeSystem,threshold){refresh()}
  Scaffold(containerColor=CurioCream,bottomBar={
   NavigationBar(containerColor=CurioCream){
    val nav=listOf(Triple(Icons.Outlined.DataUsage,"Overview",0),Triple(Icons.Outlined.Apps,"Apps",1),Triple(Icons.Outlined.Settings,"Settings",2))
@@ -130,12 +130,15 @@ private fun loadUsage(context:Context,includeSystem:Boolean):List<AppUsage>{
  val stats=runCatching{nsm.queryDetails(ConnectivityManager.TYPE_WIFI,null,start,end)}.getOrNull()
  val totals=HashMap<Int,Long>()
  if(stats!=null){val b=NetworkStats.Bucket();while(stats.hasNextBucket()){stats.getNextBucket(b);totals[b.uid]=(totals[b.uid]?:0L)+b.rxBytes+b.txBytes};stats.close()}
+ val mobile=runCatching{nsm.queryDetails(ConnectivityManager.TYPE_MOBILE,null,start,end)}.getOrNull()
+ if(mobile!=null){val b=NetworkStats.Bucket();while(mobile.hasNextBucket()){mobile.getNextBucket(b);totals[b.uid]=(totals[b.uid]?:0L)+b.rxBytes+b.txBytes};mobile.close()}
  return packages.mapNotNull{a->if(!includeSystem&&(a.flags and ApplicationInfo.FLAG_SYSTEM)!=0)return@mapNotNull null;if(a.uid<10000)return@mapNotNull null;AppUsage(pm.getApplicationLabel(a).toString(),a.packageName,a.uid,totals[a.uid]?:0L,(a.flags and ApplicationInfo.FLAG_SYSTEM)!=0,blocked.contains(a.uid))}.sortedByDescending{it.bytes}
 }
 
-private fun blockedUids(c:Context):Set<Int>=c.getSharedPreferences(PREFS,0).getStringSet(BLOCKED,emptySet())!!.mapNotNull{it.toIntOrNull()}.toSet()
+private fun today():String=java.text.SimpleDateFormat("yyyy-MM-dd",java.util.Locale.US).format(java.util.Date())
+private fun blockedUids(c:Context):Set<Int>{val p=c.getSharedPreferences(PREFS,0);val day=p.getString("blocked_day","")?: "";if(day!=today())return emptySet();return p.getStringSet(BLOCKED,emptySet())!!.mapNotNull{it.toIntOrNull()}.toSet()}
 private fun toggleBlock(c:Context,a:AppUsage){
- val set=blockedUids(c).toMutableSet();if(a.blocked)set.remove(a.uid)else set.add(a.uid);c.getSharedPreferences(PREFS,0).edit().putStringSet(BLOCKED,set.map(Int::toString).toSet()).apply()
+ val set=blockedUids(c).toMutableSet();if(a.blocked)set.remove(a.uid)else set.add(a.uid);c.getSharedPreferences(PREFS,0).edit().putStringSet(BLOCKED,set.map(Int::toString).toSet()).putString("blocked_day",today()).apply()
  if(shizukuReady())runShizuku(if(a.blocked)"cmd netpolicy remove restrict-background-blacklist "+a.uid else "cmd netpolicy add restrict-background-blacklist "+a.uid)
 }
 private fun runShizuku(command:String)=runCatching{val p=rikka.shizuku.Shizuku.newProcess(arrayOf("sh","-c",command),null,null);p.inputStream.bufferedReader().readText();p.waitFor()}.getOrNull()
@@ -143,3 +146,5 @@ private fun shizukuReady()=runCatching{rikka.shizuku.Shizuku.pingBinder()&&rikka
 private fun usageAccessGranted(c:Context):Boolean{val ops=c.getSystemService(AppOpsManager::class.java);return ops.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS,android.os.Process.myUid(),c.packageName)==AppOpsManager.MODE_ALLOWED}
 private fun formatBytes(b:Long):String{if(b<1024)return b.toString()+" B";var v=b.toDouble();val u=arrayOf("KB","MB","GB");var i=-1;do{v/=1024;i++}while(v>=1024&&i<u.lastIndex);return DecimalFormat("0.##").format(v)+" "+u[i]}
 private fun formatMb(m:Float)=if(m>=1024)DecimalFormat("0.##").format(m/1024f)+" GB" else DecimalFormat("0").format(m)
+
+private fun enforceThreshold(c:Context,apps:List<AppUsage>,threshold:Float){if(!shizukuReady())return;val limit=(threshold*1024f*1024f).toLong();apps.filter{it.bytes>=limit&&!it.blocked}.forEach{toggleBlock(c,it)}}
