@@ -67,8 +67,10 @@ class AutoReconnectService : Service() {
         null
     }
 
+    private val telephonyCallback by lazy { createTelephonyCallback() }
+
     @RequiresApi(Build.VERSION_CODES.S)
-    private val telephonyCallback by lazy { object : android.telephony.TelephonyCallback(),
+    private fun createTelephonyCallback(): android.telephony.TelephonyCallback = object : android.telephony.TelephonyCallback(),
         android.telephony.TelephonyCallback.DisplayInfoListener {
         override fun onDisplayInfoChanged(info: TelephonyDisplayInfo) {
             display5G = info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA ||
