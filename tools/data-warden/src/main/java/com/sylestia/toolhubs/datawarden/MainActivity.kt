@@ -122,7 +122,14 @@ class MainActivity:ComponentActivity(){
  LazyColumn(Modifier.fillMaxSize().padding(p),contentPadding=PaddingValues(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
   item{Header("CONTROL ROOM","Rules & permissions")}
   item{Setting("Usage access","Required to inspect other apps.",{Button(onClick={context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))}){Text(if(usage)"Granted" else "Grant access")}})}
-  item{Setting("Daily threshold","Choose the amount an app may use before Data Warden blocks it.",{Column{Text(formatMb(threshold)+" per day",fontWeight=FontWeight.ExtraBold,color=CurioInk);Slider(value=threshold,onValueChange=onThreshold,valueRange=50f..5000f,steps=49);Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){listOf(100f,250f,500f,1024f,2048f,5120f).forEach{v->FilterChip(selected=threshold==v,onClick={onThreshold(v)},label={Text(formatMb(v),fontSize=10.sp)},modifier=Modifier.weight(1f))}}}})}
+  item{Setting("Daily threshold","Choose the amount an app may use before Data Warden blocks it.",{Column{Text(formatMb(threshold)+" per day",fontWeight=FontWeight.ExtraBold,color=CurioInk);Slider(value=threshold,onValueChange=onThreshold,valueRange=50f..5000f,steps=49);Column(verticalArrangement=Arrangement.spacedBy(6.dp)){
+ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+  listOf(100f,250f,500f).forEach{v->FilterChip(selected=threshold==v,onClick={onThreshold(v)},label={Text(formatMb(v),fontSize=10.sp)},modifier=Modifier.weight(1f))}
+ }
+ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+  listOf(1024f,2048f,5120f).forEach{v->FilterChip(selected=threshold==v,onClick={onThreshold(v)},label={Text(formatMb(v),fontSize=10.sp)},modifier=Modifier.weight(1f))}
+ }
+}}})}
   item{Setting("System apps","Keep Android and preinstalled services visible.",{Switch(includeSystem,onSystem)})}
   item{Setting("Protection","Actually enforce the daily threshold. Nothing is automatically blocked while this is off.",{Row(verticalAlignment=Alignment.CenterVertically){Text(if(protection)"Protection active" else "Protection off",modifier=Modifier.weight(1f),color=if(protection)CurioRoseDark else CurioInk,fontWeight=FontWeight.Bold);Switch(protection,onProtection)}})}
   item{Setting("Background protection","Keep Data Warden watching while the app is closed. Requires Protection to be enabled.",{Row(verticalAlignment=Alignment.CenterVertically){Text(if(background)"Background active" else "Background off",modifier=Modifier.weight(1f),color=CurioInk,fontWeight=FontWeight.Bold);Switch(background,onBackground)}})}
