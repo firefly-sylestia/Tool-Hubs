@@ -5,9 +5,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.telephony.PhoneStateListener
+import android.telephony.TelephonyDisplayInfo
 import android.telephony.TelephonyManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -41,6 +44,29 @@ class MainActivity : ComponentActivity() {
     }
     private var shizukuGranted by mutableStateOf(false)
     private val telephony by lazy { getSystemService(TelephonyManager::class.java) }
+    @Volatile private var display5GSignal = false
+
+    private val phoneStateListener = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        object : PhoneStateListener() {
+            override fun onDisplayInfoChanged(info: TelephonyDisplayInfo) {
+                display5GSignal =
+                    info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA ||
+                    info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE
+            }
+        }
+    } else {
+        null
+    }
+
+    @RequiresApi(Build.VERSION_CODES.S)
+    private val telephonyCallback = object : android.telephony.TelephonyCallback(),
+        android.telephony.TelephonyCallback.DisplayInfoListener {
+        override fun onDisplayInfoChanged(info: TelephonyDisplayInfo) {
+            display5GSignal =
+                info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA ||
+                info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,26 +80,59 @@ class MainActivity : ComponentActivity() {
         }
         shizukuGranted = Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
         Shizuku.addRequestPermissionResultListener(shizukuPermissionListener)
+        registerNetworkObserver()
         setContent {
             com.sylestia.toolhubs.designsystem.ToolHubsTheme { NetworkScreen() }
         }
     }
 
     override fun onDestroy() {
+        unregisterNetworkObserver()
         Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener)
         super.onDestroy()
     }
 
-    private fun currentNetwork(): String = when (telephony.dataNetworkType) {
-        TelephonyManager.NETWORK_TYPE_NR -> "5G"
-        TelephonyManager.NETWORK_TYPE_LTE -> "4G / LTE"
-        TelephonyManager.NETWORK_TYPE_HSPAP,
-        TelephonyManager.NETWORK_TYPE_HSPA,
-        TelephonyManager.NETWORK_TYPE_HSDPA,
-        TelephonyManager.NETWORK_TYPE_HSUPA,
-        TelephonyManager.NETWORK_TYPE_UMTS -> "3G"
-        TelephonyManager.NETWORK_TYPE_EDGE,
-        TelephonyManager.NETWORK_TYPE_GPRS -> "2G"
+    private fun registerNetworkObserver() {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                telephony.registerTelephonyCallback(mainExecutor, telephonyCallback)
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                @Suppress("DEPRECATION")
+                telephony.listen(
+                    phoneStateListener,
+                    PhoneStateListener.LISTEN_DISPLAY_INFO_CHANGED
+                )
+            }
+        }
+    }
+
+    private fun unregisterNetworkObserver() {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                telephony.unregisterTelephonyCallback(telephonyCallback)
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                @Suppress("DEPRECATION")
+                telephony.listen(phoneStateListener, PhoneStateListener.LISTEN_NONE)
+            }
+        }
+    }
+
+    private fun isActually5G(): Boolean {
+        val dataType = runCatching { telephony.dataNetworkType }
+            .getOrDefault(TelephonyManager.NETWORK_TYPE_UNKNOWN)
+        return dataType == TelephonyManager.NETWORK_TYPE_NR || display5GSignal
+    }
+
+    private fun currentNetwork(): String = when {
+        isActually5G() -> "5G"
+        telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_LTE -> "4G / LTE"
+        telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_HSPAP ||
+            telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_HSPA ||
+            telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_HSDPA ||
+            telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_HSUPA ||
+            telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_UMTS -> "3G"
+        telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_EDGE ||
+            telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_GPRS -> "2G"
         else -> "Unknown"
     }
 
@@ -90,9 +149,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun formatInterval(seconds: Int): String = when {
-        seconds < 60 -> "${seconds}s"
-        seconds % 60 == 0 && seconds < 3600 -> "${seconds / 60} min"
-        else -> "${seconds / 60}m ${seconds % 60}s"
+        seconds < 60 -> seconds.toString() + "s"
+        seconds % 60 == 0 && seconds < 3600 -> (seconds / 60).toString() + " min"
+        else -> (seconds / 60).toString() + "m " + (seconds % 60) + "s"
+    }
+
+    private fun waitFor5GBlocking(timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (isActually5G()) return true
+            Thread.sleep(500)
+        }
+        return isActually5G()
     }
 
     @Composable
@@ -104,14 +172,32 @@ class MainActivity : ComponentActivity() {
         var running by remember { mutableStateOf(false) }
         var pressed by remember { mutableStateOf(false) }
         var intervalSeconds by rememberSaveable {
-            mutableIntStateOf((getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE)
-                .getLong(AutoReconnectService.PREF_INTERVAL_MS, AutoReconnectService.DEFAULT_INTERVAL_MS) / 1000L).toInt())
+            mutableIntStateOf(
+                (getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE)
+                    .getLong(
+                        AutoReconnectService.PREF_INTERVAL_MS,
+                        AutoReconnectService.DEFAULT_INTERVAL_MS
+                    ) / 1000L).toInt()
+            )
+        }
+        var maxAttempts by rememberSaveable {
+            mutableIntStateOf(
+                getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE)
+                    .getInt(
+                        AutoReconnectService.PREF_MAX_ATTEMPTS,
+                        AutoReconnectService.DEFAULT_MAX_ATTEMPTS
+                    )
+                    .coerceIn(
+                        AutoReconnectService.MIN_MAX_ATTEMPTS,
+                        AutoReconnectService.MAX_MAX_ATTEMPTS
+                    )
+            )
         }
 
         LaunchedEffect(Unit) {
             while (true) {
                 network = currentNetwork()
-                delay(2_000)
+                delay(1_000)
             }
         }
 
@@ -143,7 +229,7 @@ class MainActivity : ComponentActivity() {
                 Column(Modifier.weight(1f)) {
                     Text("Automatic 5G reconnect")
                     Text(
-                        "Background monitoring · max 2 automatic attempts per minute.",
+                        "Background monitoring · configurable attempts per minute.",
                         fontSize = 12.sp,
                         color = CurioInk.copy(alpha = .55f)
                     )
@@ -183,7 +269,7 @@ class MainActivity : ComponentActivity() {
                         Column {
                             Text("Reconnect interval")
                             Text(
-                                "Wait this long before another automatic trigger.",
+                                "Wait this long after a failed attempt before retrying.",
                                 fontSize = 11.sp,
                                 color = CurioInk.copy(alpha = .55f)
                             )
@@ -201,8 +287,12 @@ class MainActivity : ComponentActivity() {
                         onValueChangeFinished = {
                             getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE)
                                 .edit()
-                                .putLong(AutoReconnectService.PREF_INTERVAL_MS, intervalSeconds * 1000L)
+                                .putLong(
+                                    AutoReconnectService.PREF_INTERVAL_MS,
+                                    intervalSeconds * 1000L
+                                )
                                 .apply()
+                            if (auto) startBackgroundWatcher()
                         },
                         valueRange = 30f..600f,
                         steps = 18
@@ -210,6 +300,59 @@ class MainActivity : ComponentActivity() {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("30 sec", fontSize = 10.sp, color = CurioInk.copy(alpha = .45f))
                         Text("10 min", fontSize = 10.sp, color = CurioInk.copy(alpha = .45f))
+                    }
+
+                    Spacer(Modifier.height(18.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Maximum attempts")
+                            Text(
+                                "Rolling 60-second limit for automatic triggers.",
+                                fontSize = 11.sp,
+                                color = CurioInk.copy(alpha = .55f)
+                            )
+                        }
+                        Text(
+                            maxAttempts.toString(),
+                            color = CurioRoseDark,
+                            fontSize = 13.sp
+                        )
+                    }
+                    Slider(
+                        value = maxAttempts.toFloat(),
+                        onValueChange = {
+                            maxAttempts = it.toInt().coerceIn(
+                                AutoReconnectService.MIN_MAX_ATTEMPTS,
+                                AutoReconnectService.MAX_MAX_ATTEMPTS
+                            )
+                        },
+                        onValueChangeFinished = {
+                            getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE)
+                                .edit()
+                                .putInt(AutoReconnectService.PREF_MAX_ATTEMPTS, maxAttempts)
+                                .apply()
+                            if (auto) startBackgroundWatcher()
+                        },
+                        valueRange = AutoReconnectService.MIN_MAX_ATTEMPTS.toFloat()..
+                            AutoReconnectService.MAX_MAX_ATTEMPTS.toFloat(),
+                        steps = AutoReconnectService.MAX_MAX_ATTEMPTS -
+                            AutoReconnectService.MIN_MAX_ATTEMPTS - 1
+                    )
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            AutoReconnectService.MIN_MAX_ATTEMPTS.toString(),
+                            fontSize = 10.sp,
+                            color = CurioInk.copy(alpha = .45f)
+                        )
+                        Text(
+                            AutoReconnectService.MAX_MAX_ATTEMPTS.toString(),
+                            fontSize = 10.sp,
+                            color = CurioInk.copy(alpha = .45f)
+                        )
                     }
                 }
             }
@@ -222,7 +365,8 @@ class MainActivity : ComponentActivity() {
                 label = "buttonScale"
             )
             val buttonColor by animateColorAsState(
-                targetValue = if (pressed) CurioRoseDark.copy(alpha = .88f) else MaterialTheme.colorScheme.primary,
+                targetValue = if (pressed) CurioRoseDark.copy(alpha = .88f)
+                else MaterialTheme.colorScheme.primary,
                 label = "buttonColor"
             )
 
@@ -241,8 +385,15 @@ class MainActivity : ComponentActivity() {
                         status = "Re-triggering 5G…"
                         Thread {
                             val result = NetworkSwitcherBridge(context).reconnect5G()
+                            val success = waitFor5GBlocking(12_000L)
                             runOnUiThread {
-                                status = result
+                                status = if (success) {
+                                    "5G switch confirmed."
+                                } else if (result.startsWith("5G re-selection triggered")) {
+                                    "Trigger sent, but 5G was not detected."
+                                } else {
+                                    result
+                                }
                                 running = false
                                 pressed = false
                             }
@@ -257,7 +408,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 Icon(Icons.Rounded.Bolt, null)
                 Spacer(Modifier.width(8.dp))
-                Text(if (running) "Re-triggering…" else "Re-trigger 5G now")
+                Text(if (running) "Checking 5G…" else "Re-trigger 5G now")
             }
 
             Spacer(Modifier.height(14.dp))
@@ -269,7 +420,7 @@ class MainActivity : ComponentActivity() {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Automatic mode allows at most 2 triggers in any rolling 60-second window. The interval above controls the normal wait between triggers.",
+                "5G is confirmed from Android's network state, including 5G NSA display information. A successful Shizuku command alone is not reported as success.",
                 fontSize = 11.sp,
                 color = CurioInk.copy(alpha = .45f)
             )
