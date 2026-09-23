@@ -75,15 +75,21 @@ class DataWardenService : Service() {
         val threshold = prefs.getFloat(KEY_THRESHOLD_MB, 500f)
         val includeSystem = prefs.getBoolean(KEY_INCLUDE_SYSTEM, true)
         val blocked = prefs.getStringSet(KEY_BLOCKED_PACKAGES, emptySet()).orEmpty().toMutableSet()
+        val autoBlocked = prefs.getStringSet(KEY_AUTO_BLOCKED_PACKAGES, emptySet()).orEmpty().toMutableSet()
         val limit = (threshold * 1024f * 1024f).toLong()
 
         usage(includeSystem).filter { it.bytes >= limit && !blocked.contains(it.packageName) }.forEach {
             if (ShizukuFirewall.setPackageNetworking(this, it.packageName, false)) {
                 blocked.add(it.packageName)
+                autoBlocked.add(it.packageName)
             }
         }
 
-        prefs.edit().putStringSet(KEY_BLOCKED_PACKAGES, blocked).putString(KEY_BLOCKED_DAY, today()).apply()
+        prefs.edit()
+            .putStringSet(KEY_BLOCKED_PACKAGES, blocked)
+            .putStringSet(KEY_AUTO_BLOCKED_PACKAGES, autoBlocked)
+            .putString(KEY_BLOCKED_DAY, today())
+            .apply()
         updateNotification(if (blocked.isEmpty()) "Watching app data usage" else "Blocking " + blocked.size + " app" + if (blocked.size == 1) "" else "s")
     }
 
@@ -145,6 +151,8 @@ class DataWardenService : Service() {
         const val KEY_BACKGROUND = "background_enabled"
         const val KEY_PROTECTION_ENABLED = "protection_enabled"
         const val KEY_BLOCKED_PACKAGES = "blocked_packages"
+        const val KEY_AUTO_BLOCKED_PACKAGES = "auto_blocked_packages"
         const val KEY_BLOCKED_DAY = "blocked_day"
+        const val KEY_PROTECTION_ENABLED = "protection_enabled"
     }
 }
