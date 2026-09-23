@@ -59,14 +59,14 @@ class MainActivity : ComponentActivity() {
     }
 
     @RequiresApi(Build.VERSION_CODES.S)
-    private val telephonyCallback = object : android.telephony.TelephonyCallback(),
+    private val telephonyCallback by lazy { object : android.telephony.TelephonyCallback(),
         android.telephony.TelephonyCallback.DisplayInfoListener {
         override fun onDisplayInfoChanged(info: TelephonyDisplayInfo) {
             display5GSignal =
                 info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA ||
                 info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE
         }
-    }
+    } }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
