@@ -142,18 +142,43 @@ private fun loadUsage(context:Context,includeSystem:Boolean):List<AppUsage>{
 }
 
 private fun today():String=java.text.SimpleDateFormat("yyyy-MM-dd",java.util.Locale.US).format(java.util.Date())
-(c:Context,a:AppUsage){
- val set=blockedPackages(c).toMutableSet();val block=!a.blocked
- if(block)set.add(a.packageName)else set.remove(a.packageName)
- c.getSharedPreferences(PREFS,0).edit().putStringSet(DataWardenService.KEY_BLOCKED_PACKAGES,set).putString("blocked_day",today()).apply()
- if(ShizukuFirewall.isReady()){ShizukuFirewall.setFirewallEnabled(c,true);ShizukuFirewall.setPackageNetworking(c,a.packageName,!block)}
+private fun blockedPackages(c:Context):Set<String>{
+ val p=c.getSharedPreferences(PREFS,0)
+ if(p.getString(DataWardenService.KEY_BLOCKED_DAY,"")!=today())return emptySet()
+ return p.getStringSet(DataWardenService.KEY_BLOCKED_PACKAGES,emptySet()).orEmpty()
 }
-private fun enforceThreshold(c:Context,apps:List<AppUsage>,threshold:Float){if(!ShizukuFirewall.isReady())return;ShizukuFirewall.setFirewallEnabled(c,true);val limit=(threshold*1024f*1024f).toLong();apps.filter{it.bytes>=limit&&!it.blocked}.forEach{toggleBlock(c,it)}}
-private fun usageAccessGranted(c:Context):Boolean{val ops=c.getSystemService(AppOpsManager::class.java);return ops.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS,android.os.Process.myUid(),c.packageName)==AppOpsManager.MODE_ALLOWED}
-private fun formatBytes(b:Long):String{if(b<1024)return b.toString()+" B";var v=b.toDouble();val u=arrayOf("KB","MB","GB");var i=-1;do{v/=1024;i++}while(v>=1024&&i<u.lastIndex);return DecimalFormat("0.##").format(v)+" "+u[i]}
+private fun toggleBlock(c:Context,a:AppUsage){
+ val set=blockedPackages(c).toMutableSet()
+ val block=!a.blocked
+ if(block)set.add(a.packageName)else set.remove(a.packageName)
+ c.getSharedPreferences(PREFS,0).edit().putStringSet(DataWardenService.KEY_BLOCKED_PACKAGES,set).putString(DataWardenService.KEY_BLOCKED_DAY,today()).apply()
+ if(ShizukuFirewall.isReady()){
+  ShizukuFirewall.setFirewallEnabled(c,true)
+  ShizukuFirewall.setPackageNetworking(c,a.packageName,!block)
+ }
+}
+private fun enforceThreshold(c:Context,apps:List<AppUsage>,threshold:Float){
+ if(!ShizukuFirewall.isReady())return
+ ShizukuFirewall.setFirewallEnabled(c,true)
+ val limit=(threshold*1024f*1024f).toLong()
+ apps.filter{it.bytes>=limit&&!it.blocked}.forEach{toggleBlock(c,it)}
+}
+private fun shizukuReady()=ShizukuFirewall.isReady()
+private fun usageAccessGranted(c:Context):Boolean{
+ val ops=c.getSystemService(AppOpsManager::class.java)
+ return ops.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS,android.os.Process.myUid(),c.packageName)==AppOpsManager.MODE_ALLOWED
+}
+private fun formatBytes(b:Long):String{
+ if(b<1024)return b.toString()+" B"
+ var v=b.toDouble();val u=arrayOf("KB","MB","GB");var i=-1
+ do{v/=1024;i++}while(v>=1024&&i<u.lastIndex)
+ return DecimalFormat("0.##").format(v)+" "+u[i]
+}
 private fun formatMb(m:Float)=if(m>=1024)DecimalFormat("0.##").format(m/1024f)+" GB" else DecimalFormat("0").format(m)
-
-private fun enforceThreshold(c:Context,apps:List<AppUsage>,threshold:Float){if(!shizukuReady())return;val limit=(threshold*1024f*1024f).toLong();apps.filter{it.bytes>=limit&&!it.blocked}.forEach{toggleBlock(c,it)}}
-
-private fun startProtection(c:Context){if(Build.VERSION.SDK_INT>=26)androidx.core.content.ContextCompat.startForegroundService(c,Intent(c,DataWardenService::class.java))else c.startService(Intent(c,DataWardenService::class.java))}
-private fun stopProtection(c:Context){c.stopService(Intent(c,DataWardenService::class.java).apply{action=DataWardenService.ACTION_STOP})}
+private fun startProtection(c:Context){
+ if(Build.VERSION.SDK_INT>=26)androidx.core.content.ContextCompat.startForegroundService(c,Intent(c,DataWardenService::class.java))
+ else c.startService(Intent(c,DataWardenService::class.java))
+}
+private fun stopProtection(c:Context){
+ c.stopService(Intent(c,DataWardenService::class.java).apply{action=DataWardenService.ACTION_STOP})
+}
