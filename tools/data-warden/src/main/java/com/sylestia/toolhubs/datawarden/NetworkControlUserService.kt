@@ -22,7 +22,7 @@ class NetworkControlUserService : INetworkControlService.Stub() {
         return run(arrayOf("cmd", "connectivity", "set-package-networking-enabled", enabled.toString(), safe))
     }
 
-    override fun setPackagesNetworking(enabled: Boolean, packageNames: Array<out String>): String {
+    override fun setPackagesNetworking(enabled: Boolean, packageNames: Array<String>): String {
         var failures = 0
         packageNames.forEach { packageName ->
             val safe = packageName.replace(Regex("[^A-Za-z0-9._-]"), "")
