@@ -1,7 +1,9 @@
 package com.sylestia.toolhubs.networkswitcher
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.telephony.TelephonyManager
 import androidx.activity.ComponentActivity
@@ -17,12 +19,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.sylestia.toolhubs.designsystem.CurioCream
 import com.sylestia.toolhubs.designsystem.CurioInk
 import com.sylestia.toolhubs.designsystem.CurioRoseDark
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
 
 class MainActivity : ComponentActivity() {
@@ -30,9 +31,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 42)
         }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 43)
+        }
+
         setContent {
             com.sylestia.toolhubs.designsystem.ToolHubsTheme {
                 NetworkScreen()
@@ -53,6 +61,21 @@ class MainActivity : ComponentActivity() {
         else -> "Unknown"
     }
 
+    private fun startBackgroundWatcher() {
+        ContextCompat.startForegroundService(
+            this,
+            Intent(this, AutoReconnectService::class.java).apply {
+                action = AutoReconnectService.ACTION_START
+            }
+        )
+    }
+
+    private fun stopBackgroundWatcher() {
+        stopService(Intent(this, AutoReconnectService::class.java).apply {
+            action = AutoReconnectService.ACTION_STOP
+        })
+    }
+
     @Composable
     private fun NetworkScreen() {
         val context = this
@@ -61,25 +84,10 @@ class MainActivity : ComponentActivity() {
         var status by remember { mutableStateOf("Ready") }
         var running by remember { mutableStateOf(false) }
 
-        LaunchedEffect(auto) {
-            while (auto) {
-                val now = currentNetwork()
-                network = now
-
-                if (now == "4G / LTE" && !running) {
-                    running = true
-                    status = "5G dropped · re-triggering…"
-
-                    val result = withContext(Dispatchers.IO) {
-                        NetworkSwitcherBridge(context).reconnect5G()
-                    }
-                    status = result
-
-                    delay(20_000)
-                    running = false
-                } else {
-                    delay(2_000)
-                }
+        LaunchedEffect(Unit) {
+            while (true) {
+                network = currentNetwork()
+                delay(2_000)
             }
         }
 
@@ -124,7 +132,7 @@ class MainActivity : ComponentActivity() {
                 Column(Modifier.weight(1f)) {
                     Text("Automatic 5G reconnect")
                     Text(
-                        "LTE fallback → LTE reset → restore NR + LTE.",
+                        "Runs in the background · max " + AutoReconnectService.LIMIT + " automatic attempts/day.",
                         fontSize = 12.sp,
                         color = CurioInk.copy(alpha = .55f)
                     )
@@ -134,7 +142,8 @@ class MainActivity : ComponentActivity() {
                     onCheckedChange = { enabled ->
                         if (!enabled) {
                             auto = false
-                            status = "Paused"
+                            stopBackgroundWatcher()
+                            status = "Background watcher stopped."
                         } else if (!Shizuku.pingBinder()) {
                             status = "Start Shizuku first."
                         } else if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
@@ -142,7 +151,8 @@ class MainActivity : ComponentActivity() {
                             Shizuku.requestPermission(100)
                         } else {
                             auto = true
-                            status = "Watching for LTE…"
+                            startBackgroundWatcher()
+                            status = "Watching in background…"
                         }
                     }
                 )
@@ -158,10 +168,14 @@ class MainActivity : ComponentActivity() {
                         status = "Requesting Shizuku permission…"
                         Shizuku.requestPermission(100)
                     } else {
+                        running = true
                         status = "Re-triggering 5G…"
                         Thread {
                             val result = NetworkSwitcherBridge(context).reconnect5G()
-                            runOnUiThread { status = result }
+                            runOnUiThread {
+                                status = result
+                                running = false
+                            }
                         }.start()
                     }
                 },
@@ -177,6 +191,14 @@ class MainActivity : ComponentActivity() {
                 if (Shizuku.pingBinder()) "Shizuku: connected" else "Shizuku: not running",
                 fontSize = 12.sp,
                 color = CurioInk.copy(alpha = .55f)
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            Text(
+                "Automatic limit resets at midnight. Manual reconnect remains available.",
+                fontSize = 11.sp,
+                color = CurioInk.copy(alpha = .45f)
             )
         }
     }
