@@ -11,6 +11,7 @@ import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -72,7 +73,7 @@ class AutoReconnectService : Service() {
 
     private suspend fun attemptReconnect() {
         if (dailyCount() >= LIMIT) {
-            notify("Daily limit reached", "5G reconnect has reached $LIMIT automatic attempts today.")
+            notify("Daily limit reached", "5G reconnect has reached " + LIMIT + " automatic attempts today.")
             updateNotification("Daily limit reached · watching only")
             delay(30_000)
             return
@@ -80,15 +81,15 @@ class AutoReconnectService : Service() {
 
         operationRunning = true
         val attempt = incrementDailyCount()
-        updateNotification("Re-triggering 5G · attempt $attempt/$LIMIT")
+        updateNotification("Re-triggering 5G · attempt " + attempt + "/" + LIMIT)
 
         val result = withContext(Dispatchers.IO) {
             bridge.reconnect5G()
         }
 
         if (result.startsWith("5G re-selection triggered")) {
-            notify("5G reconnect triggered", "Automatic attempt $attempt/$LIMIT completed.")
-            updateNotification("Watching for 5G drops · $attempt/$LIMIT used today")
+            notify("5G reconnect triggered", "Automatic attempt " + attempt + "/" + LIMIT + " completed.")
+            updateNotification("Watching for 5G drops · " + attempt + "/" + LIMIT + " used today")
         } else {
             notify("5G reconnect failed", result)
             updateNotification("Reconnect failed · watching for next LTE drop")
@@ -100,7 +101,8 @@ class AutoReconnectService : Service() {
 
     private fun todayKey(): String {
         val calendar = java.util.Calendar.getInstance()
-        return "${calendar.get(java.util.Calendar.YEAR)}-${calendar.get(java.util.Calendar.DAY_OF_YEAR)}"
+        return calendar.get(java.util.Calendar.YEAR).toString() + "-" +
+            calendar.get(java.util.Calendar.DAY_OF_YEAR).toString()
     }
 
     private fun dailyCount(): Int {
@@ -110,12 +112,13 @@ class AutoReconnectService : Service() {
     }
 
     private fun incrementDailyCount(): Int {
-        val count = if (getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_DAY, null) == todayKey()) {
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        val count = if (prefs.getString(KEY_DAY, null) == todayKey()) {
             dailyCount() + 1
         } else {
             1
         }
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+        prefs.edit()
             .putString(KEY_DAY, todayKey())
             .putInt(KEY_COUNT, count)
             .apply()
@@ -164,7 +167,7 @@ class AutoReconnectService : Service() {
     }
 
     override fun onDestroy() {
-        scope.coroutineContext.cancel()
+        scope.cancel()
         super.onDestroy()
     }
 
