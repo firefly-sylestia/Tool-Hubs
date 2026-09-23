@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -55,6 +56,8 @@ class MainActivity:ComponentActivity(){
  var threshold by rememberSaveable{mutableFloatStateOf(500f)}
  var includeSystem by rememberSaveable{mutableStateOf(context.getSharedPreferences("data_warden",0).getBoolean(DataWardenService.KEY_INCLUDE_SYSTEM,true))}
  var background by rememberSaveable{mutableStateOf(context.getSharedPreferences("data_warden",0).getBoolean("background_enabled",false))}
+ var shizuku by remember{mutableStateOf(safeShizukuStatus())}
+ DisposableEffect(Unit){val received=Shizuku.OnBinderReceivedListener{shizuku=safeShizukuStatus()};val dead=Shizuku.OnBinderDeadListener{shizuku=false};val permission=Shizuku.OnRequestPermissionResultListener{_,result->shizuku=result==PackageManager.PERMISSION_GRANTED};Shizuku.addBinderReceivedListenerSticky(received);Shizuku.addBinderDeadListener(dead);Shizuku.addRequestPermissionResultListener(permission);onDispose{Shizuku.removeBinderReceivedListener(received);Shizuku.removeBinderDeadListener(dead);Shizuku.removeRequestPermissionResultListener(permission)}}
  var loading by remember{mutableStateOf(false)}
  LaunchedEffect(Unit){threshold=context.getSharedPreferences("data_warden",0).getFloat(DataWardenService.KEY_THRESHOLD_MB,500f)}
  val scope=rememberCoroutineScope()
@@ -69,7 +72,7 @@ class MainActivity:ComponentActivity(){
   when(tab){
    0->Overview(apps,threshold,p,{refresh()})
    1->Apps(context,apps,p,{refresh()})
-   else->Settings(context,threshold,{v->threshold=v;context.getSharedPreferences("data_warden",0).edit().putFloat(DataWardenService.KEY_THRESHOLD_MB,v).apply()},includeSystem,{v->includeSystem=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_INCLUDE_SYSTEM,v).apply()},background,{v->background=v;context.getSharedPreferences("data_warden",0).edit().putBoolean("background_enabled",v).apply();if(v)startProtection(context) else stopProtection(context)},p)
+   else->Settings(context,threshold,{v->threshold=v;context.getSharedPreferences("data_warden",0).edit().putFloat(DataWardenService.KEY_THRESHOLD_MB,v).apply()},includeSystem,{v->includeSystem=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_INCLUDE_SYSTEM,v).apply()},background,{v->background=v;context.getSharedPreferences("data_warden",0).edit().putBoolean("background_enabled",v).apply();if(v)startProtection(context) else stopProtection(context)},shizuku,p)
   }
  }
 }
@@ -113,15 +116,15 @@ class MainActivity:ComponentActivity(){
  }
 }
 
-@Composable private fun Settings(context:Context,threshold:Float,onThreshold:(Float)->Unit,includeSystem:Boolean,onSystem:(Boolean)->Unit,background:Boolean,onBackground:(Boolean)->Unit,p:PaddingValues){
- val usage=remember{usageAccessGranted(context)};val shizuku=remember{shizukuReady()}
+@Composable private fun Settings(context:Context,threshold:Float,onThreshold:(Float)->Unit,includeSystem:Boolean,onSystem:(Boolean)->Unit,background:Boolean,onBackground:(Boolean)->Unit,shizuku:Boolean,p:PaddingValues){
+ val usage=remember{usageAccessGranted(context)}
  LazyColumn(Modifier.fillMaxSize().padding(p),contentPadding=PaddingValues(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
   item{Header("CONTROL ROOM","Rules & permissions")}
   item{Setting("Usage access","Required to inspect other apps.",{Button(onClick={context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))}){Text(if(usage)"Granted" else "Grant access")}})}
   item{Setting("Daily threshold","Crossing this amount marks an app for blocking.",{Text(formatMb(threshold)+" MB per day",fontWeight=FontWeight.ExtraBold,color=CurioInk);Slider(value=threshold,onValueChange=onThreshold,valueRange=50f..5000f,steps=49)})}
   item{Setting("System apps","Keep Android and preinstalled services visible.",{Switch(includeSystem,onSystem)})}
   item{Setting("Background protection","Keep Data Warden watching while the app is closed. Requires Usage Access and Shizuku for automatic blocking.",{Row(verticalAlignment=Alignment.CenterVertically){Text(if(background)"Active" else "Off",modifier=Modifier.weight(1f),color=CurioInk,fontWeight=FontWeight.Bold);Switch(background,onBackground)}})}
-  item{Setting("Block engine","Shizuku is used only when Data Warden needs to enforce a per-app limit.",{Column{Text(if(shizuku)"Shizuku connected" else "Shizuku not connected",fontWeight=FontWeight.Bold,color=CurioRoseDark);if(!shizuku){Spacer(Modifier.height(8.dp));Button(onClick={Shizuku.requestPermission(100)}){Text("Grant Shizuku permission")}}}})}
+  item{Setting("Block engine","Shizuku is used only when Data Warden needs to enforce a per-app limit.",{Column{Text(if(shizuku)"Shizuku connected" else "Shizuku not connected",fontWeight=FontWeight.Bold,color=CurioRoseDark);if(!shizuku){Spacer(Modifier.height(8.dp));Button(onClick={requestShizukuPermission()}){Text(if(safeShizukuBinder())"Grant Shizuku permission" else "Start Shizuku first")}}}})}
   item{Text("Important: Android's public netpolicy blacklist restricts background data on metered networks. It is not a universal all-network kill switch. The UI deliberately reports this limitation.",color=CurioRoseDark,fontSize=11.sp)}
  }
 }
@@ -163,7 +166,10 @@ private fun enforceThreshold(c:Context,apps:List<AppUsage>,threshold:Float){
  val limit=(threshold*1024f*1024f).toLong()
  apps.filter{it.bytes>=limit&&!it.blocked}.forEach{toggleBlock(c,it)}
 }
-private fun shizukuReady()=ShizukuFirewall.isReady()
+private fun safeShizukuBinder():Boolean=runCatching{Shizuku.pingBinder()&&!Shizuku.isPreV11()}.getOrDefault(false)
+private fun safeShizukuStatus():Boolean=runCatching{safeShizukuBinder()&&Shizuku.checkSelfPermission()==PackageManager.PERMISSION_GRANTED&&Build.VERSION.SDK_INT>=Build.VERSION_CODES.S}.getOrDefault(false)
+private fun requestShizukuPermission(){runCatching{if(Build.VERSION.SDK_INT<Build.VERSION_CODES.S||!safeShizukuBinder())return@runCatching;if(Shizuku.checkSelfPermission()==PackageManager.PERMISSION_GRANTED)return@runCatching;if(!Shizuku.shouldShowRequestPermissionRationale())Shizuku.requestPermission(100)}}
+private fun shizukuReady()=safeShizukuStatus()
 private fun usageAccessGranted(c:Context):Boolean{
  val ops=c.getSystemService(AppOpsManager::class.java)
  return ops.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS,android.os.Process.myUid(),c.packageName)==AppOpsManager.MODE_ALLOWED
