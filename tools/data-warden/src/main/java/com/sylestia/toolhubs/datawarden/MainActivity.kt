@@ -63,8 +63,25 @@ class MainActivity:ComponentActivity(){
  LaunchedEffect(Unit){
   val prefs=context.getSharedPreferences("data_warden",0)
   threshold=prefs.getFloat(DataWardenService.KEY_THRESHOLD_MB,500f)
-  // Recover from an older install/session that may have left Chain-3 enabled.
-  if(!protection){
+  // One-time recovery for older builds: clear stale Chain-3 package rules before
+  // this build takes ownership of the firewall again.
+  val migrated=prefs.getBoolean(DataWardenService.KEY_NETWORK_RULES_MIGRATED,false)
+  if(!migrated){
+   Thread {
+    if(ShizukuFirewall.isReady()){
+     val packages=context.packageManager.getInstalledApplications(
+      PackageManager.ApplicationInfoFlags.of(PackageManager.GET_META_DATA.toLong())
+     ).map{it.packageName}
+     ShizukuFirewall.setPackagesNetworking(context,packages,true)
+     ShizukuFirewall.setFirewallEnabled(context,false)
+    }
+    prefs.edit()
+     .putBoolean(DataWardenService.KEY_NETWORK_RULES_MIGRATED,true)
+     .putStringSet(DataWardenService.KEY_BLOCKED_PACKAGES,emptySet())
+     .putStringSet(DataWardenService.KEY_AUTO_BLOCKED_PACKAGES,emptySet())
+     .apply()
+   }.start()
+  } else if(!protection){
    Thread { if(ShizukuFirewall.isReady()) ShizukuFirewall.setFirewallEnabled(context,false) }.start()
   }
  }
