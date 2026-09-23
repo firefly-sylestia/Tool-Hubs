@@ -124,7 +124,7 @@ class AutoReconnectService : Service() {
         }
 
         if (result.startsWith("5G re-selection triggered")) {
-            updateNotification("5G reconnect triggered · attempt $attempt/2")
+            updateNotification("5G switch successful · attempt $attempt/2")
         } else {
             updateNotification("Reconnect failed · ${result.take(120)}")
         }
