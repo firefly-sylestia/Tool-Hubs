@@ -58,8 +58,10 @@ class MainActivity : ComponentActivity() {
         null
     }
 
+    private val telephonyCallback by lazy { createTelephonyCallback() }
+
     @RequiresApi(Build.VERSION_CODES.S)
-    private val telephonyCallback by lazy { object : android.telephony.TelephonyCallback(),
+    private fun createTelephonyCallback(): android.telephony.TelephonyCallback = object : android.telephony.TelephonyCallback(),
         android.telephony.TelephonyCallback.DisplayInfoListener {
         override fun onDisplayInfoChanged(info: TelephonyDisplayInfo) {
             display5GSignal =
