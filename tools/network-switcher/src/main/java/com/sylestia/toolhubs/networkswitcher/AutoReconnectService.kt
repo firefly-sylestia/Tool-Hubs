@@ -187,7 +187,8 @@ class AutoReconnectService : Service() {
             else -> "Unknown"
         }
         if (current != lastObservedNetwork) {
-            if (lastObservedNetwork != null) recordHistory(current, "Network changed from $lastObservedNetwork")
+            if (lastObservedNetwork == null) recordHistory(current, "Monitoring started")
+            else recordHistory(current, "Network changed from $lastObservedNetwork")
             lastObservedNetwork = current
         }
     }
