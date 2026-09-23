@@ -27,6 +27,7 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -66,8 +67,8 @@ class MainActivity:ComponentActivity(){
   }
  }){p->
   when(tab){
-   0->Overview(apps,threshold,p,refresh)
-   1->Apps(context,apps,p,refresh)
+   0->Overview(apps,threshold,p,{refresh()})
+   1->Apps(context,apps,p,{refresh()})
    else->Settings(context,threshold,{v->threshold=v;context.getSharedPreferences("data_warden",0).edit().putFloat(DataWardenService.KEY_THRESHOLD_MB,v).apply()},includeSystem,{v->includeSystem=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_INCLUDE_SYSTEM,v).apply()},background,{v->background=v;context.getSharedPreferences("data_warden",0).edit().putBoolean("background_enabled",v).apply();if(v)startProtection(context) else stopProtection(context)},p)
   }
  }
@@ -117,7 +118,7 @@ class MainActivity:ComponentActivity(){
  LazyColumn(Modifier.fillMaxSize().padding(p),contentPadding=PaddingValues(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
   item{Header("CONTROL ROOM","Rules & permissions")}
   item{Setting("Usage access","Required to inspect other apps.",{Button(onClick={context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))}){Text(if(usage)"Granted" else "Grant access")}})}
-  item{Setting("Daily threshold","Crossing this amount marks an app for blocking.",{Text(formatMb(threshold)+" MB per day",fontWeight=FontWeight.ExtraBold,color=CurioInk);Slider(threshold,{onThreshold(it)},50f..5000f,49)})}
+  item{Setting("Daily threshold","Crossing this amount marks an app for blocking.",{Text(formatMb(threshold)+" MB per day",fontWeight=FontWeight.ExtraBold,color=CurioInk);Slider(value=threshold,onValueChange=onThreshold,valueRange=50f..5000f,steps=49)})}
   item{Setting("System apps","Keep Android and preinstalled services visible.",{Switch(includeSystem,onSystem)})}
   item{Setting("Background protection","Keep Data Warden watching while the app is closed. Requires Usage Access and Shizuku for automatic blocking.",{Row(verticalAlignment=Alignment.CenterVertically){Text(if(background)"Active" else "Off",modifier=Modifier.weight(1f),color=CurioInk,fontWeight=FontWeight.Bold);Switch(background,onBackground)}})}
   item{Setting("Block engine","Shizuku is used only when Data Warden needs to enforce a per-app limit.",{Column{Text(if(shizuku)"Shizuku connected" else "Shizuku not connected",fontWeight=FontWeight.Bold,color=CurioRoseDark);if(!shizuku){Spacer(Modifier.height(8.dp));Button(onClick={Shizuku.requestPermission(100)}){Text("Grant Shizuku permission")}}}})}
