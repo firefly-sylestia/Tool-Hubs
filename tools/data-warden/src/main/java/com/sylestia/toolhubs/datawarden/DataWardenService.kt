@@ -13,15 +13,28 @@ import android.net.ConnectivityManager
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 class DataWardenService : Service() {
     private val handler = Handler(Looper.getMainLooper())
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val checker = object : Runnable {
         override fun run() {
-            enforceThreshold()
+            val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+            if (!prefs.getBoolean(KEY_PROTECTION_ENABLED, false) ||
+                !prefs.getBoolean(KEY_BACKGROUND, false)
+            ) {
+                stopSelf()
+                return
+            }
+            serviceScope.launch { enforceThreshold() }
             handler.postDelayed(this, 60000L)
         }
     }
@@ -39,7 +52,14 @@ class DataWardenService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        enforceThreshold()
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        if (!prefs.getBoolean(KEY_PROTECTION_ENABLED, false) ||
+            !prefs.getBoolean(KEY_BACKGROUND, false)
+        ) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        serviceScope.launch { enforceThreshold() }
         return START_STICKY
     }
 
@@ -112,7 +132,7 @@ class DataWardenService : Service() {
     private fun updateNotification(text: String) =
         getSystemService(NotificationManager::class.java).notify(801, notification(text))
 
-    override fun onDestroy() { handler.removeCallbacks(checker); super.onDestroy() }
+    override fun onDestroy() { handler.removeCallbacks(checker); serviceScope.cancel(); super.onDestroy() }
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
@@ -123,6 +143,7 @@ class DataWardenService : Service() {
         const val KEY_THRESHOLD_MB = "threshold_mb"
         const val KEY_INCLUDE_SYSTEM = "include_system"
         const val KEY_BACKGROUND = "background_enabled"
+        const val KEY_PROTECTION_ENABLED = "protection_enabled"
         const val KEY_BLOCKED_PACKAGES = "blocked_packages"
         const val KEY_BLOCKED_DAY = "blocked_day"
     }
