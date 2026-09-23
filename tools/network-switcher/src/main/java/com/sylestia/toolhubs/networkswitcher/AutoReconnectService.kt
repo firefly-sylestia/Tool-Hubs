@@ -34,6 +34,7 @@ class AutoReconnectService : Service() {
         const val PREFS_NAME = "network_switcher"
         const val PREF_INTERVAL_MS = "trigger_interval_ms"
         const val PREF_MAX_ATTEMPTS = "max_attempts_per_minute"
+        const val PREF_AUTO_ENABLED = "auto_reconnect_enabled"
         const val DEFAULT_INTERVAL_MS = 30_000L
         const val MIN_INTERVAL_MS = 30_000L
         const val MAX_INTERVAL_MS = 600_000L
@@ -102,10 +103,14 @@ class AutoReconnectService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                    .edit().putBoolean(PREF_AUTO_ENABLED, true).apply()
                 reloadSettings()
                 nextAttemptAt = 0L
             }
             ACTION_STOP -> {
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                    .edit().putBoolean(PREF_AUTO_ENABLED, false).apply()
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -128,10 +133,7 @@ class AutoReconnectService : Service() {
                 telephony.registerTelephonyCallback(mainExecutor, telephonyCallback)
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 @Suppress("DEPRECATION")
-                telephony.listen(
-                    phoneStateListener,
-                    PhoneStateListener.LISTEN_DISPLAY_INFO_CHANGED
-                )
+                telephony.listen(phoneStateListener, PhoneStateListener.LISTEN_DISPLAY_INFO_CHANGED)
             }
         }
     }
@@ -192,10 +194,7 @@ class AutoReconnectService : Service() {
         val attempt = attemptTimes.size
         updateNotification("Trying 5G · attempt " + attempt + "/" + maxAttempts)
 
-        val result = withContext(Dispatchers.IO) {
-            bridge.reconnect5G()
-        }
-
+        val result = withContext(Dispatchers.IO) { bridge.reconnect5G() }
         val switchedTo5G = waitFor5G(12_000L)
 
         if (switchedTo5G) {
@@ -260,19 +259,22 @@ class AutoReconnectService : Service() {
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .addAction(
-                android.R.drawable.ic_media_pause,
-                if (paused) "Resume" else "Pause",
-                pauseIntent
-            )
+            .addAction(android.R.drawable.ic_media_pause, if (paused) "Resume" else "Pause", pauseIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopIntent)
             .build()
     }
 
     private fun updateNotification(text: String) {
-        getSystemService(NotificationManager::class.java).notify(
-            NOTIFICATION_ID, buildNotification(text)
-        )
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(text))
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Removing the app's task from Recents must not be interpreted as stopping
+        // the explicitly enabled foreground watcher.
+        if (getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(PREF_AUTO_ENABLED, false)) {
+            updateNotification("Watching for 5G drops")
+        }
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
