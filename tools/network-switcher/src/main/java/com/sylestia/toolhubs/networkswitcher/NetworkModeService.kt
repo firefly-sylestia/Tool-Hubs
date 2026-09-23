@@ -34,7 +34,7 @@ class NetworkModeService(private val context: Context) : INetworkModeService.Stu
 
             "5G re-selection triggered"
         } catch (t: Throwable) {
-            "Radio operation failed: \${t.javaClass.simpleName}: \${t.message ?: "unknown error"}"
+            "Radio operation failed: ${t.javaClass.simpleName}: ${t.message ?: "unknown error"}"
         }
     }
 
