@@ -168,7 +168,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun NetworkScreen() {
         val context = this
-        var auto by rememberSaveable { mutableStateOf(false) }
+        var auto by rememberSaveable { mutableStateOf(getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)) }
         var network by remember { mutableStateOf(currentNetwork()) }
         var status by remember { mutableStateOf("Ready") }
         var running by remember { mutableStateOf(false) }
