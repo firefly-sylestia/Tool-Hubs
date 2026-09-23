@@ -111,7 +111,6 @@ class DataWardenService : Service() {
             }
         }
 
-        // Chain-3 is only active while at least one package is actually blocked.
         ShizukuFirewall.setFirewallEnabled(this, blocked.isNotEmpty())
 
         prefs.edit()
@@ -182,5 +181,6 @@ class DataWardenService : Service() {
         const val KEY_AUTO_BLOCKED_PACKAGES = "auto_blocked_packages"
         const val KEY_BLOCKED_DAY = "blocked_day"
         const val KEY_PROTECTION_ENABLED = "protection_enabled"
+        const val KEY_NETWORK_RULES_MIGRATED = "network_rules_migrated_v2"
     }
 }
