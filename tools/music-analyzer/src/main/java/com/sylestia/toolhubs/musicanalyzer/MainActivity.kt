@@ -42,12 +42,17 @@ import com.sylestia.toolhubs.designsystem.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlin.math.*
 
 data class AudioAnalysis(val name:String,val durationMs:Long,val sampleRate:Int,val channels:Int,val rmsDb:Float,val peakDb:Float,val dominantHz:Float,val note:String,val waveform:List<Float>,val spectrum:List<Float>,val analyzedAt:Long=System.currentTimeMillis())
 
 class MainActivity:ComponentActivity(){
- override fun onCreate(state:Bundle?){super.onCreate(state);setContent{ToolHubsTheme{MusicAnalyzerScreen()}}}
+ override fun onCreate(state:Bundle?){
+  super.onCreate(state)
+  setContent{ToolHubsTheme{MusicAnalyzerScreen()}}
+ }
  fun requestMic(){requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO),42)}
 }
 
@@ -68,6 +73,52 @@ private fun decodeAudio(c:Context,u:Uri):AudioAnalysis{val ex=MediaExtractor();e
 
 @Composable private fun AnalyzerDetail(a:AudioAnalysis,onClose:()->Unit){ModalBottomSheet(onDismissRequest=onClose,containerColor=CurioCream){Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(18.dp)){Text(a.name,color=CurioInk,fontSize=23.sp,fontWeight=FontWeight.ExtraBold);Text("${a.sampleRate} Hz • ${a.channels} channel${if(a.channels==1)""else"s"} • ${a.durationMs/1000}s",color=CurioRoseDark,fontSize=11.sp);Spacer(Modifier.height(12.dp));Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)){Text("RMS ${a.rmsDb.roundToInt()} dB");Text("Peak ${a.peakDb.roundToInt()} dB");Text("${a.note} ${a.dominantHz.roundToInt()} Hz")};Spacer(Modifier.height(12.dp));Graph("Waveform",a.waveform);Spacer(Modifier.height(10.dp));Graph("Frequency spectrum",a.spectrum);Spacer(Modifier.height(14.dp))}}}
 
-@Composable private fun MusicAnalyzerScreen(){val context=LocalContext.current;val activity=context as MainActivity;val scope=rememberCoroutineScope();var selected by remember{mutableStateOf<AudioAnalysis?>(null)};var history by remember{mutableStateOf(emptyList<AudioAnalysis>())};var analyzing by remember{mutableStateOf(false)};var live by remember{mutableStateOf(false)};var bars by remember{mutableStateOf(List(48){0f})};var level by remember{mutableFloatStateOf(0f)};var peak by remember{mutableFloatStateOf(-120f)};var frequency by remember{mutableFloatStateOf(0f)};var note by remember{mutableStateOf("—")};val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->if(uri!=null){analyzing=true;scope.launch{val result=withContext(Dispatchers.IO){runCatching{decodeAudio(context,uri)}.getOrNull()};analyzing=false;if(result!=null){history=(listOf(result)+history.filter{it.name!=result.name}).take(30);selected=result}}}};LaunchedEffect(Unit){history=loadHistory(context)};Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CurioCream,Color(0xFFF3E7E9)))).statusBarsPadding().navigationBarsPadding().padding(16.dp)){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("AUDIO LAB",color=CurioRoseDark,fontSize=10.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp);Text("Music Analyzer",color=CurioInk,fontSize=25.sp,fontWeight=FontWeight.ExtraBold)};Icon(Icons.Outlined.History,null,tint=CurioInk,modifier=Modifier.size(25.dp).clickable{selected=history.firstOrNull()})};Spacer(Modifier.height(12.dp));Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Box(Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(26.dp)).background(CurioInk).clickable{picker.launch(arrayOf("audio/*"))},contentAlignment=Alignment.Center){Row(verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.FolderOpen,null,tint=Color.White,modifier=Modifier.size(18.dp));Spacer(Modifier.width(7.dp));Text("Analyze file",color=Color.White,fontWeight=FontWeight.Bold)}};Box(Modifier.width(52.dp).height(52.dp).clip(RoundedCornerShape(26.dp)).background(Color.White.copy(.58f)).clickable{if(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED)activity.requestMic()else live=!live},contentAlignment=Alignment.Center){Icon(if(live)Icons.Outlined.Stop else Icons.Outlined.Mic,null,tint=CurioInk)}};Spacer(Modifier.height(12.dp));if(analyzing)Text("Decoding audio and building analysis…",color=CurioRoseDark,fontSize=12.sp);history.take(5).forEach{a->Column(Modifier.fillMaxWidth().padding(vertical=4.dp).clip(RoundedCornerShape(22.dp)).background(Color.White.copy(.43f)).clickable{selected=a}.padding(14.dp)){Text(a.name,color=CurioInk,fontWeight=FontWeight.Bold);Text("${a.note} • ${a.peakDb.roundToInt()} dB peak • ${a.durationMs/1000}s",color=CurioRoseDark,fontSize=11.sp)}};Spacer(Modifier.weight(1f));Box(Modifier.fillMaxWidth().height(190.dp).clip(RoundedCornerShape(30.dp)).background(Color.White.copy(.48f)).padding(18.dp)){Row(Modifier.fillMaxSize(),horizontalArrangement=Arrangement.spacedBy(4.dp),verticalAlignment=Alignment.Bottom){bars.forEach{v->val av by animateFloatAsState(v,label="spectrum");Box(Modifier.weight(1f).fillMaxHeight(kotlin.math.max(.03f,av)).clip(RoundedCornerShape(8.dp)).background(Brush.verticalGradient(listOf(CurioRoseWood,CurioRoseDark))))}}};Spacer(Modifier.height(10.dp));Text(if(live)"LIVE • ${(level*60f-60f).roundToInt()} dB • ${peak.roundToInt()} dB peak • ${frequency.roundToInt()} Hz • $note"else"Select an audio file for detailed waveform and spectrum analysis",color=CurioRoseDark,fontSize=11.sp);if(selected!=null)AnalyzerDetail(selected!!){selected=null}}}
+@Composable private fun MusicAnalyzerScreen(){val context=LocalContext.current;val activity=context as MainActivity;val scope=rememberCoroutineScope();var selected by remember{mutableStateOf<AudioAnalysis?>(null)};var history by remember{mutableStateOf(emptyList<AudioAnalysis>())};var analyzing by remember{mutableStateOf(false)};var live by remember{mutableStateOf(false)};var bars by remember{mutableStateOf(List(48){0f})};var level by remember{mutableFloatStateOf(0f)};var peak by remember{mutableFloatStateOf(-120f)};var frequency by remember{mutableFloatStateOf(0f)};var note by remember{mutableStateOf("—")};var message by remember{mutableStateOf<String?>(null)};var liveJob by remember{mutableStateOf<Job?>(null)};val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->if(uri!=null){analyzing=true;scope.launch{val decoded=withContext(Dispatchers.IO){runCatching{decodeAudio(context,uri)}}
+analyzing=false
+decoded.onSuccess{result->
+ message=null
+ history=(listOf(result)+history.filter{it.name!=result.name}).take(30)
+ selected=result
+}.onFailure{e->message=e.message ?: "Could not analyze this audio file."}
+}}}};LaunchedEffect(Unit){history=loadHistory(context)};Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CurioCream,Color(0xFFF3E7E9)))).statusBarsPadding().navigationBarsPadding().padding(16.dp)){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("AUDIO LAB",color=CurioRoseDark,fontSize=10.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp);Text("Music Analyzer",color=CurioInk,fontSize=25.sp,fontWeight=FontWeight.ExtraBold)};Icon(Icons.Outlined.History,null,tint=CurioInk,modifier=Modifier.size(25.dp).clickable{selected=history.firstOrNull()})};Spacer(Modifier.height(12.dp));Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Box(Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(26.dp)).background(CurioInk).clickable{picker.launch(arrayOf("audio/*"))},contentAlignment=Alignment.Center){Row(verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.FolderOpen,null,tint=Color.White,modifier=Modifier.size(18.dp));Spacer(Modifier.width(7.dp));Text("Analyze file",color=Color.White,fontWeight=FontWeight.Bold)}};Box(Modifier.width(52.dp).height(52.dp).clip(RoundedCornerShape(26.dp)).background(if(live) CurioRoseDark else Color.White.copy(.58f)).clickable{
+ if(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
+  activity.requestMic()
+  message="Microphone permission is required for live analysis."
+ }else{
+  live=!live
+  if(live){
+   message="Listening…"
+   liveJob=scope.launch(Dispatchers.IO){
+    val sampleRate=44100
+    val minBuffer=AudioRecord.getMinBufferSize(sampleRate,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT)
+    if(minBuffer<=0){message="This device cannot provide microphone input.";live=false;return@launch}
+    val bufferSize=max(minBuffer*2,4096)
+    val recorder=AudioRecord(MediaRecorder.AudioSource.MIC,sampleRate,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,bufferSize)
+    if(recorder.state!=AudioRecord.STATE_INITIALIZED){recorder.release();message="Microphone could not be initialized.";live=false;return@launch}
+    val buffer=ShortArray(2048)
+    val floats=FloatArray(2048)
+    try{
+     recorder.startRecording()
+     while(isActive&&live){
+      val read=recorder.read(buffer,0,buffer.size,AudioRecord.READ_BLOCKING)
+      if(read>0){
+       var sum=0.0;var p=0f
+       for(i in 0 until read){val v=(buffer[i]/32768f);floats[i]=v;sum+=v.toDouble()*v;p=max(p,abs(v))}
+       val rms=sqrt(sum/read.coerceAtLeast(1))
+       val hz=pitch(floats.copyOf(read),sampleRate)
+       val barsNow=List(48){idx->val start=idx*read/48;val end=max(start+1,(idx+1)*read/48).coerceAtMost(read);var m=0f;for(i in start until end)m=max(m,abs(floats[i]));m}
+       withContext(Dispatchers.Main){
+        level=rms.toFloat().coerceIn(0f,1f);peak=db(p.toDouble());frequency=hz.toFloat();note=noteFor(hz);bars=barsNow
+       }
+      }
+     }
+    }catch(e:Exception){withContext(Dispatchers.Main){message=e.message ?: "Microphone analysis stopped."}}
+    finally{runCatching{recorder.stop()};recorder.release()}
+   }
+  }else{
+   liveJob?.cancel();liveJob=null;message="Live analysis stopped."
+  }
+ }
+},contentAlignment=Alignment.Center){Icon(if(live)Icons.Outlined.Stop else Icons.Outlined.Mic,null,tint=if(live)Color.White else CurioInk)}};Spacer(Modifier.height(12.dp));if(analyzing)Text("Decoding audio and building analysis…",color=CurioRoseDark,fontSize=12.sp);message?.let{Text(it,color=CurioRoseDark,fontSize=12.sp)};history.take(5).forEach{a->Column(Modifier.fillMaxWidth().padding(vertical=4.dp).clip(RoundedCornerShape(22.dp)).background(Color.White.copy(.43f)).clickable{selected=a}.padding(14.dp)){Text(a.name,color=CurioInk,fontWeight=FontWeight.Bold);Text("${a.note} • ${a.peakDb.roundToInt()} dB peak • ${a.durationMs/1000}s",color=CurioRoseDark,fontSize=11.sp)}};Spacer(Modifier.weight(1f));Box(Modifier.fillMaxWidth().height(190.dp).clip(RoundedCornerShape(30.dp)).background(Color.White.copy(.48f)).padding(18.dp)){Row(Modifier.fillMaxSize(),horizontalArrangement=Arrangement.spacedBy(4.dp),verticalAlignment=Alignment.Bottom){bars.forEach{v->val av by animateFloatAsState(v,label="spectrum");Box(Modifier.weight(1f).fillMaxHeight(kotlin.math.max(.03f,av)).clip(RoundedCornerShape(8.dp)).background(Brush.verticalGradient(listOf(CurioRoseWood,CurioRoseDark))))}}};Spacer(Modifier.height(10.dp));Text(if(live)"LIVE • ${(level*60f-60f).roundToInt()} dB • ${peak.roundToInt()} dB peak • ${frequency.roundToInt()} Hz • $note"else"Select an audio file for detailed waveform and spectrum analysis",color=CurioRoseDark,fontSize=11.sp);if(selected!=null)AnalyzerDetail(selected!!){selected=null}}}
 
 private fun loadHistory(c:Context):List<AudioAnalysis>{return emptyList()}
