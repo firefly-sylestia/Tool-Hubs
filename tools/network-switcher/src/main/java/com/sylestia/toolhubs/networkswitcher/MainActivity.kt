@@ -4,6 +4,7 @@ package com.sylestia.toolhubs.networkswitcher
 
 import android.Manifest
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -32,6 +33,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,6 +44,9 @@ import androidx.core.content.ContextCompat
 import com.sylestia.toolhubs.designsystem.CurioCream
 import com.sylestia.toolhubs.designsystem.CurioInk
 import com.sylestia.toolhubs.designsystem.CurioRoseDark
+import com.sylestia.toolhubs.designsystem.CurioRoseWood
+import com.sylestia.toolhubs.designsystem.CurioAmber
+import com.sylestia.toolhubs.designsystem.CurioFailure
 import com.sylestia.toolhubs.ui.HubScreenHeader
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -139,6 +144,13 @@ class MainActivity : ComponentActivity() {
         return dataType == TelephonyManager.NETWORK_TYPE_NR || display5GSignal
     }
 
+    private fun batteryTemperatureC(): Float = runCatching {
+        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val tenthsCelsius = battery?.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+            ?: Int.MIN_VALUE
+        if (tenthsCelsius == Int.MIN_VALUE) Float.NaN else tenthsCelsius / 10f
+    }.getOrDefault(Float.NaN)
+
     private fun currentNetwork(): String = when {
         isActually5G() -> "5G"
         telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_LTE -> "4G / LTE"
@@ -226,6 +238,8 @@ class MainActivity : ComponentActivity() {
                     ) / 1000L).toInt()
             )
         }
+        var thermalGuard by rememberSaveable { mutableStateOf(getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).getBoolean(AutoReconnectService.PREF_THERMAL_GUARD_ENABLED, true)) }
+        var failureRetrySeconds by rememberSaveable { mutableIntStateOf((getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).getLong(AutoReconnectService.PREF_FAILURE_RETRY_INTERVAL_MS, AutoReconnectService.DEFAULT_FAILURE_RETRY_INTERVAL_MS) / 1000L).toInt()) }
         var recoveryCooldownMinutes by rememberSaveable {
             mutableIntStateOf(
                 (getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE)
@@ -255,25 +269,53 @@ class MainActivity : ComponentActivity() {
 
         Column(
             Modifier.fillMaxSize()
-                .background(CurioCream)
+                .background(MaterialTheme.colorScheme.background)
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp)
         ) {
-            HubScreenHeader("5G Reconnect", "Re-trigger 5G after an LTE fallback.")
+            Column {
+                Text("5G CONNECTOR", color = CurioRoseWood, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, letterSpacing = 2.sp)
+                Text("Stay connected", color = MaterialTheme.colorScheme.onBackground, fontSize = 30.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold)
+                Text("Predictable recovery for your mobile network.", color = MaterialTheme.colorScheme.onBackground.copy(alpha = .6f), fontSize = 13.sp)
+            }
             Spacer(Modifier.height(24.dp))
 
+            val temperature = batteryTemperatureC()
             Card(
                 Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .72f))
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent)
             ) {
-                Column(Modifier.padding(22.dp)) {
-                    Text("CURRENT NETWORK", color = CurioRoseDark, fontSize = 10.sp)
-                    Text(network, color = CurioInk, fontSize = 34.sp)
+                Column(
+                    Modifier
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    CurioRoseDark.copy(alpha = .92f),
+                                    CurioRoseWood.copy(alpha = .72f),
+                                    CurioAmber.copy(alpha = .78f)
+                                )
+                            ),
+                            RoundedCornerShape(28.dp)
+                        )
+                        .padding(22.dp)
+                ) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                        Column {
+                            Text("CURRENT NETWORK", color = Color.White.copy(alpha = .76f), fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, letterSpacing = 1.5.sp)
+                            Text(network, color = Color.White, fontSize = 38.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold)
+                        }
+                        Icon(Icons.Rounded.Bolt, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
+                    }
                     Spacer(Modifier.height(8.dp))
-                    Text(status, color = CurioInk.copy(alpha = .62f))
+                    Text(status, color = Color.White.copy(alpha = .92f), fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+                    Text(
+                        if (temperature.isNaN()) "Phone temperature unavailable" else "Phone temperature ${"%.1f".format(Locale.getDefault(), temperature)}°C · smart heat protection ${if (thermalGuard) "on" else "off"}",
+                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = .74f)
+                    )
                 }
             }
 
@@ -316,6 +358,14 @@ class MainActivity : ComponentActivity() {
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
+                    Text("Smart heat protection")
+                    Text("Track battery and system heat without blocking recovery. Cooling triggers a quick retry instead of waiting for the timer.", fontSize = 12.sp, color = CurioInk.copy(alpha = .55f))
+                }
+                Switch(checked = thermalGuard, onCheckedChange = { enabled -> thermalGuard = enabled; getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).edit().putBoolean(AutoReconnectService.PREF_THERMAL_GUARD_ENABLED, enabled).apply(); if (auto) startBackgroundWatcher() })
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
                     Text("Start after restart")
                     Text("Restarts the enabled watcher about 30 seconds after your phone boots.", fontSize = 12.sp, color = CurioInk.copy(alpha = .55f))
                 }
@@ -347,7 +397,7 @@ class MainActivity : ComponentActivity() {
             Card(
                 Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(22.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .62f))
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(Modifier.padding(18.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -356,7 +406,7 @@ class MainActivity : ComponentActivity() {
                         Column {
                             Text("Retry delay")
                             Text(
-                                "Wait this long between individual 5G recovery attempts.",
+                                "Wait ${formatInterval(intervalSeconds)} between recovery attempts, up to $maxAttempts tries per cycle.",
                                 fontSize = 11.sp,
                                 color = CurioInk.copy(alpha = .55f)
                             )
@@ -381,6 +431,26 @@ class MainActivity : ComponentActivity() {
                                 .apply()
                             if (auto) startBackgroundWatcher()
                         },
+                        valueRange = 30f..600f,
+                        steps = 18
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("30 sec", fontSize = 10.sp, color = CurioInk.copy(alpha = .45f))
+                        Text("10 min", fontSize = 10.sp, color = CurioInk.copy(alpha = .45f))
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Failed-attempt restart delay")
+                            Text("Your custom fallback interval. Cooling recovery and confirmed 5G always trigger an immediate state refresh.", fontSize = 11.sp, color = CurioInk.copy(alpha = .55f))
+                        }
+                        Text(formatInterval(failureRetrySeconds), color = CurioRoseDark, fontSize = 13.sp)
+                    }
+                    Slider(
+                        value = failureRetrySeconds.toFloat(),
+                        onValueChange = { failureRetrySeconds = it.toInt() },
+                        onValueChangeFinished = { getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).edit().putLong(AutoReconnectService.PREF_FAILURE_RETRY_INTERVAL_MS, failureRetrySeconds * 1000L).apply(); if (auto) startBackgroundWatcher() },
                         valueRange = 30f..600f,
                         steps = 18
                     )
@@ -577,7 +647,7 @@ private fun SimAndDiagnosticsCard(
     diagnostics: List<Pair<String, String>>, onSelected: (Int) -> Unit,
     onBackup: (Int) -> Unit, onFailover: (Boolean) -> Unit
 ) {
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(.62f))) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(18.dp)) {
             Text("SIM & eligibility", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
             Text("Choose the SIM monitored for 5G. Failover only runs after 45 seconds with no cellular service.", fontSize = 11.sp, color = CurioInk.copy(.55f))
@@ -611,7 +681,7 @@ private fun HistoryView(context: android.content.Context) {
     Card(
         Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .62f))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -681,7 +751,7 @@ private fun HistoryView(context: android.content.Context) {
     val weeklyLte = NetworkUsageTracker.totalForLastDays(context, NetworkUsageTracker.KEY_LTE_BYTES, 7)
     val weekly5G = NetworkUsageTracker.totalForLastDays(context, NetworkUsageTracker.KEY_5G_BYTES, 7)
     var billingDay by rememberSaveable { mutableIntStateOf(prefs.getInt(AutoReconnectService.PREF_BILLING_DAY, 1)) }
-    Card(Modifier.fillMaxWidth().padding(top = 14.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(.62f))) {
+    Card(Modifier.fillMaxWidth().padding(top = 14.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Analytics, null, tint = CurioRoseDark); Spacer(Modifier.width(8.dp)); Column { Text("Mobile data tracker"); Text("Measured while the watcher is on", fontSize = 11.sp, color = CurioInk.copy(.55f)) } }
             Spacer(Modifier.height(12.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("during LTE fallback", formatBytes(lte), CurioRoseDark, Modifier.weight(1f)); ActivityMetric("while on 5G", formatBytes(fiveG), Color(0xFF207561), Modifier.weight(1f)) }
