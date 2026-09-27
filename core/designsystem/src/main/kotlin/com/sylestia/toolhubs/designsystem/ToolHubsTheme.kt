@@ -7,15 +7,15 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-// Curio-inspired palette: warm paper, plum ink, and rose-wood accents.
-val CurioRoseWood = Color(0xFFC46B7C)
-val CurioRoseDark = Color(0xFF8B5E6B)
-val CurioInk = Color(0xFF3B0A17)
-val CurioCream = Color(0xFFF7F0E4)
-val CurioSurface = Color(0xFFFFFBF5)
-val CurioDarkBackground = Color(0xFF1A1A2E)
-val CurioDarkSurface = Color(0xFF252535)
-val CurioDarkCard = Color(0xFF2A2A3A)
+// Refreshed neutral canvas with crisp berry actions and high-contrast ink.
+val CurioRoseWood = Color(0xFFB6415D)
+val CurioRoseDark = Color(0xFF76364A)
+val CurioInk = Color(0xFF24111A)
+val CurioCream = Color(0xFFF7F7FB)
+val CurioSurface = Color(0xFFFFFFFF)
+val CurioDarkBackground = Color(0xFF11131C)
+val CurioDarkSurface = Color(0xFF1A1E2B)
+val CurioDarkCard = Color(0xFF222839)
 
 private val CurioLightColors = lightColorScheme(
     primary = CurioInk,

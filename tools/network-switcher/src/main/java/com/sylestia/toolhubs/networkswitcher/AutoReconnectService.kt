@@ -50,6 +50,7 @@ class AutoReconnectService : Service() {
     private val scope = CoroutineScope(Dispatchers.Default + Job())
     private lateinit var telephony: TelephonyManager
     private lateinit var bridge: NetworkSwitcherBridge
+    private lateinit var usageTracker: NetworkUsageTracker
     private var operationRunning = false
     private var paused = false
     private var display5G = false
@@ -95,6 +96,7 @@ class AutoReconnectService : Service() {
         isRunning = true
         telephony = getSystemService(TelephonyManager::class.java)
         bridge = NetworkSwitcherBridge(this)
+        usageTracker = NetworkUsageTracker(this)
 
         reloadSettings()
         registerNetworkObserver()
@@ -191,6 +193,7 @@ class AutoReconnectService : Service() {
             else recordHistory(current, "Network changed from $lastObservedNetwork")
             lastObservedNetwork = current
         }
+        usageTracker.sample(current)
     }
 
     private fun startWatcher() {

@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Analytics
 import androidx.core.content.ContextCompat
 import com.sylestia.toolhubs.designsystem.CurioCream
 import com.sylestia.toolhubs.designsystem.CurioInk
@@ -404,10 +405,13 @@ class MainActivity : ComponentActivity() {
                             val success = waitFor5GBlocking(12_000L)
                             runOnUiThread {
                                 status = if (success) {
+                                    saveNetworkHistory(this@MainActivity, "5G", "Manual reconnect confirmed")
                                     "5G switch confirmed."
                                 } else if (result.startsWith("5G re-selection triggered")) {
+                                    saveNetworkHistory(this@MainActivity, "4G / LTE", "Manual reconnect attempt failed")
                                     "Trigger sent, but 5G was not detected."
                                 } else {
+                                    saveNetworkHistory(this@MainActivity, "4G / LTE", "Manual reconnect error: $result")
                                     result
                                 }
                                 running = false
@@ -449,6 +453,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun HistoryView(context: android.content.Context) {
     var entries by remember { mutableStateOf(readNetworkHistory(context)) }
+    var showAll by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         while (true) {
             entries = readNetworkHistory(context)
@@ -465,35 +470,70 @@ private fun HistoryView(context: android.content.Context) {
                 Icon(Icons.Rounded.History, null, tint = CurioRoseDark)
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Network history")
-                    Text("Recent 5G, LTE and reconnect events", fontSize = 11.sp, color = CurioInk.copy(alpha = .55f))
+                    Text("Reconnect activity")
+                    Text("A quick read on the watcher", fontSize = 11.sp, color = CurioInk.copy(alpha = .55f))
                 }
-                TextButton(onClick = {
-                    context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
-                        .edit().remove(AutoReconnectService.PREF_HISTORY).apply()
-                    entries = emptyList()
-                }) { Text("Clear") }
+                TextButton(onClick = { showAll = true }) { Text("View all") }
             }
             Spacer(Modifier.height(10.dp))
             if (entries.isEmpty()) {
                 Text("No network changes recorded yet.", fontSize = 12.sp, color = CurioInk.copy(alpha = .5f))
             } else {
-                entries.take(12).forEachIndexed { index, entry ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.Top) {
-                        Column(Modifier.weight(1f)) {
-                            Text(entry.network, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = CurioInk)
-                            if (entry.detail.isNotBlank()) Text(entry.detail, fontSize = 10.sp, color = CurioInk.copy(alpha = .52f))
-                        }
-                        Text(entry.time, fontSize = 10.sp, color = CurioRoseDark)
-                    }
-                    if (index < entries.take(12).lastIndex) HorizontalDivider(color = CurioInk.copy(alpha = .08f))
+                val successes = entries.count { it.detail.contains("confirmed", true) }
+                val failures = entries.count { it.detail.contains("failed", true) || it.detail.contains("error", true) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ActivityMetric("Success", successes.toString(), Color(0xFF207561), Modifier.weight(1f))
+                    ActivityMetric("Failed", failures.toString(), CurioRoseDark, Modifier.weight(1f))
+                }
+                entries.firstOrNull()?.let { latest ->
+                    Spacer(Modifier.height(13.dp))
+                    Text("LATEST", fontSize = 10.sp, color = CurioRoseDark)
+                    Text(latest.detail.ifBlank { latest.network }, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = CurioInk)
+                    Text(latest.time, fontSize = 11.sp, color = CurioInk.copy(alpha = .55f))
+                }
+            }
+        }
+    }
+    DataTrackerView(context)
+    if (showAll) ModalBottomSheet(onDismissRequest = { showAll = false }, containerColor = CurioCream) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.History, null, tint = CurioRoseDark)
+                Spacer(Modifier.width(8.dp)); Text("Full activity", fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
+                TextButton(onClick = { context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE).edit().remove(AutoReconnectService.PREF_HISTORY).apply(); entries = emptyList() }) { Text("Clear") }
+            }
+            entries.take(80).forEachIndexed { index, entry ->
+                Row(Modifier.fillMaxWidth().background(if (index == 0) CurioRoseDark.copy(.10f) else Color.Transparent, RoundedCornerShape(14.dp)).padding(12.dp), verticalAlignment = Alignment.Top) {
+                    Column(Modifier.weight(1f)) { Text(entry.network, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Text(entry.detail, fontSize = 12.sp, color = CurioInk.copy(.62f)) }
+                    Text(entry.time, fontSize = 10.sp, color = CurioRoseDark)
                 }
             }
         }
     }
 }
 
-private data class HistoryEntry(val time: String, val network: String, val detail: String)
+@Composable private fun ActivityMetric(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+    Column(modifier.background(color.copy(.10f), RoundedCornerShape(16.dp)).padding(12.dp)) { Text(value, fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = color); Text(label, fontSize = 11.sp, color = CurioInk.copy(.60f)) }
+}
+
+@Composable private fun DataTrackerView(context: android.content.Context) {
+    val prefs = context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
+    var refresh by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { delay(2_000); refresh++ } }
+    val lte = refresh.let { prefs.getLong(NetworkUsageTracker.KEY_LTE_BYTES, 0L) }
+    val fiveG = refresh.let { prefs.getLong(NetworkUsageTracker.KEY_5G_BYTES, 0L) }
+    Card(Modifier.fillMaxWidth().padding(top = 14.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(.62f))) {
+        Column(Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Analytics, null, tint = CurioRoseDark); Spacer(Modifier.width(8.dp)); Column { Text("Mobile data tracker"); Text("Measured while the watcher is on", fontSize = 11.sp, color = CurioInk.copy(.55f)) } }
+            Spacer(Modifier.height(12.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("on 4G fallback", formatBytes(lte), CurioRoseDark, Modifier.weight(1f)); ActivityMetric("kept on 5G", formatBytes(fiveG), Color(0xFF207561), Modifier.weight(1f)) }
+            Text("“Kept on 5G” is observed mobile traffic after a 5G connection; it is not a carrier billing estimate.", fontSize = 10.sp, color = CurioInk.copy(.48f), modifier = Modifier.padding(top = 10.dp))
+        }
+    }
+}
+
+private fun formatBytes(bytes: Long): String = when { bytes >= 1_073_741_824L -> String.format(Locale.getDefault(), "%.1f GB", bytes / 1_073_741_824f); bytes >= 1_048_576L -> String.format(Locale.getDefault(), "%.1f MB", bytes / 1_048_576f); else -> "$bytes B" }
+
+private data class HistoryEntry(val timestamp: Long, val time: String, val network: String, val detail: String)
 
 private fun readNetworkHistory(context: android.content.Context): List<HistoryEntry> {
     val values = context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
@@ -502,11 +542,15 @@ private fun readNetworkHistory(context: android.content.Context): List<HistoryEn
     return values.mapNotNull { raw ->
         runCatching {
             val json = org.json.JSONObject(raw)
-            HistoryEntry(format.format(Date(json.getLong("time"))), json.optString("network", "Unknown"), json.optString("detail", ""))
+            val timestamp = json.getLong("time")
+            HistoryEntry(timestamp, format.format(Date(timestamp)), json.optString("network", "Unknown"), json.optString("detail", ""))
         }.getOrNull()
-    }.sortedByDescending { entry ->
-        runCatching { SimpleDateFormat("dd MMM · HH:mm:ss", Locale.getDefault()).parse(entry.time)?.time ?: 0L }.getOrDefault(0L)
-    }
+    }.sortedByDescending { it.timestamp }
 }
 
-
+private fun saveNetworkHistory(context: android.content.Context, network: String, detail: String) {
+    val prefs = context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
+    val entry = org.json.JSONObject().put("time", System.currentTimeMillis()).put("network", network).put("detail", detail).toString()
+    val values = prefs.getStringSet(AutoReconnectService.PREF_HISTORY, emptySet()).orEmpty().toMutableSet()
+    values.add(entry); prefs.edit().putStringSet(AutoReconnectService.PREF_HISTORY, values).apply()
+}
