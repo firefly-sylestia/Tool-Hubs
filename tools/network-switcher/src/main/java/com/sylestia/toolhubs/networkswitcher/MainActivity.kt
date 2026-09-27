@@ -30,6 +30,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -268,18 +269,40 @@ class MainActivity : ComponentActivity() {
             }
             Spacer(Modifier.height(24.dp))
 
+            val temperature = batteryTemperatureC()
             Card(
                 Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent)
             ) {
-                Column(Modifier.padding(22.dp)) {
-                    Text("CURRENT NETWORK", color = CurioRoseDark, fontSize = 10.sp)
-                    Text(network, color = CurioInk, fontSize = 34.sp)
+                Column(
+                    Modifier
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    CurioRoseDark.copy(alpha = .92f),
+                                    CurioRoseWood.copy(alpha = .72f),
+                                    CurioAmber.copy(alpha = .78f)
+                                )
+                            ),
+                            RoundedCornerShape(28.dp)
+                        )
+                        .padding(22.dp)
+                ) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                        Column {
+                            Text("CURRENT NETWORK", color = Color.White.copy(alpha = .76f), fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, letterSpacing = 1.5.sp)
+                            Text(network, color = Color.White, fontSize = 38.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold)
+                        }
+                        Icon(Icons.Rounded.Bolt, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
+                    }
                     Spacer(Modifier.height(8.dp))
-                    Text(status, color = CurioInk.copy(alpha = .62f))
-                    val temperature = batteryTemperatureC()
-                    Text(if (temperature.isNaN()) "Phone temperature unavailable" else "Phone temperature ${"%.1f".format(Locale.getDefault(), temperature)}°C · smart heat protection ${if (thermalGuard) "on" else "off"}", fontSize = 11.sp, color = CurioInk.copy(alpha = .55f))
+                    Text(status, color = Color.White.copy(alpha = .92f), fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+                    Text(
+                        if (temperature.isNaN()) "Phone temperature unavailable" else "Phone temperature ${"%.1f".format(Locale.getDefault(), temperature)}°C · smart heat protection ${if (thermalGuard) "on" else "off"}",
+                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = .74f)
+                    )
                 }
             }
 
@@ -323,7 +346,7 @@ class MainActivity : ComponentActivity() {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Smart heat protection")
-                    Text("Pause 5G switching while the battery or system is hot, then retry immediately after cooling.", fontSize = 12.sp, color = CurioInk.copy(alpha = .55f))
+                    Text("Track battery and system heat without blocking recovery. Cooling triggers a quick retry instead of waiting for the timer.", fontSize = 12.sp, color = CurioInk.copy(alpha = .55f))
                 }
                 Switch(checked = thermalGuard, onCheckedChange = { enabled -> thermalGuard = enabled; getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).edit().putBoolean(AutoReconnectService.PREF_THERMAL_GUARD_ENABLED, enabled).apply(); if (auto) startBackgroundWatcher() })
             }
@@ -407,7 +430,7 @@ class MainActivity : ComponentActivity() {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Failed-attempt restart delay")
-                            Text("How long to wait after a failed switch. Cooling off a hot phone bypasses this delay.", fontSize = 11.sp, color = CurioInk.copy(alpha = .55f))
+                            Text("Your custom fallback interval. Cooling recovery and confirmed 5G always trigger an immediate state refresh.", fontSize = 11.sp, color = CurioInk.copy(alpha = .55f))
                         }
                         Text(formatInterval(failureRetrySeconds), color = CurioRoseDark, fontSize = 13.sp)
                     }

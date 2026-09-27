@@ -91,6 +91,7 @@ class AutoReconnectService : Service() {
     private var circuitOpen = false
     private var lastLimiterNotificationAt = 0L
     private var lastObservedNetwork: String? = null
+    private var failureNotificationActive = false
     private var noServiceSince = 0L
     private var lastShizukuHealth: ShizukuHealth? = null
 
@@ -264,9 +265,12 @@ class AutoReconnectService : Service() {
         if (constrained == thermalPaused) return
         thermalPaused = constrained
         if (constrained) {
-            recordHistory("Thermal guard", "Paused 5G reconnect at ${batteryTemperatureC()}°C until the phone cools", "thermal")
-            updateNotification("Phone is warm · 5G reconnect paused until cool")
+            // Heat is telemetry, not a hard cooldown: keep the watcher responsive and let
+            // Android's thermal manager protect the device while retries remain user-configured.
+            recordHistory("Thermal guard", "Phone is warm at ${batteryTemperatureC()}°C · keeping smart retry active", "thermal")
+            updateNotification("Phone is warm · smart retry remains active")
         } else {
+            // Cooling is a strong recovery signal, so bypass any failure backoff immediately.
             nextAttemptAt = 0L
             consecutiveFailures = 0
             circuitOpen = false
@@ -288,6 +292,10 @@ class AutoReconnectService : Service() {
             if (lastObservedNetwork == null) recordHistory(current, "Monitoring started")
             else recordHistory(current, "Network changed from $lastObservedNetwork", "network")
             lastObservedNetwork = current
+            if (current == "5G" && failureNotificationActive) {
+                failureNotificationActive = false
+                updateNotification("5G restored · automatic recovery complete")
+            }
         }
         usageTracker.sample(current)
         trackFallbackImpact(current)
@@ -333,7 +341,7 @@ class AutoReconnectService : Service() {
                 observeThermalState()
                 observeNetwork()
                 observeShizukuHealth()
-                if (!paused && !thermalPaused && !circuitOpen && !operationRunning && isLteFallback() &&
+                if (!paused && !circuitOpen && !operationRunning && isLteFallback() &&
                     System.currentTimeMillis() >= nextAttemptAt
                 ) {
                     attemptReconnect()
@@ -379,7 +387,8 @@ class AutoReconnectService : Service() {
             if (switchedTo5G) {
                 recordHistory("5G", "Automatic reconnect confirmed", "success")
                 nextAttemptAt = 0L; consecutiveFailures = 0; circuitOpen = false; persistRetryState()
-                updateNotification("5G switch confirmed · attempt " + attempt + "/" + maxAttempts)
+                failureNotificationActive = false
+                updateNotification("5G restored · automatic recovery complete")
             } else {
                 consecutiveFailures++
                 // Respect the user's configured base interval, then progressively back off.
@@ -389,7 +398,8 @@ class AutoReconnectService : Service() {
                 persistRetryState()
                 val detail = if (result.startsWith("5G re-selection triggered")) "5G not detected after trigger" else result.take(100)
                 recordHistory("4G / LTE", if (circuitOpen) "Reconnect paused after $consecutiveFailures failures: $detail" else "Reconnect failed: $detail", "failed")
-                updateNotification(if (circuitOpen) "Reconnect paused after repeated failures · tap Resume" else "5G switch failed · retry in ${formatInterval(delay)} · $detail")
+                failureNotificationActive = true
+                updateNotification(if (circuitOpen) "Reconnect paused after repeated failures · tap Resume" else "5G unavailable · next smart retry in ${formatInterval(delay)}")
             }
         } finally {
             operationRunning = false
