@@ -4,6 +4,7 @@ package com.sylestia.toolhubs.networkswitcher
 
 import android.Manifest
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -43,6 +44,7 @@ import androidx.core.content.ContextCompat
 import com.sylestia.toolhubs.designsystem.CurioCream
 import com.sylestia.toolhubs.designsystem.CurioInk
 import com.sylestia.toolhubs.designsystem.CurioRoseDark
+import com.sylestia.toolhubs.designsystem.CurioRoseWood
 import com.sylestia.toolhubs.designsystem.CurioAmber
 import com.sylestia.toolhubs.designsystem.CurioFailure
 import com.sylestia.toolhubs.ui.HubScreenHeader
@@ -143,7 +145,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun batteryTemperatureC(): Float = runCatching {
-        getSystemService(android.os.BatteryManager::class.java).getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_TEMPERATURE) / 10f
+        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val tenthsCelsius = battery?.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+            ?: Int.MIN_VALUE
+        if (tenthsCelsius == Int.MIN_VALUE) Float.NaN else tenthsCelsius / 10f
     }.getOrDefault(Float.NaN)
 
     private fun currentNetwork(): String = when {

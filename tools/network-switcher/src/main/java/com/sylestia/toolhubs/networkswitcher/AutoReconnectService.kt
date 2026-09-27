@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
@@ -252,8 +253,10 @@ class AutoReconnectService : Service() {
     }
 
     private fun batteryTemperatureC(): Float = runCatching {
-        val battery = getSystemService(BatteryManager::class.java)
-        battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_TEMPERATURE) / 10f
+        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val tenthsCelsius = battery?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+            ?: Int.MIN_VALUE
+        if (tenthsCelsius == Int.MIN_VALUE) Float.NaN else tenthsCelsius / 10f
     }.getOrDefault(Float.NaN)
 
     private fun thermalStatus(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
