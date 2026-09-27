@@ -5,6 +5,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.Color
 
 // Refreshed neutral canvas with crisp berry actions and high-contrast ink.
@@ -41,7 +42,7 @@ private val CurioDarkColors = darkColorScheme(
 
 @Composable
 fun ToolHubsTheme(
-    darkTheme: Boolean = false,
+    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
     MaterialTheme(

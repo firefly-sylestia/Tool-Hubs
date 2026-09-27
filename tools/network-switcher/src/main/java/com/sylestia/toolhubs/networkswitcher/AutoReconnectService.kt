@@ -35,7 +35,11 @@ class AutoReconnectService : Service() {
         const val PREF_INTERVAL_MS = "trigger_interval_ms"
         const val PREF_MAX_ATTEMPTS = "max_attempts_per_minute"
         const val PREF_AUTO_ENABLED = "auto_reconnect_enabled"
+        const val PREF_START_AFTER_REBOOT = "start_after_reboot"
         const val PREF_HISTORY = "network_history"
+        const val PREF_NEXT_ATTEMPT = "next_attempt_at"
+        const val PREF_FAILURE_STREAK = "failure_streak"
+        const val PREF_CIRCUIT_OPEN = "circuit_open"
         const val MAX_HISTORY = 200
         const val DEFAULT_INTERVAL_MS = 30_000L
         const val MIN_INTERVAL_MS = 30_000L
@@ -58,6 +62,8 @@ class AutoReconnectService : Service() {
     private var triggerIntervalMs = DEFAULT_INTERVAL_MS
     private var maxAttempts = DEFAULT_MAX_ATTEMPTS
     private var nextAttemptAt = 0L
+    private var consecutiveFailures = 0
+    private var circuitOpen = false
     private var lastLimiterNotificationAt = 0L
     private var lastObservedNetwork: String? = null
 
@@ -89,7 +95,16 @@ class AutoReconnectService : Service() {
             .coerceIn(MIN_INTERVAL_MS, MAX_INTERVAL_MS)
         maxAttempts = prefs.getInt(PREF_MAX_ATTEMPTS, DEFAULT_MAX_ATTEMPTS)
             .coerceIn(MIN_MAX_ATTEMPTS, MAX_MAX_ATTEMPTS)
+        nextAttemptAt = prefs.getLong(PREF_NEXT_ATTEMPT, 0L)
+        consecutiveFailures = prefs.getInt(PREF_FAILURE_STREAK, 0)
+        circuitOpen = prefs.getBoolean(PREF_CIRCUIT_OPEN, false)
     }
+
+    private fun persistRetryState() = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+        .putLong(PREF_NEXT_ATTEMPT, nextAttemptAt)
+        .putInt(PREF_FAILURE_STREAK, consecutiveFailures)
+        .putBoolean(PREF_CIRCUIT_OPEN, circuitOpen)
+        .apply()
 
     override fun onCreate() {
         super.onCreate()
@@ -125,7 +140,10 @@ class AutoReconnectService : Service() {
             }
             ACTION_RESUME -> {
                 paused = false
+                circuitOpen = false
+                consecutiveFailures = 0
                 nextAttemptAt = 0L
+                persistRetryState()
                 updateNotification("Watching for 5G drops")
             }
         }
@@ -166,12 +184,13 @@ class AutoReconnectService : Service() {
         return currentDataType() == TelephonyManager.NETWORK_TYPE_LTE && !isActually5G()
     }
 
-    private fun recordHistory(network: String, detail: String = "") {
+    private fun recordHistory(network: String, detail: String = "", type: String = "system") {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val entry = org.json.JSONObject().apply {
             put("time", System.currentTimeMillis())
             put("network", network)
             put("detail", detail)
+            put("type", type)
         }.toString()
         val history = prefs.getStringSet(PREF_HISTORY, emptySet()).orEmpty().toMutableSet()
         // Set is only used as compact persistence; the timestamp makes every entry unique.
@@ -190,7 +209,7 @@ class AutoReconnectService : Service() {
         }
         if (current != lastObservedNetwork) {
             if (lastObservedNetwork == null) recordHistory(current, "Monitoring started")
-            else recordHistory(current, "Network changed from $lastObservedNetwork")
+            else recordHistory(current, "Network changed from $lastObservedNetwork", "network")
             lastObservedNetwork = current
         }
         usageTracker.sample(current)
@@ -200,7 +219,7 @@ class AutoReconnectService : Service() {
         scope.launch {
             while (isActive) {
                 observeNetwork()
-                if (!paused && !operationRunning && isLteFallback() &&
+                if (!paused && !circuitOpen && !operationRunning && isLteFallback() &&
                     System.currentTimeMillis() >= nextAttemptAt
                 ) {
                     attemptReconnect()
@@ -226,32 +245,31 @@ class AutoReconnectService : Service() {
         }
 
         operationRunning = true
-        attemptTimes.addLast(now)
-        recordHistory("4G / LTE", "Automatic 5G reconnect attempt started")
-        val attempt = attemptTimes.size
-        updateNotification("Trying 5G · attempt " + attempt + "/" + maxAttempts)
-
-        val result = withContext(Dispatchers.IO) { bridge.reconnect5G() }
-        val switchedTo5G = waitFor5G(12_000L)
-
-        if (switchedTo5G) {
-            recordHistory("5G", "Automatic reconnect confirmed")
-            nextAttemptAt = 0L
-            updateNotification("5G switch confirmed · attempt " + attempt + "/" + maxAttempts)
-        } else {
-            recordHistory("4G / LTE", "Reconnect attempt failed")
-            nextAttemptAt = System.currentTimeMillis() + triggerIntervalMs
-            val detail = if (result.startsWith("5G re-selection triggered")) {
-                "5G not detected after trigger"
+        try {
+            attemptTimes.addLast(now)
+        recordHistory("4G / LTE", "Automatic 5G reconnect attempt started", "attempt")
+            val attempt = attemptTimes.size
+            updateNotification("Trying 5G · attempt " + attempt + "/" + maxAttempts)
+            val result = withContext(Dispatchers.IO) { bridge.reconnect5G() }
+            val switchedTo5G = waitFor5G(12_000L)
+            if (switchedTo5G) {
+                recordHistory("5G", "Automatic reconnect confirmed", "success")
+                nextAttemptAt = 0L; consecutiveFailures = 0; circuitOpen = false; persistRetryState()
+                updateNotification("5G switch confirmed · attempt " + attempt + "/" + maxAttempts)
             } else {
-                result.take(100)
+                consecutiveFailures++
+                // Respect the user's configured base interval, then progressively back off.
+                val delay = maxOf(triggerIntervalMs, when (consecutiveFailures) { 1 -> 30_000L; 2 -> 60_000L; 3 -> 300_000L; else -> 900_000L })
+                circuitOpen = consecutiveFailures >= 4
+                nextAttemptAt = System.currentTimeMillis() + delay
+                persistRetryState()
+                val detail = if (result.startsWith("5G re-selection triggered")) "5G not detected after trigger" else result.take(100)
+                recordHistory("4G / LTE", if (circuitOpen) "Reconnect paused after $consecutiveFailures failures: $detail" else "Reconnect failed: $detail", "failed")
+                updateNotification(if (circuitOpen) "Reconnect paused after repeated failures · tap Resume" else "5G switch failed · retry in ${formatInterval(delay)} · $detail")
             }
-            updateNotification(
-                "5G switch failed · retry in " + formatInterval(triggerIntervalMs) + " · " + detail
-            )
+        } finally {
+            operationRunning = false
         }
-
-        operationRunning = false
     }
 
     private suspend fun waitFor5G(timeoutMs: Long): Boolean {

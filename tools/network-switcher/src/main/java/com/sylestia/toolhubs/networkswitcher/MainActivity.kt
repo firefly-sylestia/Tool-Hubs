@@ -88,6 +88,7 @@ class MainActivity : ComponentActivity() {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 43)
         }
         shizukuGranted = Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+        ShizukuHealthMonitor.install()
         Shizuku.addRequestPermissionResultListener(shizukuPermissionListener)
         registerNetworkObserver()
         setContent {
@@ -176,6 +177,7 @@ class MainActivity : ComponentActivity() {
     private fun NetworkScreen() {
         val context = this
         var auto by rememberSaveable { mutableStateOf(getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)) }
+        var startAfterRestart by rememberSaveable { mutableStateOf(getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).getBoolean(AutoReconnectService.PREF_START_AFTER_REBOOT, false)) }
         var network by remember { mutableStateOf(currentNetwork()) }
         var status by remember { mutableStateOf("Ready") }
         var running by remember { mutableStateOf(false) }
@@ -270,6 +272,18 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 )
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Start after restart")
+                    Text("Restarts the enabled watcher about 30 seconds after your phone boots.", fontSize = 12.sp, color = CurioInk.copy(alpha = .55f))
+                }
+                Switch(checked = startAfterRestart, onCheckedChange = { enabled ->
+                    startAfterRestart = enabled
+                    getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).edit().putBoolean(AutoReconnectService.PREF_START_AFTER_REBOOT, enabled).apply()
+                })
             }
 
             Spacer(Modifier.height(18.dp))
@@ -437,7 +451,7 @@ class MainActivity : ComponentActivity() {
             Spacer(Modifier.height(14.dp))
 
             Text(
-                if (Shizuku.pingBinder()) "Shizuku: connected" else "Shizuku: not running",
+                "Shizuku: ${shizukuHealthLabel(ShizukuHealthMonitor.refresh())}",
                 fontSize = 12.sp,
                 color = CurioInk.copy(alpha = .55f)
             )
@@ -449,6 +463,13 @@ class MainActivity : ComponentActivity() {
             )
         }
     }
+}
+private fun shizukuHealthLabel(state: ShizukuHealth) = when (state) {
+    ShizukuHealth.UNAVAILABLE -> "unavailable"
+    ShizukuHealth.PERMISSION_REQUIRED -> "permission required"
+    ShizukuHealth.BINDING -> "binding"
+    ShizukuHealth.READY -> "ready"
+    ShizukuHealth.SERVICE_DIED -> "service died — retry available"
 }
 @Composable
 private fun HistoryView(context: android.content.Context) {
@@ -479,8 +500,8 @@ private fun HistoryView(context: android.content.Context) {
             if (entries.isEmpty()) {
                 Text("No network changes recorded yet.", fontSize = 12.sp, color = CurioInk.copy(alpha = .5f))
             } else {
-                val successes = entries.count { it.detail.contains("confirmed", true) }
-                val failures = entries.count { it.detail.contains("failed", true) || it.detail.contains("error", true) }
+                val successes = entries.count { it.type == "success" || it.detail.contains("confirmed", true) }
+                val failures = entries.count { it.type == "failed" || it.detail.contains("failed", true) || it.detail.contains("error", true) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     ActivityMetric("Success", successes.toString(), Color(0xFF207561), Modifier.weight(1f))
                     ActivityMetric("Failed", failures.toString(), CurioRoseDark, Modifier.weight(1f))
@@ -496,13 +517,16 @@ private fun HistoryView(context: android.content.Context) {
     }
     DataTrackerView(context)
     if (showAll) ModalBottomSheet(onDismissRequest = { showAll = false }, containerColor = CurioCream) {
+        var filter by rememberSaveable { mutableStateOf("All") }
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.History, null, tint = CurioRoseDark)
                 Spacer(Modifier.width(8.dp)); Text("Full activity", fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
                 TextButton(onClick = { context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE).edit().remove(AutoReconnectService.PREF_HISTORY).apply(); entries = emptyList() }) { Text("Clear") }
             }
-            entries.take(80).forEachIndexed { index, entry ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("All", "Success", "Failed", "Network", "System").forEach { label -> FilterChip(selected = filter == label, onClick = { filter = label }, label = { Text(label) }) } }
+            val shown = entries.filter { entry -> when (filter) { "Success" -> entry.type == "success"; "Failed" -> entry.type == "failed"; "Network" -> entry.type == "network"; "System" -> entry.type == "system"; else -> true } }
+            shown.take(80).forEachIndexed { index, entry ->
                 Row(Modifier.fillMaxWidth().background(if (index == 0) CurioRoseDark.copy(.10f) else Color.Transparent, RoundedCornerShape(14.dp)).padding(12.dp), verticalAlignment = Alignment.Top) {
                     Column(Modifier.weight(1f)) { Text(entry.network, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Text(entry.detail, fontSize = 12.sp, color = CurioInk.copy(.62f)) }
                     Text(entry.time, fontSize = 10.sp, color = CurioRoseDark)
@@ -533,7 +557,7 @@ private fun HistoryView(context: android.content.Context) {
 
 private fun formatBytes(bytes: Long): String = when { bytes >= 1_073_741_824L -> String.format(Locale.getDefault(), "%.1f GB", bytes / 1_073_741_824f); bytes >= 1_048_576L -> String.format(Locale.getDefault(), "%.1f MB", bytes / 1_048_576f); else -> "$bytes B" }
 
-private data class HistoryEntry(val timestamp: Long, val time: String, val network: String, val detail: String)
+private data class HistoryEntry(val timestamp: Long, val time: String, val network: String, val detail: String, val type: String)
 
 private fun readNetworkHistory(context: android.content.Context): List<HistoryEntry> {
     val values = context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
@@ -543,7 +567,7 @@ private fun readNetworkHistory(context: android.content.Context): List<HistoryEn
         runCatching {
             val json = org.json.JSONObject(raw)
             val timestamp = json.getLong("time")
-            HistoryEntry(timestamp, format.format(Date(timestamp)), json.optString("network", "Unknown"), json.optString("detail", ""))
+            HistoryEntry(timestamp, format.format(Date(timestamp)), json.optString("network", "Unknown"), json.optString("detail", ""), json.optString("type", "system"))
         }.getOrNull()
     }.sortedByDescending { it.timestamp }
 }
