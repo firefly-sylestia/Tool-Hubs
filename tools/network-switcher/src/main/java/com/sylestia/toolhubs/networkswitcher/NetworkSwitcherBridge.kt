@@ -21,6 +21,14 @@ class NetworkSwitcherBridge(private val context: Context) {
         .tag("network-switcher")
 
     fun reconnect5G(): String {
+        return withService { it.reconnect5G() }
+    }
+
+    fun switchDefaultDataSubscription(subscriptionId: Int): String {
+        return withService { it.switchDefaultDataSubscription(subscriptionId) }
+    }
+
+    private fun withService(operation: (INetworkModeService) -> String): String {
         ShizukuHealthMonitor.install()
         if (!Shizuku.pingBinder()) return "Shizuku is not running."
         if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
@@ -43,7 +51,7 @@ class NetworkSwitcherBridge(private val context: Context) {
             Shizuku.bindUserService(args, operationConnection)
             if (!latch.await(4, TimeUnit.SECONDS)) return "Could not connect to the Shizuku service."
             ShizukuHealthMonitor.refresh()
-            service?.reconnect5G() ?: "Shizuku service disconnected before the operation."
+            service?.let(operation) ?: "Shizuku service disconnected before the operation."
         } catch (t: Throwable) {
             "Shizuku operation failed: ${t.javaClass.simpleName}: ${t.message ?: "unknown error"}"
         }

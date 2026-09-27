@@ -11,6 +11,7 @@ import android.os.IBinder
 import android.telephony.PhoneStateListener
 import android.telephony.TelephonyDisplayInfo
 import android.telephony.TelephonyManager
+import android.telephony.SubscriptionManager
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +26,7 @@ import kotlinx.coroutines.withContext
 class AutoReconnectService : Service() {
     companion object {
         const val ACTION_START = "com.sylestia.toolhubs.networkswitcher.START"
+        const val ACTION_BOOT_START = "com.sylestia.toolhubs.networkswitcher.BOOT_START"
         const val ACTION_STOP = "com.sylestia.toolhubs.networkswitcher.STOP"
         const val ACTION_PAUSE = "com.sylestia.toolhubs.networkswitcher.PAUSE"
         const val ACTION_RESUME = "com.sylestia.toolhubs.networkswitcher.RESUME"
@@ -40,6 +42,15 @@ class AutoReconnectService : Service() {
         const val PREF_NEXT_ATTEMPT = "next_attempt_at"
         const val PREF_FAILURE_STREAK = "failure_streak"
         const val PREF_CIRCUIT_OPEN = "circuit_open"
+        const val PREF_SELECTED_SUBSCRIPTION = "selected_subscription"
+        const val PREF_FAILOVER_ENABLED = "sim_failover_enabled"
+        const val PREF_FAILOVER_TARGET = "sim_failover_target"
+        const val PREF_LAST_FAILOVER = "last_sim_failover"
+        const val PREF_FALLBACK_STARTED = "fallback_started"
+        const val PREF_LTE_FALLBACK_MS = "lte_fallback_ms"
+        const val PREF_RECOVERY_TOTAL_MS = "recovery_total_ms"
+        const val PREF_RECOVERY_COUNT = "recovery_count"
+        const val PREF_BILLING_DAY = "billing_cycle_day"
         const val MAX_HISTORY = 200
         const val DEFAULT_INTERVAL_MS = 30_000L
         const val MIN_INTERVAL_MS = 30_000L
@@ -47,12 +58,15 @@ class AutoReconnectService : Service() {
         const val DEFAULT_MAX_ATTEMPTS = 2
         const val MIN_MAX_ATTEMPTS = 1
         const val MAX_MAX_ATTEMPTS = 10
+        const val NO_SERVICE_FAILOVER_DELAY_MS = 45_000L
+        const val SIM_FAILOVER_COOLDOWN_MS = 15 * 60_000L
         @Volatile var isRunning = false
             private set
     }
 
     private val scope = CoroutineScope(Dispatchers.Default + Job())
     private lateinit var telephony: TelephonyManager
+    private lateinit var baseTelephony: TelephonyManager
     private lateinit var bridge: NetworkSwitcherBridge
     private lateinit var usageTracker: NetworkUsageTracker
     private var operationRunning = false
@@ -66,6 +80,8 @@ class AutoReconnectService : Service() {
     private var circuitOpen = false
     private var lastLimiterNotificationAt = 0L
     private var lastObservedNetwork: String? = null
+    private var noServiceSince = 0L
+    private var lastShizukuHealth: ShizukuHealth? = null
 
     private val phoneStateListener = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         object : PhoneStateListener() {
@@ -98,6 +114,8 @@ class AutoReconnectService : Service() {
         nextAttemptAt = prefs.getLong(PREF_NEXT_ATTEMPT, 0L)
         consecutiveFailures = prefs.getInt(PREF_FAILURE_STREAK, 0)
         circuitOpen = prefs.getBoolean(PREF_CIRCUIT_OPEN, false)
+        val selectedSub = prefs.getInt(PREF_SELECTED_SUBSCRIPTION, SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+        telephony = if (selectedSub != SubscriptionManager.INVALID_SUBSCRIPTION_ID) baseTelephony.createForSubscriptionId(selectedSub) else baseTelephony
     }
 
     private fun persistRetryState() = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
@@ -109,8 +127,10 @@ class AutoReconnectService : Service() {
     override fun onCreate() {
         super.onCreate()
         isRunning = true
-        telephony = getSystemService(TelephonyManager::class.java)
+        baseTelephony = getSystemService(TelephonyManager::class.java)
+        telephony = baseTelephony
         bridge = NetworkSwitcherBridge(this)
+        ShizukuHealthMonitor.install()
         usageTracker = NetworkUsageTracker(this)
 
         reloadSettings()
@@ -125,8 +145,15 @@ class AutoReconnectService : Service() {
             ACTION_START -> {
                 getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                     .edit().putBoolean(PREF_AUTO_ENABLED, true).apply()
+                unregisterNetworkObserver()
                 reloadSettings()
+                registerNetworkObserver()
                 nextAttemptAt = 0L
+            }
+            ACTION_BOOT_START -> {
+                unregisterNetworkObserver()
+                reloadSettings()
+                registerNetworkObserver()
             }
             ACTION_STOP -> {
                 getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -196,7 +223,10 @@ class AutoReconnectService : Service() {
         // Set is only used as compact persistence; the timestamp makes every entry unique.
         history.add(entry)
         while (history.size > MAX_HISTORY) history.remove(history.minByOrNull { runCatching { org.json.JSONObject(it).optLong("time") }.getOrDefault(Long.MAX_VALUE) } ?: break)
-        prefs.edit().putStringSet(PREF_HISTORY, history).apply()
+        val editor = prefs.edit().putStringSet(PREF_HISTORY, history)
+        if (type == "success") editor.putInt("successful_attempts", prefs.getInt("successful_attempts", 0) + 1)
+        if (type == "failed") editor.putInt("failed_attempts", prefs.getInt("failed_attempts", 0) + 1)
+        editor.apply()
     }
 
     private fun observeNetwork() {
@@ -213,12 +243,48 @@ class AutoReconnectService : Service() {
             lastObservedNetwork = current
         }
         usageTracker.sample(current)
+        trackFallbackImpact(current)
+        val now = System.currentTimeMillis()
+        if (current == "Unknown") {
+            if (noServiceSince == 0L) noServiceSince = now
+            maybeFailOverSim(now)
+        } else noServiceSince = 0L
+    }
+
+    private fun trackFallbackImpact(current: String) {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val started = prefs.getLong(PREF_FALLBACK_STARTED, 0L)
+        if (current == "4G / LTE" && started == 0L) {
+            prefs.edit().putLong(PREF_FALLBACK_STARTED, System.currentTimeMillis()).apply()
+        } else if (current == "5G" && started > 0L) {
+            val duration = (System.currentTimeMillis() - started).coerceAtLeast(0L)
+            prefs.edit().remove(PREF_FALLBACK_STARTED)
+                .putLong(PREF_LTE_FALLBACK_MS, prefs.getLong(PREF_LTE_FALLBACK_MS, 0L) + duration)
+                .putLong(PREF_RECOVERY_TOTAL_MS, prefs.getLong(PREF_RECOVERY_TOTAL_MS, 0L) + duration)
+                .putInt(PREF_RECOVERY_COUNT, prefs.getInt(PREF_RECOVERY_COUNT, 0) + 1).apply()
+        }
+    }
+
+    private fun maybeFailOverSim(now: Long) {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        if (!prefs.getBoolean(PREF_FAILOVER_ENABLED, false) || now - noServiceSince < NO_SERVICE_FAILOVER_DELAY_MS) return
+        if (now - prefs.getLong(PREF_LAST_FAILOVER, 0L) < SIM_FAILOVER_COOLDOWN_MS) return
+        val target = prefs.getInt(PREF_FAILOVER_TARGET, SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+        if (target == SubscriptionManager.INVALID_SUBSCRIPTION_ID) return
+        prefs.edit().putLong(PREF_LAST_FAILOVER, now).apply()
+        recordHistory("No service", "Switching mobile data to selected backup SIM", "sim_failover")
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { bridge.switchDefaultDataSubscription(target) }
+            recordHistory("SIM", result, if (result.startsWith("Data SIM switched")) "success" else "failed")
+            updateNotification(result)
+        }
     }
 
     private fun startWatcher() {
         scope.launch {
             while (isActive) {
                 observeNetwork()
+                observeShizukuHealth()
                 if (!paused && !circuitOpen && !operationRunning && isLteFallback() &&
                     System.currentTimeMillis() >= nextAttemptAt
                 ) {
@@ -226,6 +292,16 @@ class AutoReconnectService : Service() {
                 }
                 delay(1_000)
             }
+        }
+    }
+
+    private fun observeShizukuHealth() {
+        val health = ShizukuHealthMonitor.refresh()
+        if (health == lastShizukuHealth) return
+        lastShizukuHealth = health
+        if (health == ShizukuHealth.SERVICE_DIED || health == ShizukuHealth.UNAVAILABLE) {
+            recordHistory("Shizuku", "Background service unavailable; open Shizuku then tap Retry", "system")
+            updateNotification("Shizuku unavailable · open it, then tap Retry")
         }
     }
 
@@ -309,7 +385,7 @@ class AutoReconnectService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_upload)
             .setContentTitle("5G Reconnect")
             .setContentText(text)
@@ -318,7 +394,12 @@ class AutoReconnectService : Service() {
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(android.R.drawable.ic_media_pause, if (paused) "Resume" else "Pause", pauseIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopIntent)
-            .build()
+        if (ShizukuHealthMonitor.state == ShizukuHealth.UNAVAILABLE || ShizukuHealthMonitor.state == ShizukuHealth.SERVICE_DIED) {
+            val shizukuIntent = packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
+            if (shizukuIntent != null) builder.addAction(android.R.drawable.ic_menu_manage, "Open Shizuku", PendingIntent.getActivity(this, 703, shizukuIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            builder.addAction(android.R.drawable.ic_popup_sync, "Retry", PendingIntent.getService(this, 704, Intent(this, AutoReconnectService::class.java).setAction(ACTION_RESUME), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+        }
+        return builder.build()
     }
 
     private fun updateNotification(text: String) {

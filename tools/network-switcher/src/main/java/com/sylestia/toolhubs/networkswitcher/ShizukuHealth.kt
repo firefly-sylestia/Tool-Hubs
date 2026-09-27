@@ -24,6 +24,7 @@ object ShizukuHealthMonitor {
 
     fun refresh(): ShizukuHealth {
         state = when {
+            !Shizuku.pingBinder() && state == ShizukuHealth.SERVICE_DIED -> ShizukuHealth.SERVICE_DIED
             !Shizuku.pingBinder() -> ShizukuHealth.UNAVAILABLE
             Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED -> ShizukuHealth.PERMISSION_REQUIRED
             else -> ShizukuHealth.READY

@@ -5,6 +5,7 @@ import android.net.TrafficStats
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.Calendar
 
 /** Attributes mobile traffic to observed radio state; it is not carrier billing data. */
 class NetworkUsageTracker(context: Context) {
@@ -43,5 +44,16 @@ class NetworkUsageTracker(context: Context) {
         const val KEY_LTE_BYTES = "usage_lte_bytes"
         const val KEY_5G_BYTES = "usage_5g_bytes"
         const val PERSIST_EVERY_MS = 30_000L
+
+        fun totalForLastDays(context: Context, key: String, days: Int): Long {
+            val prefs = context.getSharedPreferences(AutoReconnectService.PREFS_NAME, Context.MODE_PRIVATE)
+            val calendar = Calendar.getInstance()
+            val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            return (0 until days).sumOf { offset ->
+                calendar.timeInMillis = System.currentTimeMillis()
+                calendar.add(Calendar.DAY_OF_YEAR, -offset)
+                prefs.getLong("$key:${formatter.format(calendar.time)}", 0L)
+            }
+        }
     }
 }
