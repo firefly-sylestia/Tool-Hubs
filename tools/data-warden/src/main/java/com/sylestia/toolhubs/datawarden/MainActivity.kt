@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.Image
+import androidx.compose.ui.viewinterop.AndroidView
+import android.widget.ImageView
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Block
@@ -99,7 +102,7 @@ class MainActivity:ComponentActivity(){
   when(tab){
    0->Overview(apps,threshold,p,{refresh()})
    1->Apps(context,apps,p,{refresh()})
-   else->Settings(context,threshold,{v->threshold=v;context.getSharedPreferences("data_warden",0).edit().putFloat(DataWardenService.KEY_THRESHOLD_MB,v).apply()},includeSystem,{v->includeSystem=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_INCLUDE_SYSTEM,v).apply()},protection,{v->protection=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_PROTECTION_ENABLED,v).apply();if(v){if(!usageAccessGranted(context)){protection=false;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_PROTECTION_ENABLED,false).apply()}else if(background) startProtection(context)}else {clearAutomaticBlocks(context);stopProtection(context)}},background,{v->background=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_BACKGROUND,v).apply();if(v&&protection)startProtection(context) else if(!v)stopProtection(context)},shizuku,p)
+   else->Settings(context,threshold,{v->threshold=v;context.getSharedPreferences("data_warden",0).edit().putFloat(DataWardenService.KEY_THRESHOLD_MB,v).apply()},includeSystem,{v->includeSystem=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_INCLUDE_SYSTEM,v).apply()},protection,{v->protection=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_PROTECTION_ENABLED,v).apply();if(v){if(!usageAccessGranted(context)){protection=false;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_PROTECTION_ENABLED,false).apply()}else startProtection(context)}else {clearAutomaticBlocks(context);stopProtection(context)}},background,{v->background=v;context.getSharedPreferences("data_warden",0).edit().putBoolean(DataWardenService.KEY_BACKGROUND,v).apply();if(v&&protection)startProtection(context) else if(!v)stopProtection(context)},shizuku,p)
   }
  }
 }
@@ -110,7 +113,7 @@ class MainActivity:ComponentActivity(){
  val total=apps.sumOf{it.bytes};val over=apps.count{it.bytes>=threshold*1024*1024};val blocked=apps.count{it.blocked}
  LazyColumn(Modifier.fillMaxSize().padding(p),contentPadding=PaddingValues(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
   item{Header("DATA WARDEN","Your data, watched.")}
-  item{Surface(shape=RoundedCornerShape(32.dp),color=CurioInk){Column(Modifier.padding(22.dp)){Text("TODAY",color=Color.White.copy(.6f),fontSize=10.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp);Text(formatBytes(total),color=Color.White,fontSize=42.sp,fontWeight=FontWeight.Black);Text(over.toString()+" apps crossed "+formatMb(threshold)+" MB",color=Color.White.copy(.7f))}}}
+  item{Surface(shape=RoundedCornerShape(32.dp),color=CurioInk){Column(Modifier.padding(22.dp)){Text("TODAY",color=Color.White.copy(.6f),fontSize=10.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp);Text(formatBytes(total),color=Color.White,fontSize=42.sp,fontWeight=FontWeight.Black);Text(over.toString()+" apps crossed "+formatMb(threshold)+" MB",color=Color.White.copy(.7f));Spacer(Modifier.height(8.dp));Text("Measured from midnight. Apps over the limit are blocked in the background automatically.",color=Color.White.copy(.55f),fontSize=11.sp)}}}
   item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Stat("OVER LIMIT",over.toString(),Modifier.weight(1f));Stat("BLOCKED",blocked.toString(),Modifier.weight(1f))}}
   item{Text("BIGGEST USERS",color=CurioRoseDark,fontSize=10.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp)}
   items(apps.take(6),key={it.packageName}){AppRow(it)}
@@ -136,11 +139,15 @@ class MainActivity:ComponentActivity(){
 @Composable private fun AppRow(app:AppUsage,showAction:Boolean=false,onAction:()->Unit={}){
  Surface(shape=RoundedCornerShape(24.dp),color=Color.White.copy(.48f),modifier=Modifier.fillMaxWidth()){
   Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically){
-   Surface(Modifier.size(44.dp),shape=RoundedCornerShape(15.dp),color=CurioInk){Box(contentAlignment=Alignment.Center){Text(app.label.take(1).uppercase(),color=Color.White,fontWeight=FontWeight.Black)}}
+   AppIcon(app.packageName)
    Spacer(Modifier.width(12.dp));Column(Modifier.weight(1f)){Text(app.label,color=CurioInk,fontWeight=FontWeight.Bold);Text(if(app.system)"SYSTEM • "+app.packageName else app.packageName,color=CurioRoseDark,fontSize=9.sp);Text(formatBytes(app.bytes)+" today",color=CurioInk,fontSize=12.sp,fontWeight=FontWeight.SemiBold)}
-   if(showAction)TextButton(onClick=onAction){Text(if(app.blocked)"Allow" else "Block")}
+   if(showAction) IconButton(onClick=onAction){Icon(if(app.blocked) Icons.Outlined.Warning else Icons.Outlined.Block, contentDescription=if(app.blocked) "Allow ${app.label}" else "Block ${app.label}", tint=if(app.blocked) CurioRoseDark else CurioInk)}
   }
  }
+}
+
+@Composable private fun AppIcon(packageName:String){
+ AndroidView(factory={ context -> ImageView(context).apply { scaleType=ImageView.ScaleType.CENTER_INSIDE; setPadding(7,7,7,7); setImageDrawable(context.packageManager.getApplicationIcon(packageName)) } }, modifier=Modifier.size(48.dp).background(Color.White.copy(.72f),RoundedCornerShape(15.dp)))
 }
 
 @Composable private fun Settings(context:Context,threshold:Float,onThreshold:(Float)->Unit,includeSystem:Boolean,onSystem:(Boolean)->Unit,protection:Boolean,onProtection:(Boolean)->Unit,background:Boolean,onBackground:(Boolean)->Unit,shizuku:Boolean,p:PaddingValues){
@@ -157,8 +164,8 @@ class MainActivity:ComponentActivity(){
  }
 }}})}
   item{Setting("System apps","Keep Android and preinstalled services visible.",{Switch(includeSystem,onSystem)})}
-  item{Setting("Protection","Actually enforce the daily threshold. Nothing is automatically blocked while this is off.",{Row(verticalAlignment=Alignment.CenterVertically){Text(if(protection)"Protection active" else "Protection off",modifier=Modifier.weight(1f),color=if(protection)CurioRoseDark else CurioInk,fontWeight=FontWeight.Bold);Switch(protection,onProtection)}})}
-  item{Setting("Background protection","Keep Data Warden watching while the app is closed. Requires Protection to be enabled.",{Row(verticalAlignment=Alignment.CenterVertically){Text(if(background)"Background active" else "Background off",modifier=Modifier.weight(1f),color=CurioInk,fontWeight=FontWeight.Bold);Switch(background,onBackground)}})}
+  item{Setting("Automatic blocking","Data Warden checks usage every 15 seconds. When an app reaches this limit today, only its background networking is blocked; the rule resets at midnight.",{Row(verticalAlignment=Alignment.CenterVertically){Text(if(protection)"Watching automatically" else "Automatic blocking off",modifier=Modifier.weight(1f),color=if(protection)CurioRoseDark else CurioInk,fontWeight=FontWeight.Bold);Switch(protection,onProtection)}})}
+  item{Setting("Run after closing","Keep the watcher alive when the dashboard is closed. Recommended for automatic blocking.",{Row(verticalAlignment=Alignment.CenterVertically){Text(if(background)"Always watching" else "Only when opened",modifier=Modifier.weight(1f),color=CurioInk,fontWeight=FontWeight.Bold);Switch(background,onBackground)}})}
   item{Setting("Block engine","Shizuku is used only when Data Warden needs to enforce a per-app limit.",{Column{Text(if(shizuku)"Shizuku connected" else "Shizuku not connected",fontWeight=FontWeight.Bold,color=CurioRoseDark);if(!shizuku){Spacer(Modifier.height(8.dp));Button(onClick={requestShizukuPermission()}){Text(if(safeShizukuBinder())"Grant Shizuku permission" else "Start Shizuku first")}}}})}
   item{Text("Important: Android's public netpolicy blacklist restricts background data on metered networks. It is not a universal all-network kill switch. The UI deliberately reports this limitation.",color=CurioRoseDark,fontSize=11.sp)}
  }
@@ -169,7 +176,10 @@ class MainActivity:ComponentActivity(){
 private fun loadUsage(context:Context,includeSystem:Boolean):List<AppUsage>{
  val pm=context.packageManager
  val packages=pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(PackageManager.GET_META_DATA.toLong()))
- val end=System.currentTimeMillis();val start=end-86400000L
+ val end=System.currentTimeMillis()
+ val calendar=java.util.Calendar.getInstance()
+ calendar.set(java.util.Calendar.HOUR_OF_DAY,0);calendar.set(java.util.Calendar.MINUTE,0);calendar.set(java.util.Calendar.SECOND,0);calendar.set(java.util.Calendar.MILLISECOND,0)
+ val start=calendar.timeInMillis
  val nsm=context.getSystemService(NetworkStatsManager::class.java);val blocked=blockedPackages(context)
  val stats=runCatching{nsm.queryDetails(ConnectivityManager.TYPE_WIFI,null,start,end)}.getOrNull()
  val totals=HashMap<Int,Long>()

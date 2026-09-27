@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.sylestia.toolhubs.networkswitcher
 
 import android.Manifest
@@ -224,6 +226,12 @@ class MainActivity : ComponentActivity() {
                     ) / 1000L).toInt()
             )
         }
+        var recoveryCooldownMinutes by rememberSaveable {
+            mutableIntStateOf(
+                (getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE)
+                    .getLong(AutoReconnectService.PREF_RECOVERY_COOLDOWN_MS, AutoReconnectService.DEFAULT_RECOVERY_COOLDOWN_MS) / 60_000L).toInt()
+            )
+        }
         var maxAttempts by rememberSaveable {
             mutableIntStateOf(
                 getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE)
@@ -346,9 +354,9 @@ class MainActivity : ComponentActivity() {
                         Icon(Icons.Rounded.Settings, null, tint = CurioRoseDark)
                         Spacer(Modifier.width(8.dp))
                         Column {
-                            Text("Reconnect interval")
+                            Text("Retry delay")
                             Text(
-                                "Wait this long after a failed attempt before retrying.",
+                                "Wait this long between individual 5G recovery attempts.",
                                 fontSize = 11.sp,
                                 color = CurioInk.copy(alpha = .55f)
                             )
@@ -385,9 +393,9 @@ class MainActivity : ComponentActivity() {
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("Maximum attempts")
+                            Text("Attempts per recovery")
                             Text(
-                                "Rolling 60-second limit for automatic triggers.",
+                                "Maximum tries before the recovery cycle pauses for a cooldown.",
                                 fontSize = 11.sp,
                                 color = CurioInk.copy(alpha = .55f)
                             )
@@ -418,6 +426,30 @@ class MainActivity : ComponentActivity() {
                         steps = AutoReconnectService.MAX_MAX_ATTEMPTS -
                             AutoReconnectService.MIN_MAX_ATTEMPTS - 1
                     )
+                    Spacer(Modifier.height(18.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Recovery cooldown")
+                            Text("Pause after the attempt budget is used, then start a fresh recovery cycle.", fontSize = 11.sp, color = CurioInk.copy(alpha = .55f))
+                        }
+                        Text("${recoveryCooldownMinutes} min", color = CurioRoseDark, fontSize = 13.sp)
+                    }
+                    Slider(
+                        value = recoveryCooldownMinutes.toFloat(),
+                        onValueChange = { recoveryCooldownMinutes = it.toInt() },
+                        onValueChangeFinished = {
+                            getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).edit()
+                                .putLong(AutoReconnectService.PREF_RECOVERY_COOLDOWN_MS, recoveryCooldownMinutes * 60_000L).apply()
+                            if (auto) startBackgroundWatcher()
+                        },
+                        valueRange = 1f..30f,
+                        steps = 28
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("1 min", fontSize = 10.sp, color = CurioInk.copy(alpha = .45f))
+                        Text("30 min", fontSize = 10.sp, color = CurioInk.copy(alpha = .45f))
+                    }
+                    Spacer(Modifier.height(18.dp))
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -521,6 +553,25 @@ private fun shizukuHealthLabel(state: ShizukuHealth) = when (state) {
 }
 
 @Composable
+private fun SimPicker(sims: List<MainActivity.SimChoice>, selected: Int, onSelected: (Int) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val current = sims.firstOrNull { it.id == selected } ?: sims.first()
+    Box {
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+            Icon(Icons.Rounded.Settings, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(current.label, modifier = Modifier.weight(1f))
+            Icon(Icons.Rounded.History, contentDescription = "Choose SIM")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            sims.forEach { sim ->
+                DropdownMenuItem(text = { Text(sim.label) }, onClick = { onSelected(sim.id); expanded = false }, leadingIcon = { Icon(Icons.Rounded.Settings, contentDescription = null) })
+            }
+        }
+    }
+}
+
+@Composable
 private fun SimAndDiagnosticsCard(
     sims: List<MainActivity.SimChoice>, selected: Int, backup: Int, failover: Boolean,
     diagnostics: List<Pair<String, String>>, onSelected: (Int) -> Unit,
@@ -532,7 +583,7 @@ private fun SimAndDiagnosticsCard(
             Text("Choose the SIM monitored for 5G. Failover only runs after 45 seconds with no cellular service.", fontSize = 11.sp, color = CurioInk.copy(.55f))
             Spacer(Modifier.height(10.dp))
             Text("Monitor this SIM", fontSize = 12.sp, color = CurioRoseDark)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { sims.forEach { sim -> FilterChip(selected = selected == sim.id, onClick = { onSelected(sim.id) }, label = { Text(sim.label) }) } }
+            SimPicker(sims, selected, onSelected)
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text("Switch to backup SIM when service disappears"); Text("A 15-minute safety cooldown prevents SIM flapping.", fontSize = 11.sp, color = CurioInk.copy(.55f)) }

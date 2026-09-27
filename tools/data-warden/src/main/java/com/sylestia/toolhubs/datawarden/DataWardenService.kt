@@ -30,9 +30,7 @@ class DataWardenService : Service() {
     private val checker = object : Runnable {
         override fun run() {
             val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
-            if (!prefs.getBoolean(KEY_PROTECTION_ENABLED, false) ||
-                !prefs.getBoolean(KEY_BACKGROUND, false)
-            ) {
+            if (!prefs.getBoolean(KEY_PROTECTION_ENABLED, false)) {
                 stopSelf()
                 return
             }
@@ -45,7 +43,7 @@ class DataWardenService : Service() {
                     }
                 }
             }
-            handler.postDelayed(this, 60000L)
+            handler.postDelayed(this, 15_000L)
         }
     }
 
@@ -63,9 +61,7 @@ class DataWardenService : Service() {
             return START_NOT_STICKY
         }
         val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
-        if (!prefs.getBoolean(KEY_PROTECTION_ENABLED, false) ||
-            !prefs.getBoolean(KEY_BACKGROUND, false)
-        ) {
+        if (!prefs.getBoolean(KEY_PROTECTION_ENABLED, false)) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -130,7 +126,14 @@ class DataWardenService : Service() {
         val totals = HashMap<Int, Long>()
         val nsm = getSystemService(NetworkStatsManager::class.java)
         val end = System.currentTimeMillis()
-        val start = end - 86400000L
+        // The limit is a calendar-day limit, not a rolling 24-hour window.
+        // This keeps the dashboard and the background enforcer aligned.
+        val calendar = java.util.Calendar.getInstance()
+        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        calendar.set(java.util.Calendar.MINUTE, 0)
+        calendar.set(java.util.Calendar.SECOND, 0)
+        calendar.set(java.util.Calendar.MILLISECOND, 0)
+        val start = calendar.timeInMillis
 
         fun collect(type: Int) {
             runCatching { nsm.queryDetails(type, null, start, end) }.getOrNull()?.use { stats ->
