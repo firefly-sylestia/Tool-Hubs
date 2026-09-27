@@ -126,7 +126,14 @@ class DataWardenService : Service() {
         val totals = HashMap<Int, Long>()
         val nsm = getSystemService(NetworkStatsManager::class.java)
         val end = System.currentTimeMillis()
-        val start = end - 86400000L
+        // The limit is a calendar-day limit, not a rolling 24-hour window.
+        // This keeps the dashboard and the background enforcer aligned.
+        val calendar = java.util.Calendar.getInstance()
+        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        calendar.set(java.util.Calendar.MINUTE, 0)
+        calendar.set(java.util.Calendar.SECOND, 0)
+        calendar.set(java.util.Calendar.MILLISECOND, 0)
+        val start = calendar.timeInMillis
 
         fun collect(type: Int) {
             runCatching { nsm.queryDetails(type, null, start, end) }.getOrNull()?.use { stats ->

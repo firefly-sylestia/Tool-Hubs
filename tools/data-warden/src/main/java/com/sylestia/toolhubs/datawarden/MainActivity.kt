@@ -113,7 +113,7 @@ class MainActivity:ComponentActivity(){
  val total=apps.sumOf{it.bytes};val over=apps.count{it.bytes>=threshold*1024*1024};val blocked=apps.count{it.blocked}
  LazyColumn(Modifier.fillMaxSize().padding(p),contentPadding=PaddingValues(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
   item{Header("DATA WARDEN","Your data, watched.")}
-  item{Surface(shape=RoundedCornerShape(32.dp),color=CurioInk){Column(Modifier.padding(22.dp)){Text("TODAY",color=Color.White.copy(.6f),fontSize=10.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp);Text(formatBytes(total),color=Color.White,fontSize=42.sp,fontWeight=FontWeight.Black);Text(over.toString()+" apps crossed "+formatMb(threshold)+" MB",color=Color.White.copy(.7f))}}}
+  item{Surface(shape=RoundedCornerShape(32.dp),color=CurioInk){Column(Modifier.padding(22.dp)){Text("TODAY",color=Color.White.copy(.6f),fontSize=10.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp);Text(formatBytes(total),color=Color.White,fontSize=42.sp,fontWeight=FontWeight.Black);Text(over.toString()+" apps crossed "+formatMb(threshold)+" MB",color=Color.White.copy(.7f));Spacer(Modifier.height(8.dp));Text("Measured from midnight. Apps over the limit are blocked in the background automatically.",color=Color.White.copy(.55f),fontSize=11.sp)}}}
   item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Stat("OVER LIMIT",over.toString(),Modifier.weight(1f));Stat("BLOCKED",blocked.toString(),Modifier.weight(1f))}}
   item{Text("BIGGEST USERS",color=CurioRoseDark,fontSize=10.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp)}
   items(apps.take(6),key={it.packageName}){AppRow(it)}
@@ -164,7 +164,7 @@ class MainActivity:ComponentActivity(){
  }
 }}})}
   item{Setting("System apps","Keep Android and preinstalled services visible.",{Switch(includeSystem,onSystem)})}
-  item{Setting("Automatic blocking","When an app reaches your daily limit, Data Warden blocks its background networking automatically. Checks run every 15 seconds while protection is on.",{Row(verticalAlignment=Alignment.CenterVertically){Text(if(protection)"Watching automatically" else "Automatic blocking off",modifier=Modifier.weight(1f),color=if(protection)CurioRoseDark else CurioInk,fontWeight=FontWeight.Bold);Switch(protection,onProtection)}})}
+  item{Setting("Automatic blocking","Data Warden checks usage every 15 seconds. When an app reaches this limit today, only its background networking is blocked; the rule resets at midnight.",{Row(verticalAlignment=Alignment.CenterVertically){Text(if(protection)"Watching automatically" else "Automatic blocking off",modifier=Modifier.weight(1f),color=if(protection)CurioRoseDark else CurioInk,fontWeight=FontWeight.Bold);Switch(protection,onProtection)}})}
   item{Setting("Run after closing","Keep the watcher alive when the dashboard is closed. Recommended for automatic blocking.",{Row(verticalAlignment=Alignment.CenterVertically){Text(if(background)"Always watching" else "Only when opened",modifier=Modifier.weight(1f),color=CurioInk,fontWeight=FontWeight.Bold);Switch(background,onBackground)}})}
   item{Setting("Block engine","Shizuku is used only when Data Warden needs to enforce a per-app limit.",{Column{Text(if(shizuku)"Shizuku connected" else "Shizuku not connected",fontWeight=FontWeight.Bold,color=CurioRoseDark);if(!shizuku){Spacer(Modifier.height(8.dp));Button(onClick={requestShizukuPermission()}){Text(if(safeShizukuBinder())"Grant Shizuku permission" else "Start Shizuku first")}}}})}
   item{Text("Important: Android's public netpolicy blacklist restricts background data on metered networks. It is not a universal all-network kill switch. The UI deliberately reports this limitation.",color=CurioRoseDark,fontSize=11.sp)}
@@ -176,7 +176,10 @@ class MainActivity:ComponentActivity(){
 private fun loadUsage(context:Context,includeSystem:Boolean):List<AppUsage>{
  val pm=context.packageManager
  val packages=pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(PackageManager.GET_META_DATA.toLong()))
- val end=System.currentTimeMillis();val start=end-86400000L
+ val end=System.currentTimeMillis()
+ val calendar=java.util.Calendar.getInstance()
+ calendar.set(java.util.Calendar.HOUR_OF_DAY,0);calendar.set(java.util.Calendar.MINUTE,0);calendar.set(java.util.Calendar.SECOND,0);calendar.set(java.util.Calendar.MILLISECOND,0)
+ val start=calendar.timeInMillis
  val nsm=context.getSystemService(NetworkStatsManager::class.java);val blocked=blockedPackages(context)
  val stats=runCatching{nsm.queryDetails(ConnectivityManager.TYPE_WIFI,null,start,end)}.getOrNull()
  val totals=HashMap<Int,Long>()
