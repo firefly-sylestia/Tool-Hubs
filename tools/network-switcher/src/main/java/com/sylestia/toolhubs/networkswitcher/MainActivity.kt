@@ -226,6 +226,12 @@ class MainActivity : ComponentActivity() {
                     ) / 1000L).toInt()
             )
         }
+        var recoveryCooldownMinutes by rememberSaveable {
+            mutableIntStateOf(
+                (getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE)
+                    .getLong(AutoReconnectService.PREF_RECOVERY_COOLDOWN_MS, AutoReconnectService.DEFAULT_RECOVERY_COOLDOWN_MS) / 60_000L).toInt()
+            )
+        }
         var maxAttempts by rememberSaveable {
             mutableIntStateOf(
                 getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE)
@@ -348,9 +354,9 @@ class MainActivity : ComponentActivity() {
                         Icon(Icons.Rounded.Settings, null, tint = CurioRoseDark)
                         Spacer(Modifier.width(8.dp))
                         Column {
-                            Text("Reconnect interval")
+                            Text("Retry delay")
                             Text(
-                                "Wait this long after a failed attempt before retrying.",
+                                "Wait this long between individual 5G recovery attempts.",
                                 fontSize = 11.sp,
                                 color = CurioInk.copy(alpha = .55f)
                             )
@@ -387,9 +393,9 @@ class MainActivity : ComponentActivity() {
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("Maximum attempts")
+                            Text("Attempts per recovery")
                             Text(
-                                "Rolling 60-second limit for automatic triggers.",
+                                "Maximum tries before the recovery cycle pauses for a cooldown.",
                                 fontSize = 11.sp,
                                 color = CurioInk.copy(alpha = .55f)
                             )
@@ -420,6 +426,30 @@ class MainActivity : ComponentActivity() {
                         steps = AutoReconnectService.MAX_MAX_ATTEMPTS -
                             AutoReconnectService.MIN_MAX_ATTEMPTS - 1
                     )
+                    Spacer(Modifier.height(18.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Recovery cooldown")
+                            Text("Pause after the attempt budget is used, then start a fresh recovery cycle.", fontSize = 11.sp, color = CurioInk.copy(alpha = .55f))
+                        }
+                        Text("${recoveryCooldownMinutes} min", color = CurioRoseDark, fontSize = 13.sp)
+                    }
+                    Slider(
+                        value = recoveryCooldownMinutes.toFloat(),
+                        onValueChange = { recoveryCooldownMinutes = it.toInt() },
+                        onValueChangeFinished = {
+                            getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).edit()
+                                .putLong(AutoReconnectService.PREF_RECOVERY_COOLDOWN_MS, recoveryCooldownMinutes * 60_000L).apply()
+                            if (auto) startBackgroundWatcher()
+                        },
+                        valueRange = 1f..30f,
+                        steps = 28
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("1 min", fontSize = 10.sp, color = CurioInk.copy(alpha = .45f))
+                        Text("30 min", fontSize = 10.sp, color = CurioInk.copy(alpha = .45f))
+                    }
+                    Spacer(Modifier.height(18.dp))
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween

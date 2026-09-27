@@ -30,9 +30,7 @@ class DataWardenService : Service() {
     private val checker = object : Runnable {
         override fun run() {
             val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
-            if (!prefs.getBoolean(KEY_PROTECTION_ENABLED, false) ||
-                !prefs.getBoolean(KEY_BACKGROUND, false)
-            ) {
+            if (!prefs.getBoolean(KEY_PROTECTION_ENABLED, false)) {
                 stopSelf()
                 return
             }
@@ -45,7 +43,7 @@ class DataWardenService : Service() {
                     }
                 }
             }
-            handler.postDelayed(this, 60000L)
+            handler.postDelayed(this, 15_000L)
         }
     }
 
@@ -63,9 +61,7 @@ class DataWardenService : Service() {
             return START_NOT_STICKY
         }
         val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
-        if (!prefs.getBoolean(KEY_PROTECTION_ENABLED, false) ||
-            !prefs.getBoolean(KEY_BACKGROUND, false)
-        ) {
+        if (!prefs.getBoolean(KEY_PROTECTION_ENABLED, false)) {
             stopSelf()
             return START_NOT_STICKY
         }
