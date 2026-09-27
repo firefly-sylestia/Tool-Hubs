@@ -40,6 +40,8 @@ import androidx.core.content.ContextCompat
 import com.sylestia.toolhubs.designsystem.CurioCream
 import com.sylestia.toolhubs.designsystem.CurioInk
 import com.sylestia.toolhubs.designsystem.CurioRoseDark
+import com.sylestia.toolhubs.designsystem.CurioAmber
+import com.sylestia.toolhubs.designsystem.CurioFailure
 import com.sylestia.toolhubs.ui.HubScreenHeader
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -247,19 +249,23 @@ class MainActivity : ComponentActivity() {
 
         Column(
             Modifier.fillMaxSize()
-                .background(CurioCream)
+                .background(MaterialTheme.colorScheme.background)
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp)
         ) {
-            HubScreenHeader("5G Reconnect", "Re-trigger 5G after an LTE fallback.")
+            Column {
+                Text("5G CONNECTOR", color = CurioRoseWood, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, letterSpacing = 2.sp)
+                Text("Stay connected", color = MaterialTheme.colorScheme.onBackground, fontSize = 30.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold)
+                Text("Predictable recovery for your mobile network.", color = MaterialTheme.colorScheme.onBackground.copy(alpha = .6f), fontSize = 13.sp)
+            }
             Spacer(Modifier.height(24.dp))
 
             Card(
                 Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .72f))
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(Modifier.padding(22.dp)) {
                     Text("CURRENT NETWORK", color = CurioRoseDark, fontSize = 10.sp)
@@ -339,7 +345,7 @@ class MainActivity : ComponentActivity() {
             Card(
                 Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(22.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .62f))
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(Modifier.padding(18.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -348,7 +354,7 @@ class MainActivity : ComponentActivity() {
                         Column {
                             Text("Reconnect interval")
                             Text(
-                                "Wait this long after a failed attempt before retrying.",
+                                "If disconnected, retry up to $maxAttempts times with a ${formatInterval(intervalSeconds)} pause between attempts, then stop.",
                                 fontSize = 11.sp,
                                 color = CurioInk.copy(alpha = .55f)
                             )
@@ -526,7 +532,7 @@ private fun SimAndDiagnosticsCard(
     diagnostics: List<Pair<String, String>>, onSelected: (Int) -> Unit,
     onBackup: (Int) -> Unit, onFailover: (Boolean) -> Unit
 ) {
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(.62f))) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(18.dp)) {
             Text("SIM & eligibility", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
             Text("Choose the SIM monitored for 5G. Failover only runs after 45 seconds with no cellular service.", fontSize = 11.sp, color = CurioInk.copy(.55f))
@@ -560,7 +566,7 @@ private fun HistoryView(context: android.content.Context) {
     Card(
         Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .62f))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -630,7 +636,7 @@ private fun HistoryView(context: android.content.Context) {
     val weeklyLte = NetworkUsageTracker.totalForLastDays(context, NetworkUsageTracker.KEY_LTE_BYTES, 7)
     val weekly5G = NetworkUsageTracker.totalForLastDays(context, NetworkUsageTracker.KEY_5G_BYTES, 7)
     var billingDay by rememberSaveable { mutableIntStateOf(prefs.getInt(AutoReconnectService.PREF_BILLING_DAY, 1)) }
-    Card(Modifier.fillMaxWidth().padding(top = 14.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(.62f))) {
+    Card(Modifier.fillMaxWidth().padding(top = 14.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Analytics, null, tint = CurioRoseDark); Spacer(Modifier.width(8.dp)); Column { Text("Mobile data tracker"); Text("Measured while the watcher is on", fontSize = 11.sp, color = CurioInk.copy(.55f)) } }
             Spacer(Modifier.height(12.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("during LTE fallback", formatBytes(lte), CurioRoseDark, Modifier.weight(1f)); ActivityMetric("while on 5G", formatBytes(fiveG), Color(0xFF207561), Modifier.weight(1f)) }
