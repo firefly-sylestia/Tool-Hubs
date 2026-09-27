@@ -139,6 +139,10 @@ class MainActivity : ComponentActivity() {
         return dataType == TelephonyManager.NETWORK_TYPE_NR || display5GSignal
     }
 
+    private fun batteryTemperatureC(): Float = runCatching {
+        getSystemService(android.os.BatteryManager::class.java).getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_TEMPERATURE) / 10f
+    }.getOrDefault(Float.NaN)
+
     private fun currentNetwork(): String = when {
         isActually5G() -> "5G"
         telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_LTE -> "4G / LTE"
@@ -226,6 +230,8 @@ class MainActivity : ComponentActivity() {
                     ) / 1000L).toInt()
             )
         }
+        var thermalGuard by rememberSaveable { mutableStateOf(getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).getBoolean(AutoReconnectService.PREF_THERMAL_GUARD_ENABLED, true)) }
+        var failureRetrySeconds by rememberSaveable { mutableIntStateOf((getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).getLong(AutoReconnectService.PREF_FAILURE_RETRY_INTERVAL_MS, AutoReconnectService.DEFAULT_FAILURE_RETRY_INTERVAL_MS) / 1000L).toInt()) }
         var maxAttempts by rememberSaveable {
             mutableIntStateOf(
                 getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE)
@@ -272,6 +278,8 @@ class MainActivity : ComponentActivity() {
                     Text(network, color = CurioInk, fontSize = 34.sp)
                     Spacer(Modifier.height(8.dp))
                     Text(status, color = CurioInk.copy(alpha = .62f))
+                    val temperature = batteryTemperatureC()
+                    Text(if (temperature.isNaN()) "Phone temperature unavailable" else "Phone temperature ${"%.1f".format(Locale.getDefault(), temperature)}°C · smart heat protection ${if (thermalGuard) "on" else "off"}", fontSize = 11.sp, color = CurioInk.copy(alpha = .55f))
                 }
             }
 
@@ -311,6 +319,14 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Smart heat protection")
+                    Text("Pause 5G switching while the battery or system is hot, then retry immediately after cooling.", fontSize = 12.sp, color = CurioInk.copy(alpha = .55f))
+                }
+                Switch(checked = thermalGuard, onCheckedChange = { enabled -> thermalGuard = enabled; getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).edit().putBoolean(AutoReconnectService.PREF_THERMAL_GUARD_ENABLED, enabled).apply(); if (auto) startBackgroundWatcher() })
+            }
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -379,6 +395,26 @@ class MainActivity : ComponentActivity() {
                                 .apply()
                             if (auto) startBackgroundWatcher()
                         },
+                        valueRange = 30f..600f,
+                        steps = 18
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("30 sec", fontSize = 10.sp, color = CurioInk.copy(alpha = .45f))
+                        Text("10 min", fontSize = 10.sp, color = CurioInk.copy(alpha = .45f))
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Failed-attempt restart delay")
+                            Text("How long to wait after a failed switch. Cooling off a hot phone bypasses this delay.", fontSize = 11.sp, color = CurioInk.copy(alpha = .55f))
+                        }
+                        Text(formatInterval(failureRetrySeconds), color = CurioRoseDark, fontSize = 13.sp)
+                    }
+                    Slider(
+                        value = failureRetrySeconds.toFloat(),
+                        onValueChange = { failureRetrySeconds = it.toInt() },
+                        onValueChangeFinished = { getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).edit().putLong(AutoReconnectService.PREF_FAILURE_RETRY_INTERVAL_MS, failureRetrySeconds * 1000L).apply(); if (auto) startBackgroundWatcher() },
                         valueRange = 30f..600f,
                         steps = 18
                     )

@@ -6,8 +6,10 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.telephony.PhoneStateListener
 import android.telephony.TelephonyDisplayInfo
 import android.telephony.TelephonyManager
@@ -50,12 +52,17 @@ class AutoReconnectService : Service() {
         const val PREF_LTE_FALLBACK_MS = "lte_fallback_ms"
         const val PREF_RECOVERY_TOTAL_MS = "recovery_total_ms"
         const val PREF_RECOVERY_COUNT = "recovery_count"
+        const val PREF_THERMAL_GUARD_ENABLED = "thermal_guard_enabled"
+        const val PREF_THERMAL_PAUSE_C = "thermal_pause_c"
+        const val PREF_FAILURE_RETRY_INTERVAL_MS = "failure_retry_interval_ms"
         const val PREF_BILLING_DAY = "billing_cycle_day"
         const val MAX_HISTORY = 200
         const val DEFAULT_INTERVAL_MS = 30_000L
         const val MIN_INTERVAL_MS = 30_000L
         const val MAX_INTERVAL_MS = 600_000L
         const val DEFAULT_MAX_ATTEMPTS = 2
+        const val DEFAULT_FAILURE_RETRY_INTERVAL_MS = 300_000L
+        const val DEFAULT_THERMAL_PAUSE_C = 43
         const val MIN_MAX_ATTEMPTS = 1
         const val MAX_MAX_ATTEMPTS = 10
         const val NO_SERVICE_FAILOVER_DELAY_MS = 45_000L
@@ -76,6 +83,10 @@ class AutoReconnectService : Service() {
     private var triggerIntervalMs = DEFAULT_INTERVAL_MS
     private var maxAttempts = DEFAULT_MAX_ATTEMPTS
     private var nextAttemptAt = 0L
+    private var failureRetryIntervalMs = DEFAULT_FAILURE_RETRY_INTERVAL_MS
+    private var thermalGuardEnabled = true
+    private var thermalPauseC = DEFAULT_THERMAL_PAUSE_C
+    private var thermalPaused = false
     private var consecutiveFailures = 0
     private var circuitOpen = false
     private var lastLimiterNotificationAt = 0L
@@ -111,6 +122,9 @@ class AutoReconnectService : Service() {
             .coerceIn(MIN_INTERVAL_MS, MAX_INTERVAL_MS)
         maxAttempts = prefs.getInt(PREF_MAX_ATTEMPTS, DEFAULT_MAX_ATTEMPTS)
             .coerceIn(MIN_MAX_ATTEMPTS, MAX_MAX_ATTEMPTS)
+        failureRetryIntervalMs = prefs.getLong(PREF_FAILURE_RETRY_INTERVAL_MS, DEFAULT_FAILURE_RETRY_INTERVAL_MS).coerceIn(MIN_INTERVAL_MS, MAX_INTERVAL_MS)
+        thermalGuardEnabled = prefs.getBoolean(PREF_THERMAL_GUARD_ENABLED, true)
+        thermalPauseC = prefs.getInt(PREF_THERMAL_PAUSE_C, DEFAULT_THERMAL_PAUSE_C).coerceIn(38, 50)
         nextAttemptAt = prefs.getLong(PREF_NEXT_ATTEMPT, 0L)
         consecutiveFailures = prefs.getInt(PREF_FAILURE_STREAK, 0)
         circuitOpen = prefs.getBoolean(PREF_CIRCUIT_OPEN, false)
@@ -229,6 +243,39 @@ class AutoReconnectService : Service() {
         editor.apply()
     }
 
+    private fun batteryTemperatureC(): Float = runCatching {
+        val battery = getSystemService(BatteryManager::class.java)
+        battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_TEMPERATURE) / 10f
+    }.getOrDefault(Float.NaN)
+
+    private fun thermalStatus(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        getSystemService(PowerManager::class.java).currentThermalStatus
+    } else PowerManager.THERMAL_STATUS_NONE
+
+    private fun isThermallyConstrained(): Boolean {
+        val temperature = batteryTemperatureC()
+        val hotBattery = !temperature.isNaN() && temperature >= thermalPauseC
+        val hotSystem = thermalStatus() >= PowerManager.THERMAL_STATUS_SEVERE
+        return thermalGuardEnabled && (hotBattery || hotSystem)
+    }
+
+    private fun observeThermalState() {
+        val constrained = isThermallyConstrained()
+        if (constrained == thermalPaused) return
+        thermalPaused = constrained
+        if (constrained) {
+            recordHistory("Thermal guard", "Paused 5G reconnect at ${batteryTemperatureC()}°C until the phone cools", "thermal")
+            updateNotification("Phone is warm · 5G reconnect paused until cool")
+        } else {
+            nextAttemptAt = 0L
+            consecutiveFailures = 0
+            circuitOpen = false
+            persistRetryState()
+            recordHistory("Thermal guard", "Temperature recovered · retrying 5G immediately", "thermal")
+            updateNotification("Temperature recovered · checking 5G now")
+        }
+    }
+
     private fun observeNetwork() {
         val current = when {
             isActually5G() -> "5G"
@@ -283,9 +330,10 @@ class AutoReconnectService : Service() {
     private fun startWatcher() {
         scope.launch {
             while (isActive) {
+                observeThermalState()
                 observeNetwork()
                 observeShizukuHealth()
-                if (!paused && !circuitOpen && !operationRunning && isLteFallback() &&
+                if (!paused && !thermalPaused && !circuitOpen && !operationRunning && isLteFallback() &&
                     System.currentTimeMillis() >= nextAttemptAt
                 ) {
                     attemptReconnect()
@@ -335,7 +383,7 @@ class AutoReconnectService : Service() {
             } else {
                 consecutiveFailures++
                 // Respect the user's configured base interval, then progressively back off.
-                val delay = maxOf(triggerIntervalMs, when (consecutiveFailures) { 1 -> 30_000L; 2 -> 60_000L; 3 -> 300_000L; else -> 900_000L })
+                val delay = failureRetryIntervalMs
                 circuitOpen = consecutiveFailures >= 4
                 nextAttemptAt = System.currentTimeMillis() + delay
                 persistRetryState()
