@@ -9,8 +9,9 @@
 - [x] LTE/5G traffic is daily and weekly bucketed and throttled; the home tracker includes an adjustable billing-cycle start plus observed fallback/recovery impact.
 - [x] Typed, filterable, expandable history and JSON report export through Android's share sheet.
 
-## Platform-limited follow-ups
-- [ ] Exact "data saved" cannot be derived from Android traffic counters: it needs a carrier plan/rate model. The product reports observed traffic by network state instead.
-- [ ] `cmd phone set-default-data-subscription` is vendor/Android-build dependent and can be rejected by a device even via Shizuku; the UI records the returned result.
-- [ ] Some OEMs restrict boot foreground-service starts and battery optimisation exemptions. The app can guide users but cannot guarantee exemption.
-- [ ] Carrier NR capability and allowed-network-type APIs vary by Android release and vendor radio implementation; diagnostics label unavailable values rather than infer them.
+## Known platform limitations
+These items are intentionally documented rather than left as unfinished implementation work:
+- [x] Exact "data saved" cannot be derived from Android traffic counters: it needs a carrier plan/rate model. The product reports observed traffic by network state instead.
+- [x] `cmd phone set-default-data-subscription` is vendor/Android-build dependent and can be rejected by a device even via Shizuku; the UI records the returned result.
+- [x] Some OEMs restrict boot foreground-service starts and battery optimisation exemptions. The app can guide users but cannot guarantee exemption.
+- [x] Carrier NR capability and allowed-network-type APIs vary by Android release and vendor radio implementation; diagnostics label unavailable values rather than infer them.

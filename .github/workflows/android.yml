@@ -16,9 +16,25 @@ concurrency:
 
 jobs:
   build:
-    name: Build release APKs (debug-signed)
+    name: Build ${{ matrix.name }} release APK
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: calculator
+            task: :tools:calculator:assembleRelease
+            apk: tools/calculator/build/outputs/apk/release/*.apk
+          - name: music-analyzer
+            task: :tools:music-analyzer:assembleRelease
+            apk: tools/music-analyzer/build/outputs/apk/release/*.apk
+          - name: network-switcher
+            task: :tools:network-switcher:assembleRelease
+            apk: tools/network-switcher/build/outputs/apk/release/*.apk
+          - name: data-warden
+            task: :tools:data-warden:assembleRelease
+            apk: tools/data-warden/build/outputs/apk/release/*.apk
 
     steps:
       - name: Check out Tool Hubs
@@ -48,20 +64,16 @@ jobs:
             -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
 
-      - name: Build release APKs with debug keys
+      - name: Build release APK
         env:
           GRADLE_OPTS: -Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
-        run: gradle :tools:calculator:assembleRelease :tools:music-analyzer:assembleRelease :tools:network-switcher:assembleRelease :tools:data-warden:assembleRelease --stacktrace --no-parallel --max-workers=2
+        run: gradle ${{ matrix.task }} --stacktrace --no-daemon
 
-      - name: Upload downloadable release APKs
+      - name: Upload downloadable release APK
         if: success()
         uses: actions/upload-artifact@v6
         with:
-          name: tool-hubs-release-apks-${{ github.run_number }}
-          path: |
-            tools/calculator/build/outputs/apk/release/*.apk
-            tools/music-analyzer/build/outputs/apk/release/*.apk
-            tools/network-switcher/build/outputs/apk/release/*.apk
-            tools/data-warden/build/outputs/apk/release/*.apk
+          name: tool-hubs-${{ matrix.name }}-${{ github.run_number }}
+          path: ${{ matrix.apk }}
           if-no-files-found: error
           retention-days: 7

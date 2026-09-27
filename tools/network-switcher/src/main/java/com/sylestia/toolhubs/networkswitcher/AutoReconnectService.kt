@@ -37,7 +37,8 @@ class AutoReconnectService : Service() {
         const val BURST_WINDOW_MS = 60_000L
         const val PREFS_NAME = "network_switcher"
         const val PREF_INTERVAL_MS = "trigger_interval_ms"
-        const val PREF_MAX_ATTEMPTS = "max_attempts_per_minute"
+        const val PREF_MAX_ATTEMPTS = "max_attempts_per_recovery"
+        const val PREF_RECOVERY_COOLDOWN_MS = "recovery_cooldown_ms"
         const val PREF_AUTO_ENABLED = "auto_reconnect_enabled"
         const val PREF_START_AFTER_REBOOT = "start_after_reboot"
         const val PREF_HISTORY = "network_history"
@@ -60,11 +61,14 @@ class AutoReconnectService : Service() {
         const val DEFAULT_INTERVAL_MS = 30_000L
         const val MIN_INTERVAL_MS = 30_000L
         const val MAX_INTERVAL_MS = 600_000L
-        const val DEFAULT_MAX_ATTEMPTS = 2
+        const val DEFAULT_MAX_ATTEMPTS = 3
         const val DEFAULT_FAILURE_RETRY_INTERVAL_MS = 300_000L
         const val DEFAULT_THERMAL_PAUSE_C = 43
         const val MIN_MAX_ATTEMPTS = 1
-        const val MAX_MAX_ATTEMPTS = 10
+        const val MAX_MAX_ATTEMPTS = 8
+        const val DEFAULT_RECOVERY_COOLDOWN_MS = 5 * 60_000L
+        const val MIN_RECOVERY_COOLDOWN_MS = 1 * 60_000L
+        const val MAX_RECOVERY_COOLDOWN_MS = 30 * 60_000L
         const val NO_SERVICE_FAILOVER_DELAY_MS = 45_000L
         const val SIM_FAILOVER_COOLDOWN_MS = 15 * 60_000L
         @Volatile var isRunning = false
@@ -82,6 +86,7 @@ class AutoReconnectService : Service() {
     private val attemptTimes = ArrayDeque<Long>()
     private var triggerIntervalMs = DEFAULT_INTERVAL_MS
     private var maxAttempts = DEFAULT_MAX_ATTEMPTS
+    private var recoveryCooldownMs = DEFAULT_RECOVERY_COOLDOWN_MS
     private var nextAttemptAt = 0L
     private var failureRetryIntervalMs = DEFAULT_FAILURE_RETRY_INTERVAL_MS
     private var thermalGuardEnabled = true
@@ -126,6 +131,8 @@ class AutoReconnectService : Service() {
         failureRetryIntervalMs = prefs.getLong(PREF_FAILURE_RETRY_INTERVAL_MS, DEFAULT_FAILURE_RETRY_INTERVAL_MS).coerceIn(MIN_INTERVAL_MS, MAX_INTERVAL_MS)
         thermalGuardEnabled = prefs.getBoolean(PREF_THERMAL_GUARD_ENABLED, true)
         thermalPauseC = prefs.getInt(PREF_THERMAL_PAUSE_C, DEFAULT_THERMAL_PAUSE_C).coerceIn(38, 50)
+        recoveryCooldownMs = prefs.getLong(PREF_RECOVERY_COOLDOWN_MS, DEFAULT_RECOVERY_COOLDOWN_MS)
+            .coerceIn(MIN_RECOVERY_COOLDOWN_MS, MAX_RECOVERY_COOLDOWN_MS)
         nextAttemptAt = prefs.getLong(PREF_NEXT_ATTEMPT, 0L)
         consecutiveFailures = prefs.getInt(PREF_FAILURE_STREAK, 0)
         circuitOpen = prefs.getBoolean(PREF_CIRCUIT_OPEN, false)
@@ -368,9 +375,9 @@ class AutoReconnectService : Service() {
         }
 
         if (attemptTimes.size >= maxAttempts) {
-            nextAttemptAt = attemptTimes.first() + BURST_WINDOW_MS
+            nextAttemptAt = now + recoveryCooldownMs
             if (now - lastLimiterNotificationAt >= 5_000L) {
-                updateNotification("Attempt limit reached · " + maxAttempts + " used in the last minute")
+                updateNotification("Recovery paused · " + maxAttempts + " attempts used. Retry in " + formatInterval(recoveryCooldownMs))
                 lastLimiterNotificationAt = now
             }
             return
