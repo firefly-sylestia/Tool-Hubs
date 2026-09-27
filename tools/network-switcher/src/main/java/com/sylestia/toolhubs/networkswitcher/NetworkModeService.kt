@@ -38,6 +38,19 @@ class NetworkModeService(private val context: Context) : INetworkModeService.Stu
         }
     }
 
+    override fun switchDefaultDataSubscription(subscriptionId: Int): String {
+        if (subscriptionId < 0) return "No eligible SIM selected."
+        return try {
+            val process = ProcessBuilder(
+                "cmd", "phone", "set-default-data-subscription", subscriptionId.toString()
+            ).redirectErrorStream(true).start()
+            val output = process.inputStream.bufferedReader().use { it.readText().trim() }
+            if (process.waitFor() == 0) "Data SIM switched" else "Could not switch data SIM: $output"
+        } catch (t: Throwable) {
+            "Data SIM switch failed: ${t.javaClass.simpleName}: ${t.message ?: "unknown error"}"
+        }
+    }
+
     private fun ensureTelephonyFrameworkInitialized() {
         val initializer = Class.forName("android.telephony.TelephonyFrameworkInitializer")
         val managerClass = Class.forName("android.os.TelephonyServiceManager")

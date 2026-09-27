@@ -36,6 +36,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sylestia.toolhubs.designsystem.*
+import com.sylestia.toolhubs.ui.HubScreenHeader
+import com.sylestia.toolhubs.ui.HubMetricTile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -102,7 +104,7 @@ class MainActivity:ComponentActivity(){
  }
 }
 
-@Composable private fun Header(kicker:String,title:String){Column{Text(kicker.uppercase(),color=CurioRoseDark,fontSize=10.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp);Text(title,color=CurioInk,fontSize=30.sp,fontWeight=FontWeight.ExtraBold)}}
+@Composable private fun Header(kicker:String,title:String){HubScreenHeader(kicker,title)}
 
 @Composable private fun Overview(apps:List<AppUsage>,threshold:Float,p:PaddingValues,refresh:()->Unit){
  val total=apps.sumOf{it.bytes};val over=apps.count{it.bytes>=threshold*1024*1024};val blocked=apps.count{it.blocked}
@@ -116,7 +118,7 @@ class MainActivity:ComponentActivity(){
  }
 }
 
-@Composable private fun Stat(label:String,value:String,modifier:Modifier){Surface(modifier,shape=RoundedCornerShape(26.dp),color=Color.White.copy(.55f)){Column(Modifier.padding(17.dp)){Text(value,color=CurioInk,fontSize=27.sp,fontWeight=FontWeight.ExtraBold);Text(label,color=CurioRoseDark,fontSize=9.sp,fontWeight=FontWeight.Bold,letterSpacing=1.sp)}}}
+@Composable private fun Stat(label:String,value:String,modifier:Modifier){HubMetricTile(label,value,CurioRoseDark,modifier)}
 
 @Composable private fun Apps(context:Context,apps:List<AppUsage>,p:PaddingValues,refresh:()->Unit){
  var query by rememberSaveable{mutableStateOf("")}
