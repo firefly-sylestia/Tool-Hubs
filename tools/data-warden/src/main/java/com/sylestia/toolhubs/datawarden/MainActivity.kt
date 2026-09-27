@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.Image
+import androidx.compose.ui.viewinterop.AndroidView
+import android.widget.ImageView
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Block
@@ -136,11 +139,15 @@ class MainActivity:ComponentActivity(){
 @Composable private fun AppRow(app:AppUsage,showAction:Boolean=false,onAction:()->Unit={}){
  Surface(shape=RoundedCornerShape(24.dp),color=Color.White.copy(.48f),modifier=Modifier.fillMaxWidth()){
   Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically){
-   Surface(Modifier.size(44.dp),shape=RoundedCornerShape(15.dp),color=CurioInk){Box(contentAlignment=Alignment.Center){Text(app.label.take(1).uppercase(),color=Color.White,fontWeight=FontWeight.Black)}}
+   AppIcon(app.packageName)
    Spacer(Modifier.width(12.dp));Column(Modifier.weight(1f)){Text(app.label,color=CurioInk,fontWeight=FontWeight.Bold);Text(if(app.system)"SYSTEM • "+app.packageName else app.packageName,color=CurioRoseDark,fontSize=9.sp);Text(formatBytes(app.bytes)+" today",color=CurioInk,fontSize=12.sp,fontWeight=FontWeight.SemiBold)}
-   if(showAction)TextButton(onClick=onAction){Text(if(app.blocked)"Allow" else "Block")}
+   if(showAction) IconButton(onClick=onAction){Icon(if(app.blocked) Icons.Outlined.Warning else Icons.Outlined.Block, contentDescription=if(app.blocked) "Allow ${app.label}" else "Block ${app.label}", tint=if(app.blocked) CurioRoseDark else CurioInk)}
   }
  }
+}
+
+@Composable private fun AppIcon(packageName:String){
+ AndroidView(factory={ context -> ImageView(context).apply { scaleType=ImageView.ScaleType.CENTER_INSIDE; setPadding(7,7,7,7); setImageDrawable(context.packageManager.getApplicationIcon(packageName)) } }, modifier=Modifier.size(48.dp).background(Color.White.copy(.72f),RoundedCornerShape(15.dp)))
 }
 
 @Composable private fun Settings(context:Context,threshold:Float,onThreshold:(Float)->Unit,includeSystem:Boolean,onSystem:(Boolean)->Unit,protection:Boolean,onProtection:(Boolean)->Unit,background:Boolean,onBackground:(Boolean)->Unit,shizuku:Boolean,p:PaddingValues){

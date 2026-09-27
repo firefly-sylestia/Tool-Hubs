@@ -523,6 +523,25 @@ private fun shizukuHealthLabel(state: ShizukuHealth) = when (state) {
 }
 
 @Composable
+private fun SimPicker(sims: List<MainActivity.SimChoice>, selected: Int, onSelected: (Int) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val current = sims.firstOrNull { it.id == selected } ?: sims.first()
+    Box {
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+            Icon(Icons.Rounded.Settings, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(current.label, modifier = Modifier.weight(1f))
+            Icon(Icons.Rounded.History, contentDescription = "Choose SIM")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            sims.forEach { sim ->
+                DropdownMenuItem(text = { Text(sim.label) }, onClick = { onSelected(sim.id); expanded = false }, leadingIcon = { Icon(Icons.Rounded.Settings, contentDescription = null) })
+            }
+        }
+    }
+}
+
+@Composable
 private fun SimAndDiagnosticsCard(
     sims: List<MainActivity.SimChoice>, selected: Int, backup: Int, failover: Boolean,
     diagnostics: List<Pair<String, String>>, onSelected: (Int) -> Unit,
@@ -534,7 +553,7 @@ private fun SimAndDiagnosticsCard(
             Text("Choose the SIM monitored for 5G. Failover only runs after 45 seconds with no cellular service.", fontSize = 11.sp, color = CurioInk.copy(.55f))
             Spacer(Modifier.height(10.dp))
             Text("Monitor this SIM", fontSize = 12.sp, color = CurioRoseDark)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { sims.forEach { sim -> FilterChip(selected = selected == sim.id, onClick = { onSelected(sim.id) }, label = { Text(sim.label) }) } }
+            SimPicker(sims, selected, onSelected)
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text("Switch to backup SIM when service disappears"); Text("A 15-minute safety cooldown prevents SIM flapping.", fontSize = 11.sp, color = CurioInk.copy(.55f)) }
