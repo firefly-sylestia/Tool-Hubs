@@ -17,7 +17,7 @@ class NetworkSwitcherBridge(private val context: Context) {
     )
         .daemon(false)
         .processNameSuffix("network")
-        .version(1)
+        .version(BuildConfig.VERSION_CODE)
         .tag("network-switcher")
 
     fun reconnect5G(): String {
@@ -54,6 +54,10 @@ class NetworkSwitcherBridge(private val context: Context) {
             service?.let(operation) ?: "Shizuku service disconnected before the operation."
         } catch (t: Throwable) {
             "Shizuku operation failed: ${t.javaClass.simpleName}: ${t.message ?: "unknown error"}"
+        } finally {
+            runCatching { Shizuku.unbindUserService(args, null, true) }
+            service = null
+            ShizukuHealthMonitor.refresh()
         }
     }
 }
