@@ -315,7 +315,7 @@ fun HubScreenHeader(kicker: String, title: String, modifier: Modifier = Modifier
 /** Original berry/cream metric tile. Unchanged so the other tools render exactly as before. */
 @Composable
 fun HubMetricTile(label: String, value: String, accent: Color, modifier: Modifier = Modifier) {
-    Surface(modifier, shape = RoundedCornerShape(20.dp), color = accent.copy(alpha = .10f)) {
+    Surface(modifier, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
         Column(Modifier.padding(14.dp)) {
             Text(value, color = accent, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
             Text(label.uppercase(), color = CurioInk.copy(alpha = .65f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
@@ -665,8 +665,9 @@ private fun RowScope.HubNavButton(item: HubNavItem, selected: Boolean, onClick: 
     val haptic = LocalHapticFeedback.current
     val scale by animateFloatAsState(if (selected) 1f else 0.93f, spring(dampingRatio = 0.6f, stiffness = 620f), label = "nav_scale")
     val lift by animateDpAsState(if (selected) 0.dp else 2.dp, spring(dampingRatio = 0.65f, stiffness = 650f), label = "nav_lift")
+    val safeLift = lift.coerceAtLeast(0.dp)
     val fill by animateColorAsState(
-        if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+        if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
         tween(280),
         label = "nav_fill",
     )
@@ -680,11 +681,11 @@ private fun RowScope.HubNavButton(item: HubNavItem, selected: Boolean, onClick: 
         modifier
             .fillMaxHeight()
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .padding(top = lift)
+            .padding(top = safeLift)
             .clip(RoundedCornerShape(18.dp))
             .background(fill)
             .clickable {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 onClick()
             },
         contentAlignment = Alignment.Center,
