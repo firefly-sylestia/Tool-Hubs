@@ -238,7 +238,7 @@ fun HubIconChip(icon: ImageVector, modifier: Modifier = Modifier, accent: Color 
             .size(48.dp)
             .shadow(10.dp, RoundedCornerShape(17.dp), clip = false, ambientColor = accents.shadow, spotColor = accents.shadow)
             .clip(RoundedCornerShape(17.dp))
-            .background(accent.copy(alpha = 0.22f))
+            .background(accent.copy(alpha = 0.22f)),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(23.dp))
