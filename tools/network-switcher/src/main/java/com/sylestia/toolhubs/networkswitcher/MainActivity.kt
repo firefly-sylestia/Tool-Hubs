@@ -307,137 +307,121 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val MetalBase = Color(0xFFB9BDC1)
+    private val MetalDark = Color(0xFF565B60)
+    private val MetalDeep = Color(0xFF2D3135)
+    private val MetalLight = Color(0xFFE8EAEB)
+    private val MetalAccent = Color(0xFFB76E4A)
+
     @Composable
     private fun AnimatedBackdrop() {
-        val infinite = rememberInfiniteTransition(label = "ambient_motion")
-        val driftA by infinite.animateFloat(
+        val infinite = rememberInfiniteTransition(label = "metal_ambient")
+        val drift by infinite.animateFloat(
+            -0.04f, 0.04f,
+            infiniteRepeatable(tween(9000), RepeatMode.Reverse),
+            label = "metal_drift"
+        )
+        val sheen by infinite.animateFloat(
             0f, 1f,
-            infiniteRepeatable(tween(12000), RepeatMode.Reverse),
-            label = "drift_a"
-        )
-        val driftB by infinite.animateFloat(
-            1f, 0f,
-            infiniteRepeatable(tween(15500), RepeatMode.Reverse),
-            label = "drift_b"
-        )
-        val pulse by infinite.animateFloat(
-            0.90f, 1.07f,
-            infiniteRepeatable(tween(5200), RepeatMode.Reverse),
-            label = "ambient_pulse"
+            infiniteRepeatable(tween(7000), RepeatMode.Restart),
+            label = "metal_sheen"
         )
 
         Canvas(
             Modifier
                 .fillMaxSize()
-                .background(CurioCream)
+                .background(MetalBase)
         ) {
-            val width = size.width
-            val height = size.height
-
-            drawCircle(
-                brush = Brush.radialGradient(
-                    listOf(
-                        CurioRoseDark.copy(alpha = 0.14f),
-                        CurioRoseDark.copy(alpha = 0.035f),
-                        Color.Transparent
-                    )
-                ),
-                radius = width * 0.66f * pulse,
-                center = androidx.compose.ui.geometry.Offset(
-                    width * (0.06f + driftA * 0.24f),
-                    height * (0.10f + driftB * 0.09f)
-                )
-            )
-
-            drawCircle(
-                brush = Brush.radialGradient(
-                    listOf(
-                        Color(0xFF5D806D).copy(alpha = 0.11f),
-                        Color(0xFF5D806D).copy(alpha = 0.028f),
-                        Color.Transparent
-                    )
-                ),
-                radius = width * 0.58f,
-                center = androidx.compose.ui.geometry.Offset(
-                    width * (0.96f - driftB * 0.23f),
-                    height * (0.78f + driftA * 0.11f)
-                )
-            )
-
-            drawCircle(
-                brush = Brush.radialGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.48f),
-                        Color.White.copy(alpha = 0.08f),
-                        Color.Transparent
-                    )
-                ),
-                radius = width * 0.40f,
-                center = androidx.compose.ui.geometry.Offset(
-                    width * 0.5f,
-                    height * (0.40f + driftA * 0.05f)
-                )
-            )
+            val w = size.width
+            val h = size.height
 
             drawRect(
-                brush = Brush.horizontalGradient(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        MetalLight.copy(alpha = .80f),
+                        MetalBase.copy(alpha = .96f),
+                        Color(0xFF9FA4A8),
+                        MetalLight.copy(alpha = .68f)
+                    ),
+                    start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                    end = androidx.compose.ui.geometry.Offset(w, h)
+                )
+            )
+
+            repeat(32) { i ->
+                val y = h * i / 32f
+                drawLine(
+                    color = Color.White.copy(alpha = if (i % 3 == 0) .055f else .028f),
+                    start = androidx.compose.ui.geometry.Offset(0f, y),
+                    end = androidx.compose.ui.geometry.Offset(w, y + w * .012f),
+                    strokeWidth = if (i % 4 == 0) 1.5f else 0.7f
+                )
+            }
+
+            drawCircle(
+                brush = Brush.radialGradient(
                     listOf(
-                        Color.Transparent,
-                        CurioInk.copy(alpha = 0.05f),
+                        Color.White.copy(alpha = .24f),
                         Color.Transparent
                     )
                 ),
-                topLeft = androidx.compose.ui.geometry.Offset(width * 0.09f, height * 0.24f),
-                size = androidx.compose.ui.geometry.Size(width * 0.82f, 1f)
+                radius = w * .52f,
+                center = androidx.compose.ui.geometry.Offset(
+                    w * (.25f + drift),
+                    h * .14f
+                )
+            )
+
+            val sheenX = w * (sheen * 1.45f - .22f)
+            drawRect(
+                brush = Brush.linearGradient(
+                    listOf(Color.Transparent, Color.White.copy(alpha = .09f), Color.Transparent),
+                    start = androidx.compose.ui.geometry.Offset(sheenX - w * .22f, 0f),
+                    end = androidx.compose.ui.geometry.Offset(sheenX + w * .22f, h)
+                )
             )
         }
     }
 
     @Composable
-    private fun FloatingNavigation(
-        page: Int,
-        onPageSelected: (Int) -> Unit
-    ) {
+    private fun FloatingNavigation(page: Int, onPageSelected: (Int) -> Unit) {
         val items = listOf(
-            Triple(Icons.Rounded.Bolt, "Control", 0),
-            Triple(Icons.Rounded.History, "History", 1),
-            Triple(Icons.Rounded.Analytics, "Usage", 2),
-            Triple(Icons.Rounded.Settings, "Settings", 3)
+            Triple(Icons.Rounded.Bolt, "CONTROL", 0),
+            Triple(Icons.Rounded.History, "HISTORY", 1),
+            Triple(Icons.Rounded.Analytics, "USAGE", 2),
+            Triple(Icons.Rounded.Settings, "SETTINGS", 3)
         )
-
         Box(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 12.dp, vertical = 9.dp),
             contentAlignment = Alignment.Center
         ) {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(74.dp)
+                    .height(76.dp)
                     .border(
-                        BorderStroke(1.dp, Color.White.copy(alpha = 0.78f)),
-                        RoundedCornerShape(30.dp)
+                        BorderStroke(1.dp, Color.White.copy(.72f)),
+                        RoundedCornerShape(22.dp)
                     ),
-                shape = RoundedCornerShape(30.dp),
-                color = Color.White.copy(alpha = 0.80f),
-                tonalElevation = 4.dp,
-                shadowElevation = 16.dp
+                shape = RoundedCornerShape(22.dp),
+                color = MetalDark.copy(alpha = .96f),
+                shadowElevation = 20.dp,
+                tonalElevation = 0.dp
             ) {
                 Row(
-                    Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 8.dp, vertical = 7.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
+                    Modifier.fillMaxSize().padding(7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     items.forEach { (icon, label, index) ->
-                        NavMorphItem(
+                        MetalNavButton(
                             icon = icon,
                             label = label,
                             selected = page == index,
-                            onClick = { onPageSelected(index) }
+                            onClick = { onPageSelected(index) },
+                            modifier = Modifier.weight(if (page == index) 1.24f else .90f)
                         )
                     }
                 }
@@ -446,107 +430,279 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun NavMorphItem(
+    private fun MetalNavButton(
         icon: androidx.compose.ui.graphics.vector.ImageVector,
         label: String,
         selected: Boolean,
-        onClick: () -> Unit
+        onClick: () -> Unit,
+        modifier: Modifier
     ) {
         val scale by animateFloatAsState(
-            if (selected) 1f else 0.92f,
-            spring(dampingRatio = 0.63f, stiffness = 520f),
-            label = "nav_scale"
+            if (selected) 1f else .94f,
+            spring(dampingRatio = .62f, stiffness = 600f),
+            label = "metal_nav_scale"
         )
-        val rotation by animateFloatAsState(
-            if (selected) 0f else -4f,
-            spring(dampingRatio = 0.72f, stiffness = 440f),
-            label = "nav_rotation"
+        val lift by animateDpAsState(
+            if (selected) 0.dp else 2.dp,
+            spring(dampingRatio = .65f, stiffness = 650f),
+            label = "metal_nav_lift"
         )
-        val widthWeight by animateFloatAsState(
-            if (selected) 1.30f else 0.84f,
-            spring(dampingRatio = 0.70f, stiffness = 420f),
-            label = "nav_weight"
-        )
-        val activeAlpha by animateFloatAsState(
-            if (selected) 1f else 0f,
-            tween(220),
-            label = "nav_alpha"
-        )
+        Box(
+            modifier
+                .fillMaxHeight()
+                .padding(top = lift)
+                .scale(scale)
+                .clip(RoundedCornerShape(17.dp))
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            if (selected) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(MetalLight, MetalBase, Color(0xFF9A9FA3))
+                            ),
+                            RoundedCornerShape(17.dp)
+                        )
+                        .border(
+                            BorderStroke(1.dp, Color.White.copy(.76f)),
+                            RoundedCornerShape(17.dp)
+                        )
+                )
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .padding(top = 2.dp)
+                        .border(
+                            BorderStroke(2.dp, Color.Black.copy(.15f)),
+                            RoundedCornerShape(15.dp)
+                        )
+                )
+            }
 
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    icon,
+                    null,
+                    tint = if (selected) MetalDeep else Color.White.copy(.60f),
+                    modifier = Modifier.size(if (selected) 21.dp else 20.dp)
+                )
+                AnimatedVisibility(
+                    visible = selected,
+                    enter = fadeIn(tween(120)) + expandVertically(tween(180)),
+                    exit = fadeOut(tween(90)) + shrinkVertically(tween(130))
+                ) {
+                    Text(
+                        label,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.2.sp,
+                        color = MetalDeep,
+                        modifier = Modifier.padding(top = 3.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun MetalPanel(
+        modifier: Modifier = Modifier,
+        content: @Composable ColumnScope.() -> Unit
+    ) {
+        Surface(
+            modifier = modifier
+                .border(
+                    BorderStroke(1.dp, Color.White.copy(.66f)),
+                    RoundedCornerShape(24.dp)
+                ),
+            shape = RoundedCornerShape(24.dp),
+            color = MetalBase.copy(.91f),
+            shadowElevation = 12.dp,
+            tonalElevation = 0.dp
+        ) {
+            Column(
+                Modifier
+                    .background(
+                        Brush.linearGradient(
+                            listOf(
+                                Color.White.copy(.34f),
+                                Color.Transparent,
+                                Color.Black.copy(.06f)
+                            )
+                        )
+                    )
+                    .padding(18.dp),
+                content = content
+            )
+        }
+    }
+
+    @Composable
+    private fun TactileButton(
+        text: String,
+        icon: androidx.compose.ui.graphics.vector.ImageVector,
+        enabled: Boolean = true,
+        onClick: () -> Unit
+    ) {
+        var pressed by remember { mutableStateOf(false) }
+        val haptic = LocalHapticFeedback.current
+        val view = LocalView.current
+        val scale by animateFloatAsState(
+            if (pressed) .965f else 1f,
+            spring(dampingRatio = .48f, stiffness = 750f),
+            label = "tactile_scale"
+        )
         Box(
             Modifier
-                .weight(widthWeight)
-                .fillMaxHeight()
+                .fillMaxWidth()
+                .height(60.dp)
                 .scale(scale)
-                .clip(RoundedCornerShape(22.dp))
-                .clickable(onClick = onClick),
+                .clip(RoundedCornerShape(18.dp))
+                .clickable(enabled = enabled) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    pressed = true
+                    onClick()
+                },
             contentAlignment = Alignment.Center
         ) {
             Box(
                 Modifier
-                    .fillMaxSize()
-                    .padding(2.dp)
+                    .matchParentSize()
                     .background(
-                        CurioRoseDark.copy(alpha = 0.12f * activeAlpha),
-                        RoundedCornerShape(20.dp)
+                        Brush.verticalGradient(
+                            listOf(MetalLight, Color(0xFFD0D3D5), Color(0xFF989DA1))
+                        ),
+                        RoundedCornerShape(18.dp)
                     )
                     .border(
-                        BorderStroke(
-                            1.dp,
-                            CurioRoseDark.copy(alpha = 0.12f * activeAlpha)
-                        ),
-                        RoundedCornerShape(20.dp)
+                        BorderStroke(1.dp, Color.White.copy(.72f)),
+                        RoundedCornerShape(18.dp)
                     )
             )
-
-            Row(
+            Box(
                 Modifier
-                    .padding(horizontal = 10.dp)
-                    .animateContentSize(
-                        spring(dampingRatio = 0.62f, stiffness = 450f)
-                    ),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Box(
-                    Modifier
-                        .size(if (selected) 38.dp else 34.dp)
-                        .background(
-                            if (selected) CurioRoseDark.copy(alpha = 0.13f)
-                            else Color.Transparent,
-                            CircleShape
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 12.dp)
+                    .background(
+                        MetalDark.copy(.34f),
+                        RoundedCornerShape(50)
+                    )
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, null, tint = MetalDeep)
+                Spacer(Modifier.width(9.dp))
+                Text(text, color = MetalDeep, fontWeight = FontWeight.Bold)
+            }
+        }
+        LaunchedEffect(pressed) {
+            if (pressed) {
+                delay(90)
+                pressed = false
+            }
+        }
+    }
+
+    @Composable
+    private fun NetworkPulseOrb(network: String) {
+        val infinite = rememberInfiniteTransition(label = "metal_orb")
+        val pulse by infinite.animateFloat(
+            .96f, 1.04f,
+            infiniteRepeatable(tween(1100), RepeatMode.Reverse),
+            label = "orb_pulse"
+        )
+        val tint = if (network == "5G") Color(0xFF5D806D)
+        else if (network == "4G / LTE") MetalAccent
+        else MetalDeep
+
+        Box(Modifier.size(104.dp), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier
+                    .size(92.dp)
+                    .scale(pulse)
+                    .background(
+                        Brush.radialGradient(
+                            listOf(Color.White.copy(.52f), Color.Transparent)
                         ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = label,
-                        tint = if (selected) CurioRoseDark
-                        else CurioInk.copy(alpha = 0.50f),
-                        modifier = Modifier
-                            .size(if (selected) 20.dp else 21.dp)
-                            .rotate(rotation)
+                        CircleShape
+                    )
+                    .border(
+                        BorderStroke(1.dp, Color.White.copy(.66f)),
+                        CircleShape
+                    )
+            )
+            Box(
+                Modifier
+                    .size(72.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(MetalLight, Color(0xFF9B9FA3))
+                        ),
+                        CircleShape
+                    )
+                    .border(
+                        BorderStroke(2.dp, tint.copy(.45f)),
+                        CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        if (network == "5G") "5G" else if (network == "4G / LTE") "LTE" else "—",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Black,
+                        color = tint
+                    )
+                    Text(
+                        "RADIO",
+                        fontSize = 7.sp,
+                        letterSpacing = 1.1.sp,
+                        color = MetalDeep.copy(.52f)
                     )
                 }
-
-                AnimatedVisibility(
-                    visible = selected,
-                    enter = fadeIn(tween(170)) + expandHorizontally(tween(250)),
-                    exit = fadeOut(tween(110)) + shrinkHorizontally(tween(180))
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Spacer(Modifier.width(7.dp))
-                        Text(
-                            text = label,
-                            color = CurioInk,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Clip
-                        )
-                    }
-                }
             }
+        }
+    }
+
+    @Composable
+    private fun StatePill(label: String, active: Boolean) {
+        Row(
+            Modifier
+                .background(
+                    if (active) MetalDark else Color.Black.copy(.10f),
+                    RoundedCornerShape(8.dp)
+                )
+                .border(
+                    BorderStroke(1.dp, Color.White.copy(.28f)),
+                    RoundedCornerShape(8.dp)
+                )
+                .padding(horizontal = 9.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier
+                    .size(6.dp)
+                    .background(
+                        if (active) Color(0xFF9BE7C0) else Color.White.copy(.34f),
+                        CircleShape
+                    )
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                label,
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = .9.sp,
+                color = Color.White.copy(if (active) .86f else .48f)
+            )
         }
     }
 
