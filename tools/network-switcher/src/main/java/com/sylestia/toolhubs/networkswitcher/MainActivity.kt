@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity() {
         }
     }
     private var shizukuGranted by mutableStateOf(false)
+    private var themeMode by mutableStateOf("system")
     private val telephony by lazy { getSystemService(TelephonyManager::class.java) }
     @Volatile private var display5GSignal = false
 
@@ -100,12 +101,22 @@ class MainActivity : ComponentActivity() {
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 43)
 
+        themeMode = getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE)
+            .getString("theme_mode", "system") ?: "system"
         shizukuGranted = Shizuku.pingBinder() &&
             Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
         ShizukuHealthMonitor.install()
         Shizuku.addRequestPermissionResultListener(shizukuPermissionListener)
         registerNetworkObserver()
-        setContent { com.sylestia.toolhubs.designsystem.ToolHubsTheme { NetworkScreen() } }
+        setContent {
+            com.sylestia.toolhubs.designsystem.ToolHubsTheme(
+                darkTheme = when (themeMode) {
+                    "dark" -> true
+                    "light" -> false
+                    else -> androidx.compose.foundation.isSystemInDarkTheme()
+                }
+            ) { NetworkScreen() }
+        }
     }
 
     override fun onDestroy() {
@@ -1183,6 +1194,32 @@ class MainActivity : ComponentActivity() {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
             ExpressivePageHeader("Settings", "Watcher, SIM and recovery behaviour.", Icons.Rounded.Settings)
             Spacer(Modifier.height(14.dp))
+            MetalPanel(Modifier.fillMaxWidth()) {
+                Text("Appearance", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Choose how the instrument surface should render.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.58f), modifier = Modifier.padding(top = 3.dp))
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("system" to "System", "light" to "Light", "dark" to "Dark").forEach { (mode, label) ->
+                        val selected = themeMode == mode
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .height(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                                .border(1.dp, MaterialTheme.colorScheme.outline.copy(.35f), RoundedCornerShape(12.dp))
+                                .clickable {
+                                    themeMode = mode
+                                    prefs().edit().putString("theme_mode", mode).apply()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
             MetalPanel(Modifier.fillMaxWidth()) {
                 Text("Recovery", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Text("Retry delay: ${intervalSeconds}s", color = MaterialTheme.colorScheme.onSurface.copy(.65f))
