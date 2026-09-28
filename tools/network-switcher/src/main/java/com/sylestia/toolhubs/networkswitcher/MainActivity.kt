@@ -65,6 +65,38 @@ import java.util.Date
 import java.util.Locale
 import rikka.shizuku.Shizuku
 
+private val NetworkLightColors = lightColorScheme(
+    primary = Color(0xFF8A543D),
+    onPrimary = Color.White,
+    secondary = Color(0xFF626A70),
+    onSecondary = Color.White,
+    tertiary = Color(0xFF6D745F),
+    onTertiary = Color.White,
+    background = Color(0xFFE3E5E6),
+    onBackground = Color(0xFF202428),
+    surface = Color(0xFFECEEEF),
+    onSurface = Color(0xFF202428),
+    surfaceVariant = Color(0xFFD5D9DC),
+    onSurfaceVariant = Color(0xFF4F565B),
+    outline = Color(0xFF727A80)
+)
+
+private val NetworkDarkColors = darkColorScheme(
+    primary = Color(0xFFD08B67),
+    onPrimary = Color(0xFF291B14),
+    secondary = Color(0xFF9EA7AD),
+    onSecondary = Color(0xFF202428),
+    tertiary = Color(0xFF9DAC8D),
+    onTertiary = Color(0xFF20281F),
+    background = Color(0xFF171B1F),
+    onBackground = Color(0xFFE8EAEB),
+    surface = Color(0xFF24292D),
+    onSurface = Color(0xFFE8EAEB),
+    surfaceVariant = Color(0xFF343A3F),
+    onSurfaceVariant = Color(0xFFC0C5C9),
+    outline = Color(0xFF737A80)
+)
+
 class MainActivity : ComponentActivity() {
     private val shizukuPermissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
         if (requestCode == 100 && grantResult == PackageManager.PERMISSION_GRANTED) {
@@ -113,13 +145,18 @@ class MainActivity : ComponentActivity() {
         Shizuku.addRequestPermissionResultListener(shizukuPermissionListener)
         registerNetworkObserver()
         setContent {
-            com.sylestia.toolhubs.designsystem.ToolHubsTheme(
-                darkTheme = when (themeMode) {
-                    "dark" -> true
-                    "light" -> false
-                    else -> androidx.compose.foundation.isSystemInDarkTheme()
+            val dark = when (themeMode) {
+                "dark" -> true
+                "light" -> false
+                else -> androidx.compose.foundation.isSystemInDarkTheme()
+            }
+            com.sylestia.toolhubs.designsystem.ToolHubsTheme(darkTheme = dark) {
+                MaterialTheme(
+                    colorScheme = if (dark) NetworkDarkColors else NetworkLightColors
+                ) {
+                    NetworkScreen()
                 }
-            ) { NetworkScreen() }
+            }
         }
     }
 
