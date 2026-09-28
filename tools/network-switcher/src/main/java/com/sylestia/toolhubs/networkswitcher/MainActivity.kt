@@ -777,13 +777,7 @@ class MainActivity : ComponentActivity() {
             PermissionChecker()
             Spacer(Modifier.height(14.dp))
 
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(32.dp),
-                color = Color.White.copy(alpha = 0.76f),
-                tonalElevation = 5.dp,
-                shadowElevation = 12.dp
-            ) {
+            MetalPanel(Modifier.fillMaxWidth()) {
                 Box(Modifier.fillMaxWidth()) {
                     Box(
                         Modifier
@@ -857,17 +851,21 @@ class MainActivity : ComponentActivity() {
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(Color.White.copy(alpha = 0.52f))
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color.Black.copy(alpha = 0.11f))
+                                .border(
+                                    BorderStroke(1.dp, Color.White.copy(.24f)),
+                                    RoundedCornerShape(14.dp)
+                                )
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(Modifier.weight(1f)) {
-                                Text("Automatic 5G reconnect", fontWeight = FontWeight.SemiBold)
+                                Text("AUTOMATIC 5G RECONNECT", fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = .8.sp)
                                 Text(
                                     "Keeps watching after you leave the app.",
                                     fontSize = 11.sp,
-                                    color = CurioInk.copy(alpha = 0.54f)
+                                    color = CurioInk.copy(alpha = 0.60f)
                                 )
                             }
                             Switch(
