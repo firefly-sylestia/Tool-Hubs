@@ -755,7 +755,6 @@ class MainActivity : ComponentActivity() {
 
             }
         }
-    }
 
     @Composable
     private fun PermissionRow(label: String, allowed: Boolean, kind: String) {
