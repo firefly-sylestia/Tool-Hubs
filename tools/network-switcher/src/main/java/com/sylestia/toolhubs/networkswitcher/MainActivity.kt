@@ -55,7 +55,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.sylestia.toolhubs.designsystem.CurioCream
 import com.sylestia.toolhubs.designsystem.CurioInk
-import com.sylestia.toolhubs.designsystem.CurioRoseDark
+import com.sylestia.toolhubs.designsystem.MaterialTheme.colorScheme.primary
 import com.sylestia.toolhubs.ui.HubScreenHeader
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -251,7 +251,7 @@ class MainActivity : ComponentActivity() {
             AnimatedBackdrop()
 
             Scaffold(
-                containerColor = Color.Transparent,
+                containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0f),
                 bottomBar = {
                     FloatingNavigation(
                         page = page,
@@ -272,6 +272,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     AnimatedContent(
                         targetState = page,
+                        modifier = Modifier.fillMaxSize(),
                         label = "page_transition",
                         transitionSpec = {
                             if (targetState > initialState) {
@@ -335,14 +336,27 @@ class MainActivity : ComponentActivity() {
             val w = size.width
             val h = size.height
 
+            val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+            val base = MaterialTheme.colorScheme.background
+            val surface = MaterialTheme.colorScheme.surface
+            val edge = MaterialTheme.colorScheme.outline
             drawRect(
                 brush = Brush.linearGradient(
-                    colors = listOf(
-                        MetalLight.copy(alpha = .80f),
-                        MetalBase.copy(alpha = .96f),
-                        Color(0xFF9FA4A8),
-                        MetalLight.copy(alpha = .68f)
-                    ),
+                    colors = if (dark) {
+                        listOf(
+                            Color(0xFF252A2F),
+                            Color(0xFF171B1F),
+                            Color(0xFF30363B),
+                            Color(0xFF121519)
+                        )
+                    } else {
+                        listOf(
+                            Color(0xFFE9EBEC),
+                            Color(0xFFB9BDC1),
+                            Color(0xFF9FA4A8),
+                            Color(0xFFE1E3E4)
+                        )
+                    },
                     start = androidx.compose.ui.geometry.Offset(0f, 0f),
                     end = androidx.compose.ui.geometry.Offset(w, h)
                 )
@@ -386,10 +400,10 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun FloatingNavigation(page: Int, onPageSelected: (Int) -> Unit) {
         val items = listOf(
-            Triple(Icons.Rounded.Bolt, "CONTROL", 0),
-            Triple(Icons.Rounded.History, "HISTORY", 1),
-            Triple(Icons.Rounded.Analytics, "USAGE", 2),
-            Triple(Icons.Rounded.Settings, "SETTINGS", 3)
+            Triple(Icons.Rounded.Bolt, "WATCH", 0),
+            Triple(Icons.Rounded.History, "EVENTS", 1),
+            Triple(Icons.Rounded.Analytics, "DATA", 2),
+            Triple(Icons.Rounded.Settings, "TUNE", 3)
         )
         Box(
             Modifier
@@ -403,11 +417,11 @@ class MainActivity : ComponentActivity() {
                     .fillMaxWidth()
                     .height(76.dp)
                     .border(
-                        BorderStroke(1.dp, Color.White.copy(.72f)),
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(.45f)),
                         RoundedCornerShape(22.dp)
                     ),
                 shape = RoundedCornerShape(22.dp),
-                color = MetalDark.copy(alpha = .96f),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = .96f),
                 shadowElevation = 20.dp,
                 tonalElevation = 0.dp
             ) {
@@ -489,7 +503,7 @@ class MainActivity : ComponentActivity() {
                 Icon(
                     icon,
                     null,
-                    tint = if (selected) MetalDeep else Color.White.copy(.60f),
+                    tint = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(.55f),
                     modifier = Modifier.size(if (selected) 21.dp else 20.dp)
                 )
                 AnimatedVisibility(
@@ -502,7 +516,7 @@ class MainActivity : ComponentActivity() {
                         fontSize = 8.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.2.sp,
-                        color = MetalDeep,
+                        color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(top = 3.dp)
                     )
                 }
@@ -522,7 +536,7 @@ class MainActivity : ComponentActivity() {
                     RoundedCornerShape(24.dp)
                 ),
             shape = RoundedCornerShape(24.dp),
-            color = MetalBase.copy(.91f),
+            color = MaterialTheme.colorScheme.surface.copy(.94f),
             shadowElevation = 12.dp,
             tonalElevation = 0.dp
         ) {
@@ -531,9 +545,9 @@ class MainActivity : ComponentActivity() {
                     .background(
                         Brush.linearGradient(
                             listOf(
-                                Color.White.copy(.34f),
+                                MaterialTheme.colorScheme.onSurface.copy(.07f),
                                 Color.Transparent,
-                                Color.Black.copy(.06f)
+                                MaterialTheme.colorScheme.onSurface.copy(.06f)
                             )
                         )
                     )
@@ -715,7 +729,7 @@ class MainActivity : ComponentActivity() {
 
         MetalPanel(Modifier.fillMaxWidth()) {
                 Text("Required access", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("The checker disappears automatically once everything is ready.", fontSize = 11.sp, color = CurioInk.copy(.55f))
+                Text("The checker disappears automatically once everything is ready.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
                 Spacer(Modifier.height(12.dp))
                 PermissionRow("Phone state", phone, "phone")
                 PermissionRow("Notifications", notifications, "notifications")
@@ -730,7 +744,7 @@ class MainActivity : ComponentActivity() {
         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(label, fontWeight = FontWeight.Medium)
-                Text(if (allowed) "Allowed" else "Required", fontSize = 11.sp, color = if (allowed) Color(0xFF207561) else CurioRoseDark)
+                Text(if (allowed) "Allowed" else "Required", fontSize = 11.sp, color = if (allowed) Color(0xFF207561) else MaterialTheme.colorScheme.primary)
             }
             if (!allowed) TextButton(onClick = { requestMissingPermission(kind) }) { Text("Allow") }
         }
@@ -785,7 +799,7 @@ class MainActivity : ComponentActivity() {
                             .background(
                                 Brush.linearGradient(
                                     listOf(
-                                        CurioRoseDark.copy(alpha = 0.10f),
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
                                         Color.Transparent,
                                         Color(0xFF5D806D).copy(alpha = 0.07f)
                                     )
@@ -802,7 +816,7 @@ class MainActivity : ComponentActivity() {
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     "CURRENT NETWORK",
-                                    color = CurioRoseDark,
+                                    color = MaterialTheme.colorScheme.primary,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     letterSpacing = 1.4.sp
@@ -810,14 +824,14 @@ class MainActivity : ComponentActivity() {
                                 Spacer(Modifier.height(4.dp))
                                 Text(
                                     network,
-                                    color = CurioInk,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     fontSize = 38.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Spacer(Modifier.height(4.dp))
                                 Text(
                                     status,
-                                    color = CurioInk.copy(alpha = 0.60f),
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f),
                                     fontSize = 12.sp,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
@@ -865,7 +879,7 @@ class MainActivity : ComponentActivity() {
                                 Text(
                                     "Keeps watching after you leave the app.",
                                     fontSize = 11.sp,
-                                    color = CurioInk.copy(alpha = 0.60f)
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)
                                 )
                             }
                             Switch(
@@ -1042,7 +1056,7 @@ class MainActivity : ComponentActivity() {
                         Box(
                             Modifier
                                 .size(8.dp)
-                                .background(CurioRoseDark, CircleShape)
+                                .background(MaterialTheme.colorScheme.primary, CircleShape)
                         )
                         Spacer(Modifier.width(10.dp))
                         Column {
@@ -1050,13 +1064,13 @@ class MainActivity : ComponentActivity() {
                                 "LAST EVENT",
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = CurioRoseDark,
+                                color = MaterialTheme.colorScheme.primary,
                                 letterSpacing = 1.1.sp
                             )
                             Text(
                                 lastEvent,
                                 fontSize = 12.sp,
-                                color = CurioInk.copy(alpha = 0.68f),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -1069,7 +1083,7 @@ class MainActivity : ComponentActivity() {
             Text(
                 "The foreground watcher owns monitoring. Closing Recents does not turn it off.",
                 fontSize = 11.sp,
-                color = CurioInk.copy(alpha = 0.44f),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.44f),
                 modifier = Modifier.padding(horizontal = 2.dp)
             )
         }
@@ -1091,7 +1105,7 @@ class MainActivity : ComponentActivity() {
                     .background(
                         Brush.linearGradient(
                             listOf(
-                                CurioRoseDark.copy(alpha = 0.18f),
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
                                 Color.White.copy(alpha = 0.52f)
                             )
                         ),
@@ -1103,7 +1117,7 @@ class MainActivity : ComponentActivity() {
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, null, tint = CurioRoseDark, modifier = Modifier.size(22.dp))
+                Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
             }
 
             Spacer(Modifier.width(12.dp))
@@ -1113,13 +1127,13 @@ class MainActivity : ComponentActivity() {
                     title,
                     fontSize = 25.sp,
                     fontWeight = FontWeight.Bold,
-                    color = CurioInk
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
                     subtitle,
                     fontSize = 11.sp,
-                    color = CurioInk.copy(alpha = 0.52f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -1171,18 +1185,18 @@ class MainActivity : ComponentActivity() {
             Spacer(Modifier.height(14.dp))
             MetalPanel(Modifier.fillMaxWidth()) {
                 Text("Recovery", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Text("Retry delay: ${intervalSeconds}s", color = CurioInk.copy(.65f))
+                    Text("Retry delay: ${intervalSeconds}s", color = MaterialTheme.colorScheme.onSurface.copy(.65f))
                     Slider(value = intervalSeconds.toFloat(), onValueChange = { intervalSeconds = it.toInt() }, onValueChangeFinished = { prefs().edit().putLong(AutoReconnectService.PREF_INTERVAL_MS, intervalSeconds * 1000L).apply(); refreshWatcherSettings() }, valueRange = 30f..600f, steps = 18)
-                    Text("Attempts per recovery: $maxAttempts", color = CurioInk.copy(.65f))
+                    Text("Attempts per recovery: $maxAttempts", color = MaterialTheme.colorScheme.onSurface.copy(.65f))
                     Slider(value = maxAttempts.toFloat(), onValueChange = { maxAttempts = it.toInt() }, onValueChangeFinished = { prefs().edit().putInt(AutoReconnectService.PREF_MAX_ATTEMPTS, maxAttempts).apply(); refreshWatcherSettings() }, valueRange = 1f..8f, steps = 6)
-                    Text("Cooldown: $recoveryCooldownMinutes min", color = CurioInk.copy(.65f))
+                    Text("Cooldown: $recoveryCooldownMinutes min", color = MaterialTheme.colorScheme.onSurface.copy(.65f))
                     Slider(value = recoveryCooldownMinutes.toFloat(), onValueChange = { recoveryCooldownMinutes = it.toInt() }, onValueChangeFinished = { prefs().edit().putLong(AutoReconnectService.PREF_RECOVERY_COOLDOWN_MS, recoveryCooldownMinutes * 60_000L).apply(); refreshWatcherSettings() }, valueRange = 1f..30f, steps = 28)
             }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Start after restart", fontWeight = FontWeight.Medium)
-                    Text("Restart the watcher after boot when automatic reconnect is enabled.", fontSize = 11.sp, color = CurioInk.copy(.55f))
+                    Text("Restart the watcher after boot when automatic reconnect is enabled.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
                 }
                 Switch(checked = startAfterRestart, onCheckedChange = {
                     startAfterRestart = it
@@ -1203,7 +1217,7 @@ class MainActivity : ComponentActivity() {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Battery optimization", fontWeight = FontWeight.Medium)
-                        Text("For phones that aggressively stop background services.", fontSize = 11.sp, color = CurioInk.copy(.55f))
+                        Text("For phones that aggressively stop background services.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
                     }
                     TextButton(onClick = { openBatteryOptimization() }) { Text("Open") }
                 }
@@ -1249,21 +1263,21 @@ private fun SimAndDiagnosticsCard(
     MetalPanel(Modifier.fillMaxWidth()) {
         Column {
             Text("SIM & eligibility", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-            Text("Choose the SIM monitored for 5G. Failover only runs after 45 seconds with no cellular service.", fontSize = 11.sp, color = CurioInk.copy(.55f))
+            Text("Choose the SIM monitored for 5G. Failover only runs after 45 seconds with no cellular service.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
             Spacer(Modifier.height(10.dp))
-            Text("Monitor this SIM", fontSize = 12.sp, color = CurioRoseDark)
+            Text("Monitor this SIM", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
             SimPicker(sims, selected, onSelected)
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) { Text("Switch to backup SIM when service disappears"); Text("A 15-minute safety cooldown prevents SIM flapping.", fontSize = 11.sp, color = CurioInk.copy(.55f)) }
+                Column(Modifier.weight(1f)) { Text("Switch to backup SIM when service disappears"); Text("A 15-minute safety cooldown prevents SIM flapping.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f)) }
                 Switch(checked = failover, onCheckedChange = onFailover)
             }
             if (failover) {
-                Text("Backup data SIM", fontSize = 12.sp, color = CurioRoseDark, modifier = Modifier.padding(top = 8.dp))
+                Text("Backup data SIM", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { sims.filter { it.id != selected }.forEach { sim -> FilterChip(selected = backup == sim.id, onClick = { onBackup(sim.id) }, label = { Text(sim.label) }) } }
             }
             Spacer(Modifier.height(10.dp))
-            diagnostics.forEach { (label, value) -> Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) { Text(label, fontSize = 12.sp, color = CurioInk.copy(.62f)); Text(value, fontSize = 12.sp, color = CurioInk) } }
+            diagnostics.forEach { (label, value) -> Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) { Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(.62f)); Text(value, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface) } }
         }
     }
 }
@@ -1280,39 +1294,39 @@ private fun HistoryView(context: android.content.Context) {
     MetalPanel(Modifier.fillMaxWidth()) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.History, null, tint = CurioRoseDark)
+                Icon(Icons.Rounded.History, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Reconnect activity")
-                    Text("A quick read on the watcher", fontSize = 11.sp, color = CurioInk.copy(alpha = .55f))
+                    Text("A quick read on the watcher", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f))
                 }
                 TextButton(onClick = { showAll = true }) { Text("View all") }
             }
             Spacer(Modifier.height(10.dp))
             if (entries.isEmpty()) {
-                Text("No network changes recorded yet.", fontSize = 12.sp, color = CurioInk.copy(alpha = .5f))
+                Text("No network changes recorded yet.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f))
             } else {
                 val successes = entries.count { it.type == "success" || it.detail.contains("confirmed", true) }
                 val failures = entries.count { it.type == "failed" || it.detail.contains("failed", true) || it.detail.contains("error", true) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     ActivityMetric("Success", successes.toString(), Color(0xFF207561), Modifier.weight(1f))
-                    ActivityMetric("Failed", failures.toString(), CurioRoseDark, Modifier.weight(1f))
+                    ActivityMetric("Failed", failures.toString(), MaterialTheme.colorScheme.primary, Modifier.weight(1f))
                 }
                 entries.firstOrNull()?.let { latest ->
                     Spacer(Modifier.height(13.dp))
-                    Text("LATEST", fontSize = 10.sp, color = CurioRoseDark)
-                    Text(latest.detail.ifBlank { latest.network }, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = CurioInk)
-                    Text(latest.time, fontSize = 11.sp, color = CurioInk.copy(alpha = .55f))
+                    Text("LATEST", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                    Text(latest.detail.ifBlank { latest.network }, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    Text(latest.time, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f))
                 }
             }
         }
     }
-    if (showAll) ModalBottomSheet(onDismissRequest = { showAll = false }, containerColor = MetalBase) {
+    if (showAll) ModalBottomSheet(onDismissRequest = { showAll = false }, containerColor = MaterialTheme.colorScheme.surface) {
         var filter by rememberSaveable { mutableStateOf("All") }
         var expandedTime by rememberSaveable { mutableLongStateOf(-1L) }
         Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.History, null, tint = CurioRoseDark)
+                Icon(Icons.Rounded.History, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp)); Text("Full activity", fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
                 TextButton(onClick = { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_TEXT, buildNetworkReport(context, entries)), "Export reconnect report")) }) { Text("Export") }
                 TextButton(onClick = { context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE).edit().remove(AutoReconnectService.PREF_HISTORY).apply(); entries = emptyList() }) { Text("Clear") }
@@ -1320,9 +1334,9 @@ private fun HistoryView(context: android.content.Context) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("All", "Success", "Failed", "Network", "System").forEach { label -> FilterChip(selected = filter == label, onClick = { filter = label }, label = { Text(label) }) } }
             val shown = entries.filter { entry -> when (filter) { "Success" -> entry.type == "success"; "Failed" -> entry.type == "failed"; "Network" -> entry.type == "network"; "System" -> entry.type == "system"; else -> true } }
             shown.take(80).forEachIndexed { index, entry ->
-                Row(Modifier.fillMaxWidth().background(if (index == 0) CurioRoseDark.copy(.10f) else Color.Transparent, RoundedCornerShape(14.dp)).clickable { expandedTime = if (expandedTime == entry.timestamp) -1L else entry.timestamp }.padding(12.dp), verticalAlignment = Alignment.Top) {
-                    Column(Modifier.weight(1f)) { Text(entry.network, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Text(entry.detail, fontSize = 12.sp, color = CurioInk.copy(.62f)); if (expandedTime == entry.timestamp) Text("Type: ${entry.type} · Recorded network: ${entry.network}\nTap to collapse. Additional radio and carrier details are shown in SIM & eligibility.", fontSize = 11.sp, color = CurioRoseDark, modifier = Modifier.padding(top = 6.dp)) }
-                    Text(entry.time, fontSize = 10.sp, color = CurioRoseDark)
+                Row(Modifier.fillMaxWidth().background(if (index == 0) MaterialTheme.colorScheme.primary.copy(.10f) else Color.Transparent, RoundedCornerShape(14.dp)).clickable { expandedTime = if (expandedTime == entry.timestamp) -1L else entry.timestamp }.padding(12.dp), verticalAlignment = Alignment.Top) {
+                    Column(Modifier.weight(1f)) { Text(entry.network, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Text(entry.detail, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(.62f)); if (expandedTime == entry.timestamp) Text("Type: ${entry.type} · Recorded network: ${entry.network}\nTap to collapse. Additional radio and carrier details are shown in SIM & eligibility.", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 6.dp)) }
+                    Text(entry.time, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -1330,7 +1344,7 @@ private fun HistoryView(context: android.content.Context) {
 }
 
 @Composable private fun ActivityMetric(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
-    Column(modifier.background(color.copy(.10f), RoundedCornerShape(16.dp)).padding(12.dp)) { Text(value, fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = color); Text(label, fontSize = 11.sp, color = CurioInk.copy(.60f)) }
+    Column(modifier.background(color.copy(.10f), RoundedCornerShape(16.dp)).padding(12.dp)) { Text(value, fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = color); Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.60f)) }
 }
 
 @Composable private fun DataTrackerView(context: android.content.Context) {
@@ -1352,12 +1366,12 @@ private fun HistoryView(context: android.content.Context) {
     var billingDay by rememberSaveable { mutableIntStateOf(prefs.getInt(AutoReconnectService.PREF_BILLING_DAY, 1)) }
     MetalPanel(Modifier.fillMaxWidth().padding(top = 14.dp)) {
         Column {
-            Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Analytics, null, tint = CurioRoseDark); Spacer(Modifier.width(8.dp)); Column { Text("Mobile data tracker"); Text("Measured while the watcher is on", fontSize = 11.sp, color = CurioInk.copy(.55f)) } }
-            Spacer(Modifier.height(12.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("observed on LTE", formatBytes(lte), CurioRoseDark, Modifier.weight(1f)); ActivityMetric("observed on 5G", formatBytes(fiveG), Color(0xFF207561), Modifier.weight(1f)) }
-            Spacer(Modifier.height(8.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("LTE fallback minutes", fallbackMinutes.toString(), CurioRoseDark, Modifier.weight(1f)); ActivityMetric("avg. trigger → 5G", if (averageRecovery == 0L) "—" else "${averageRecovery}s", Color(0xFF207561), Modifier.weight(1f)) }
-            Text("Last 7 days · LTE ${formatBytes(weeklyLte)} · 5G ${formatBytes(weekly5G)}", fontSize = 11.sp, color = CurioInk.copy(.62f), modifier = Modifier.padding(top = 9.dp))
-            Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text("Billing cycle starts on day $billingDay", fontSize = 11.sp, modifier = Modifier.weight(1f), color = CurioInk.copy(.62f)); TextButton(onClick = { billingDay = if (billingDay == 28) 1 else billingDay + 1; prefs.edit().putInt(AutoReconnectService.PREF_BILLING_DAY, billingDay).apply() }) { Text("Change") } }
-            Text("Observed mobile traffic attributed to the sampled radio state; this is not a carrier billing counter.", fontSize = 10.sp, color = CurioInk.copy(.48f), modifier = Modifier.padding(top = 10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Analytics, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(8.dp)); Column { Text("Mobile data tracker"); Text("Measured while the watcher is on", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f)) } }
+            Spacer(Modifier.height(12.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("observed on LTE", formatBytes(lte), MaterialTheme.colorScheme.primary, Modifier.weight(1f)); ActivityMetric("observed on 5G", formatBytes(fiveG), Color(0xFF207561), Modifier.weight(1f)) }
+            Spacer(Modifier.height(8.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("LTE fallback minutes", fallbackMinutes.toString(), MaterialTheme.colorScheme.primary, Modifier.weight(1f)); ActivityMetric("avg. trigger → 5G", if (averageRecovery == 0L) "—" else "${averageRecovery}s", Color(0xFF207561), Modifier.weight(1f)) }
+            Text("Last 7 days · LTE ${formatBytes(weeklyLte)} · 5G ${formatBytes(weekly5G)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.62f), modifier = Modifier.padding(top = 9.dp))
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text("Billing cycle starts on day $billingDay", fontSize = 11.sp, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface.copy(.62f)); TextButton(onClick = { billingDay = if (billingDay == 28) 1 else billingDay + 1; prefs.edit().putInt(AutoReconnectService.PREF_BILLING_DAY, billingDay).apply() }) { Text("Change") } }
+            Text("Observed mobile traffic attributed to the sampled radio state; this is not a carrier billing counter.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.48f), modifier = Modifier.padding(top = 10.dp))
         }
     }
 }
