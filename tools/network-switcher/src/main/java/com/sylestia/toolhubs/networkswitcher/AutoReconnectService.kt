@@ -52,6 +52,9 @@ class AutoReconnectService : Service() {
         const val PREF_LTE_FALLBACK_MS = "lte_fallback_ms"
         const val PREF_RECOVERY_TOTAL_MS = "recovery_total_ms"
         const val PREF_RECOVERY_COUNT = "recovery_count"
+        const val PREF_LTE_FALLBACK_COUNT = "lte_fallback_count"
+        const val PREF_TRIGGER_RECOVERY_TOTAL_MS = "trigger_recovery_total_ms"
+        const val PREF_TRIGGER_RECOVERY_COUNT = "trigger_recovery_count"
         const val PREF_ATTEMPT_STARTED_ELAPSED = "attempt_started_elapsed"
         const val PREF_SERVICE_ACTIVE = "service_active"
         const val PREF_CURRENT_NETWORK = "current_network"
@@ -302,15 +305,19 @@ class AutoReconnectService : Service() {
 
     private fun trackFallbackImpact(current: String) {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val nowElapsed = SystemClock.elapsedRealtime()
         val started = prefs.getLong(PREF_FALLBACK_STARTED, 0L)
-        if (current == "4G / LTE" && started == 0L) {
-            prefs.edit().putLong(PREF_FALLBACK_STARTED, SystemClock.elapsedRealtime()).apply()
-        } else if (current == "5G" && started > 0L) {
-            val duration = (SystemClock.elapsedRealtime() - started).coerceAtLeast(0L)
+        if (started > nowElapsed) {
+            prefs.edit().remove(PREF_FALLBACK_STARTED).apply()
+        }
+        val validStarted = if (started > 0L && started <= nowElapsed) started else 0L
+        if (current == "4G / LTE" && validStarted == 0L) {
+            prefs.edit().putLong(PREF_FALLBACK_STARTED, nowElapsed).apply()
+        } else if (current == "5G" && validStarted > 0L) {
+            val duration = (nowElapsed - validStarted).coerceAtLeast(0L)
             prefs.edit().remove(PREF_FALLBACK_STARTED)
                 .putLong(PREF_LTE_FALLBACK_MS, prefs.getLong(PREF_LTE_FALLBACK_MS, 0L) + duration)
-                .putLong(PREF_RECOVERY_TOTAL_MS, prefs.getLong(PREF_RECOVERY_TOTAL_MS, 0L) + duration)
-                .putInt(PREF_RECOVERY_COUNT, prefs.getInt(PREF_RECOVERY_COUNT, 0) + 1).apply()
+                .putInt(PREF_LTE_FALLBACK_COUNT, prefs.getInt(PREF_LTE_FALLBACK_COUNT, 0) + 1).apply()
         }
     }
 
@@ -387,14 +394,15 @@ class AutoReconnectService : Service() {
             val switchedTo5G = waitFor5G(12_000L)
             if (switchedTo5G) {
                 val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                val nowElapsed = SystemClock.elapsedRealtime()
                 val started = prefs.getLong(PREF_ATTEMPT_STARTED_ELAPSED, 0L)
-                val latency = if (started > 0L) (SystemClock.elapsedRealtime() - started).coerceAtLeast(0L) else 0L
-                val count = prefs.getInt(PREF_RECOVERY_COUNT, 0)
-                val total = prefs.getLong(PREF_RECOVERY_TOTAL_MS, 0L)
+                val latency = if (started > 0L && started <= nowElapsed) (nowElapsed - started).coerceAtLeast(0L) else 0L
+                val count = prefs.getInt(PREF_TRIGGER_RECOVERY_COUNT, 0)
+                val total = prefs.getLong(PREF_TRIGGER_RECOVERY_TOTAL_MS, 0L)
                 recordHistory("5G", "Automatic reconnect confirmed", "success")
                 prefs.edit().remove(PREF_ATTEMPT_STARTED_ELAPSED)
-                    .putLong(PREF_RECOVERY_TOTAL_MS, total + latency)
-                    .putInt(PREF_RECOVERY_COUNT, count + 1).apply()
+                    .putLong(PREF_TRIGGER_RECOVERY_TOTAL_MS, total + latency)
+                    .putInt(PREF_TRIGGER_RECOVERY_COUNT, count + 1).apply()
                 nextAttemptAt = 0L; consecutiveFailures = 0; circuitOpen = false; persistRetryState()
                 publishState("5G", "5G switch confirmed · attempt " + attempt + "/" + maxAttempts, "Automatic reconnect confirmed")
                 updateNotification("5G switch confirmed · attempt " + attempt + "/" + maxAttempts)
