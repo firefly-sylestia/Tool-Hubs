@@ -43,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -587,6 +588,8 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun ControlPage() {
         val context = this
+        val haptic = LocalHapticFeedback.current
+        val view = LocalView.current
         var network by remember { mutableStateOf(currentNetwork()) }
         var auto by rememberSaveable { mutableStateOf(prefs().getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)) }
         var running by remember { mutableStateOf(false) }
@@ -598,9 +601,9 @@ class MainActivity : ComponentActivity() {
                 auto = prefs().getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)
                 network = prefs().getString(AutoReconnectService.PREF_CURRENT_NETWORK, null) ?: currentNetwork()
                 status = prefs().getString(AutoReconnectService.PREF_STATUS, null) ?: when {
-                    network == "5G" -> if (auto) "5G active · monitoring for LTE fallback" else "5G active"
-                    network == "4G / LTE" && auto -> "4G / LTE detected · recovery watcher active"
-                    network == "4G / LTE" -> "4G / LTE detected"
+                    network == "5G" -> if (auto) "5G active · watching for LTE fallback" else "5G active"
+                    network == "4G / LTE" && auto -> "LTE detected · recovery watcher active"
+                    network == "4G / LTE" -> "LTE detected"
                     else -> network
                 }
                 delay(1000)
@@ -608,52 +611,154 @@ class MainActivity : ComponentActivity() {
         }
 
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp, vertical = 18.dp)
         ) {
-            HubScreenHeader("5G Reconnect", "Automatic 5G recovery when LTE takes over.")
-            Spacer(Modifier.height(18.dp))
+            ExpressivePageHeader(
+                title = "5G Reconnect",
+                subtitle = "A tiny network guardian that stays awake for you.",
+                icon = Icons.Rounded.Bolt
+            )
+
+            Spacer(Modifier.height(16.dp))
             PermissionChecker()
             Spacer(Modifier.height(14.dp))
 
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(.72f))) {
-                Column(Modifier.padding(22.dp)) {
-                    Text("CURRENT NETWORK", color = CurioRoseDark, fontSize = 10.sp)
-                    Text(network, color = CurioInk, fontSize = 34.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(6.dp))
-                    Text(status, color = CurioInk.copy(.62f))
-                    Spacer(Modifier.height(14.dp))
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Automatic 5G reconnect", fontWeight = FontWeight.Medium)
-                            Text("Keeps watching after you leave the app.", fontSize = 11.sp, color = CurioInk.copy(.55f))
-                        }
-                        Switch(
-                            checked = auto,
-                            onCheckedChange = { enabled ->
-                                if (!enabled) {
-                                    auto = false
-                                    stopBackgroundWatcher()
-                                    status = "Background watcher stopped."
-                                } else if (!hasPhonePermission()) {
-                                    requestMissingPermission("phone")
-                                } else if (ShizukuHealthMonitor.refresh() != ShizukuHealth.READY) {
-                                    requestMissingPermission("shizuku")
-                                } else {
-                                    auto = true
-                                    prefs().edit().putBoolean(AutoReconnectService.PREF_AUTO_ENABLED, true).apply()
-                                    startBackgroundWatcher()
-                                    status = "Background watcher started."
-                                }
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(32.dp),
+                color = Color.White.copy(alpha = 0.76f),
+                tonalElevation = 5.dp,
+                shadowElevation = 12.dp
+            ) {
+                Box(Modifier.fillMaxWidth()) {
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        CurioRoseDark.copy(alpha = 0.10f),
+                                        Color.Transparent,
+                                        Color(0xFF5D806D).copy(alpha = 0.07f)
+                                    )
+                                ),
+                                RoundedCornerShape(32.dp)
+                            )
+                    )
+
+                    Column(Modifier.padding(22.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "CURRENT NETWORK",
+                                    color = CurioRoseDark,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = 1.4.sp
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    network,
+                                    color = CurioInk,
+                                    fontSize = 38.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    status,
+                                    color = CurioInk.copy(alpha = 0.60f),
+                                    fontSize = 12.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
-                        )
+                            NetworkPulseOrb(network = network)
+                        }
+
+                        Spacer(Modifier.height(18.dp))
+
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            StatePill(
+                                label = if (auto) "WATCHING" else "OFF",
+                                active = auto
+                            )
+                            StatePill(
+                                label = when {
+                                    network == "5G" -> "5G READY"
+                                    network == "4G / LTE" -> "LTE FALLBACK"
+                                    else -> network.uppercase(Locale.getDefault())
+                                },
+                                active = network == "5G"
+                            )
+                        }
+
+                        Spacer(Modifier.height(18.dp))
+
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color.White.copy(alpha = 0.52f))
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Automatic 5G reconnect", fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "Keeps watching after you leave the app.",
+                                    fontSize = 11.sp,
+                                    color = CurioInk.copy(alpha = 0.54f)
+                                )
+                            }
+                            Switch(
+                                checked = auto,
+                                onCheckedChange = { enabled ->
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                                    if (!enabled) {
+                                        auto = false
+                                        stopBackgroundWatcher()
+                                        status = "Background watcher stopped."
+                                    } else if (!hasPhonePermission()) {
+                                        requestMissingPermission("phone")
+                                    } else if (ShizukuHealthMonitor.refresh() != ShizukuHealth.READY) {
+                                        requestMissingPermission("shizuku")
+                                    } else {
+                                        auto = true
+                                        prefs().edit()
+                                            .putBoolean(AutoReconnectService.PREF_AUTO_ENABLED, true)
+                                            .apply()
+                                        startBackgroundWatcher()
+                                        status = "Background watcher started."
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
 
             Spacer(Modifier.height(14.dp))
-            val buttonScale by animateFloatAsState(if (pressed) .96f else 1f, spring(dampingRatio = .55f), label = "buttonScale")
+
+            val buttonScale by animateFloatAsState(
+                if (pressed) 0.965f else 1f,
+                spring(dampingRatio = 0.56f, stiffness = 520f),
+                label = "manual_button_scale"
+            )
+
             Button(
                 onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                     pressed = true
                     if (ShizukuHealthMonitor.refresh() != ShizukuHealth.READY) {
                         requestMissingPermission("shizuku")
@@ -665,7 +770,12 @@ class MainActivity : ComponentActivity() {
                             val result = NetworkSwitcherBridge(context).reconnect5G()
                             val success = waitFor5GBlocking(12_000L)
                             runOnUiThread {
-                                status = if (success) "5G switch confirmed." else if (result.startsWith("5G re-selection triggered")) "Trigger sent, but 5G was not detected yet." else result
+                                status = when {
+                                    success -> "5G switch confirmed."
+                                    result.startsWith("5G re-selection triggered") ->
+                                        "Trigger sent · waiting for confirmed 5G."
+                                    else -> result
+                                }
                                 running = false
                                 pressed = false
                             }
@@ -673,21 +783,215 @@ class MainActivity : ComponentActivity() {
                     }
                 },
                 enabled = !running,
-                modifier = Modifier.fillMaxWidth().height(58.dp).scale(buttonScale),
-                shape = RoundedCornerShape(18.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(60.dp)
+                    .scale(buttonScale),
+                shape = RoundedCornerShape(20.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = CurioInk,
+                    contentColor = Color.White
+                )
             ) {
                 Icon(Icons.Rounded.Bolt, null)
-                Spacer(Modifier.width(8.dp))
-                Text(if (running) "Checking 5G…" else "Re-trigger 5G now")
+                Spacer(Modifier.width(9.dp))
+                Text(
+                    if (running) "Checking for 5G…" else "Re-trigger 5G now",
+                    fontWeight = FontWeight.SemiBold
+                )
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(12.dp))
+
             val lastEvent = prefs().getString(AutoReconnectService.PREF_LAST_EVENT_DETAIL, null)
             if (!lastEvent.isNullOrBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Text("Last event · $lastEvent", fontSize = 11.sp, color = CurioInk.copy(.48f))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color.White.copy(alpha = 0.52f)
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            Modifier
+                                .size(8.dp)
+                                .background(CurioRoseDark, CircleShape)
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                "LAST EVENT",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = CurioRoseDark,
+                                letterSpacing = 1.1.sp
+                            )
+                            Text(
+                                lastEvent,
+                                fontSize = 12.sp,
+                                color = CurioInk.copy(alpha = 0.68f),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
             }
-            Text("Background state is owned by the foreground watcher service, not by this screen. Closing Recents therefore does not stop the watcher.", fontSize = 11.sp, color = CurioInk.copy(.48f))
+
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "The foreground watcher owns monitoring. Closing Recents does not turn it off.",
+                fontSize = 11.sp,
+                color = CurioInk.copy(alpha = 0.44f),
+                modifier = Modifier.padding(horizontal = 2.dp)
+            )
+        }
+    }
+
+    @Composable
+    private fun ExpressivePageHeader(
+        title: String,
+        subtitle: String,
+        icon: androidx.compose.ui.graphics.vector.ImageVector
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .background(
+                        Brush.linearGradient(
+                            listOf(
+                                CurioRoseDark.copy(alpha = 0.18f),
+                                Color.White.copy(alpha = 0.52f)
+                            )
+                        ),
+                        RoundedCornerShape(17.dp)
+                    )
+                    .border(
+                        BorderStroke(1.dp, Color.White.copy(alpha = 0.78f)),
+                        RoundedCornerShape(17.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, null, tint = CurioRoseDark, modifier = Modifier.size(22.dp))
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    fontSize = 25.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = CurioInk
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    subtitle,
+                    fontSize = 11.sp,
+                    color = CurioInk.copy(alpha = 0.52f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun NetworkPulseOrb(network: String) {
+        val infinite = rememberInfiniteTransition(label = "network_orb")
+        val pulse by infinite.animateFloat(
+            0.92f,
+            1.08f,
+            infiniteRepeatable(tween(1500), RepeatMode.Reverse),
+            label = "orb_pulse"
+        )
+        val halo by infinite.animateFloat(
+            0.18f,
+            0.34f,
+            infiniteRepeatable(tween(1500), RepeatMode.Reverse),
+            label = "orb_halo"
+        )
+        val tint = when {
+            network == "5G" -> Color(0xFF5D806D)
+            network == "4G / LTE" -> CurioRoseDark
+            else -> CurioInk.copy(alpha = 0.45f)
+        }
+
+        Box(
+            Modifier.size(108.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                Modifier
+                    .size(96.dp)
+                    .scale(pulse)
+                    .border(
+                        BorderStroke(1.dp, tint.copy(alpha = halo)),
+                        CircleShape
+                    )
+            )
+            Box(
+                Modifier
+                    .size(76.dp)
+                    .background(tint.copy(alpha = 0.10f), CircleShape)
+                    .border(
+                        BorderStroke(1.dp, tint.copy(alpha = 0.22f)),
+                        CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        if (network == "5G") "NR" else if (network == "4G / LTE") "LTE" else "—",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = tint
+                    )
+                    Text(
+                        "SIGNAL",
+                        fontSize = 8.sp,
+                        color = CurioInk.copy(alpha = 0.48f),
+                        letterSpacing = 1.sp
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun StatePill(label: String, active: Boolean) {
+        Row(
+            Modifier
+                .background(
+                    if (active) CurioRoseDark.copy(alpha = 0.12f)
+                    else Color.Black.copy(alpha = 0.045f),
+                    RoundedCornerShape(50)
+                )
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier
+                    .size(6.dp)
+                    .background(
+                        if (active) Color(0xFF5D806D) else CurioInk.copy(alpha = 0.28f),
+                        CircleShape
+                    )
+            )
+            Spacer(Modifier.width(7.dp))
+            Text(
+                label,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = CurioInk.copy(alpha = if (active) 0.76f else 0.50f),
+                letterSpacing = 0.8.sp
+            )
         }
     }
 
@@ -703,7 +1007,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun HistoryPage() {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
-            HubScreenHeader("History", "Every observed network and recovery event.")
+            ExpressivePageHeader("History", "Every observed network and recovery event.", Icons.Rounded.History)
             Spacer(Modifier.height(14.dp))
             HistoryView(this@MainActivity)
         }
@@ -712,7 +1016,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun UsagePage() {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
-            HubScreenHeader("Usage", "Observed mobile traffic and recovery timing.")
+            ExpressivePageHeader("Usage", "Observed traffic, fallback time and recovery timing.", Icons.Rounded.Analytics)
             Spacer(Modifier.height(14.dp))
             DataTrackerView(this@MainActivity)
         }
@@ -731,7 +1035,7 @@ class MainActivity : ComponentActivity() {
         var maxAttempts by rememberSaveable { mutableIntStateOf(prefs().getInt(AutoReconnectService.PREF_MAX_ATTEMPTS, AutoReconnectService.DEFAULT_MAX_ATTEMPTS).coerceIn(1, 8)) }
 
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
-            HubScreenHeader("Settings", "Watcher, SIM and recovery behaviour.")
+            ExpressivePageHeader("Settings", "Watcher, SIM and recovery behaviour.", Icons.Rounded.Settings)
             Spacer(Modifier.height(14.dp))
             Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(.62f))) {
                 Column(Modifier.padding(18.dp)) {
