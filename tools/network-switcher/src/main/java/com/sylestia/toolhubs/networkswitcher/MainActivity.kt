@@ -330,6 +330,11 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun AnimatedBackdrop() {
+        val dark = when (themeMode) {
+            "dark" -> true
+            "light" -> false
+            else -> androidx.compose.foundation.isSystemInDarkTheme()
+        }
         val infinite = rememberInfiniteTransition(label = "metal_ambient")
         val drift by infinite.animateFloat(
             -0.04f, 0.04f,
@@ -350,14 +355,6 @@ class MainActivity : ComponentActivity() {
             val w = size.width
             val h = size.height
 
-            val dark = when (themeMode) {
-                "dark" -> true
-                "light" -> false
-                else -> androidx.compose.foundation.isSystemInDarkTheme()
-            }
-            val base = MaterialTheme.colorScheme.background
-            val surface = MaterialTheme.colorScheme.surface
-            val edge = MaterialTheme.colorScheme.outline
             drawRect(
                 brush = Brush.linearGradient(
                     colors = if (dark) {
@@ -1269,6 +1266,38 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+
+@Composable
+private fun MetalPanel(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(
+        modifier = modifier.border(
+            BorderStroke(1.dp, Color.White.copy(.66f)),
+            RoundedCornerShape(24.dp)
+        ),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surface.copy(.94f),
+        shadowElevation = 12.dp,
+        tonalElevation = 0.dp
+    ) {
+        Column(
+            Modifier
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.onSurface.copy(.07f),
+                            Color.Transparent,
+                            MaterialTheme.colorScheme.onSurface.copy(.06f)
+                        )
+                    )
+                )
+                .padding(18.dp),
+            content = content
+        )
+    }
+}
 
 private fun shizukuHealthLabel(state: ShizukuHealth) = when (state) {
     ShizukuHealth.UNAVAILABLE -> "unavailable"
