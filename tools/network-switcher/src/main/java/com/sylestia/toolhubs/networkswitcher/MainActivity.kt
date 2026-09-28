@@ -256,8 +256,7 @@ class MainActivity : ComponentActivity() {
         val phone = hasPhonePermission()
         val notifications = hasNotificationPermission()
         val shizuku = ShizukuHealthMonitor.refresh() == ShizukuHealth.READY
-        val battery = batteryOptimizationAllowed()
-        if (phone && notifications && shizuku && battery) return
+        if (phone && notifications && shizuku) return
 
         Card(
             Modifier.fillMaxWidth(),
@@ -271,7 +270,7 @@ class MainActivity : ComponentActivity() {
                 PermissionRow("Phone state", phone, "phone")
                 PermissionRow("Notifications", notifications, "notifications")
                 PermissionRow("Shizuku", shizuku, "shizuku")
-                PermissionRow("Battery optimization", battery, "battery")
+
             }
         }
     }
@@ -298,8 +297,8 @@ class MainActivity : ComponentActivity() {
 
         LaunchedEffect(Unit) {
             while (true) {
-                network = currentNetwork()
-                status = when {
+                network = prefs().getString(AutoReconnectService.PREF_CURRENT_NETWORK, null) ?: currentNetwork()
+                status = prefs().getString(AutoReconnectService.PREF_STATUS, null) ?: when {
                     network == "5G" -> if (auto) "5G active · monitoring for LTE fallback" else "5G active"
                     network == "4G / LTE" && auto -> "4G / LTE detected · recovery watcher active"
                     network == "4G / LTE" -> "4G / LTE detected"
@@ -384,6 +383,11 @@ class MainActivity : ComponentActivity() {
             }
 
             Spacer(Modifier.height(14.dp))
+            val lastEvent = prefs().getString(AutoReconnectService.PREF_LAST_EVENT_DETAIL, null)
+            if (!lastEvent.isNullOrBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text("Last event · $lastEvent", fontSize = 11.sp, color = CurioInk.copy(.48f))
+            }
             Text("Background state is owned by the foreground watcher service, not by this screen. Closing Recents therefore does not stop the watcher.", fontSize = 11.sp, color = CurioInk.copy(.48f))
         }
     }
@@ -606,7 +610,11 @@ private fun HistoryView(context: android.content.Context) {
     LaunchedEffect(Unit) { while (true) { delay(2_000); refresh++ } }
     val lte = refresh.let { prefs.getLong(NetworkUsageTracker.KEY_LTE_BYTES, 0L) }
     val fiveG = refresh.let { prefs.getLong(NetworkUsageTracker.KEY_5G_BYTES, 0L) }
-    val fallbackMinutes = prefs.getLong(AutoReconnectService.PREF_LTE_FALLBACK_MS, 0L) / 60_000L
+    val liveFallbackSeconds = run {
+        val started = prefs.getLong(AutoReconnectService.PREF_FALLBACK_STARTED, 0L)
+        if (started > 0L) (android.os.SystemClock.elapsedRealtime() - started).coerceAtLeast(0L) / 1000L else 0L
+    }
+    val fallbackMinutes = prefs.getLong(AutoReconnectService.PREF_LTE_FALLBACK_MS, 0L) / 60_000L + liveFallbackSeconds / 60L
     val recoveries = prefs.getInt(AutoReconnectService.PREF_RECOVERY_COUNT, 0)
     val averageRecovery = if (recoveries == 0) 0L else prefs.getLong(AutoReconnectService.PREF_RECOVERY_TOTAL_MS, 0L) / recoveries / 1_000L
     val weeklyLte = NetworkUsageTracker.totalForLastDays(context, NetworkUsageTracker.KEY_LTE_BYTES, 7)
@@ -615,11 +623,11 @@ private fun HistoryView(context: android.content.Context) {
     Card(Modifier.fillMaxWidth().padding(top = 14.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(.62f))) {
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Analytics, null, tint = CurioRoseDark); Spacer(Modifier.width(8.dp)); Column { Text("Mobile data tracker"); Text("Measured while the watcher is on", fontSize = 11.sp, color = CurioInk.copy(.55f)) } }
-            Spacer(Modifier.height(12.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("during LTE fallback", formatBytes(lte), CurioRoseDark, Modifier.weight(1f)); ActivityMetric("while on 5G", formatBytes(fiveG), Color(0xFF207561), Modifier.weight(1f)) }
-            Spacer(Modifier.height(8.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("LTE fallback minutes", fallbackMinutes.toString(), CurioRoseDark, Modifier.weight(1f)); ActivityMetric("avg. 5G recovery", if (averageRecovery == 0L) "—" else "${averageRecovery}s", Color(0xFF207561), Modifier.weight(1f)) }
-            Text("Last 7 days · LTE fallback ${formatBytes(weeklyLte)} · 5G ${formatBytes(weekly5G)}", fontSize = 11.sp, color = CurioInk.copy(.62f), modifier = Modifier.padding(top = 9.dp))
+            Spacer(Modifier.height(12.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("observed on LTE", formatBytes(lte), CurioRoseDark, Modifier.weight(1f)); ActivityMetric("observed on 5G", formatBytes(fiveG), Color(0xFF207561), Modifier.weight(1f)) }
+            Spacer(Modifier.height(8.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("LTE fallback minutes", fallbackMinutes.toString(), CurioRoseDark, Modifier.weight(1f)); ActivityMetric("avg. trigger → 5G", if (averageRecovery == 0L) "—" else "${averageRecovery}s", Color(0xFF207561), Modifier.weight(1f)) }
+            Text("Last 7 days · LTE ${formatBytes(weeklyLte)} · 5G ${formatBytes(weekly5G)}", fontSize = 11.sp, color = CurioInk.copy(.62f), modifier = Modifier.padding(top = 9.dp))
             Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text("Billing cycle starts on day $billingDay", fontSize = 11.sp, modifier = Modifier.weight(1f), color = CurioInk.copy(.62f)); TextButton(onClick = { billingDay = if (billingDay == 28) 1 else billingDay + 1; prefs.edit().putInt(AutoReconnectService.PREF_BILLING_DAY, billingDay).apply() }) { Text("Change") } }
-            Text("Observed mobile traffic by radio state; this is not a carrier billing or counterfactual savings estimate.", fontSize = 10.sp, color = CurioInk.copy(.48f), modifier = Modifier.padding(top = 10.dp))
+            Text("Observed mobile traffic attributed to the sampled radio state; this is not a carrier billing counter.", fontSize = 10.sp, color = CurioInk.copy(.48f), modifier = Modifier.padding(top = 10.dp))
         }
     }
 }
