@@ -1287,7 +1287,7 @@ class MainActivity : ComponentActivity() {
     private fun formatSpeed(bytesPerSecond: Long): String = when {
         bytesPerSecond >= 1_000_000L -> String.format(Locale.getDefault(), "%.1f MB/s", bytesPerSecond / 1_000_000f)
         bytesPerSecond >= 1_000L -> String.format(Locale.getDefault(), "%.0f KB/s", bytesPerSecond / 1_000f)
-        else -> "$" + "bytesPerSecond B/s"
+        else -> "$bytesPerSecond B/s"
     }
 
     private fun formatTimestamp(timestamp: Long): String =
