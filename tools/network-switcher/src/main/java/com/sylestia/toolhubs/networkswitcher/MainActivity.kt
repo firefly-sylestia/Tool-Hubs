@@ -1236,7 +1236,7 @@ class MainActivity : ComponentActivity() {
                 Column(Modifier.weight(1f)) {
                     Text("PEAK NETWORK SPEED", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
                     Text(if (peak > 0L) formatSpeed(peak) else "Waiting for measurement…", fontSize = 28.sp, fontWeight = FontWeight.Black)
-                    if (peak > 0L) Text(peakNetwork + " · " + formatTimestamp(peakAt), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
+                    if (peak > 0L) Text(peakNetwork + " · " + formatTimestamp(peakAt), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.74f))
                 }
                 Box(Modifier.size(48.dp).background(MaterialTheme.colorScheme.primary.copy(.12f), CircleShape), contentAlignment = Alignment.Center) {
                     Text("MAX", fontSize = 10.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
@@ -1315,7 +1315,7 @@ class MainActivity : ComponentActivity() {
                             Text(formatTimestamp(entry.timestamp), fontSize = 9.sp, color = MaterialTheme.colorScheme.primary)
                         }
                         Text(entry.detail.ifBlank { "Network state observed" }, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.74f))
-                        if (duration != null && duration > 0L) Text("Stayed on " + entry.network + " · " + formatDuration(duration), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.45f), modifier = Modifier.padding(top = 3.dp))
+                        if (duration != null && duration > 0L) Text("Stayed on " + entry.network + " · " + formatDuration(duration), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.70f), modifier = Modifier.padding(top = 3.dp))
                     }
                 }
             }
@@ -1351,7 +1351,7 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.height(6.dp))
                 Text(if (peak > 0L) formatSpeed(peak) else "No peak recorded yet", fontSize = 36.sp, fontWeight = FontWeight.Black)
                 if (peak > 0L) Text(peakNetwork + " · " + formatTimestamp(peakAt), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
-                Text("Peak is calculated from successive mobile-traffic samples while the watcher is running.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.48f), modifier = Modifier.padding(top = 8.dp))
+                Text("Peak is calculated from successive mobile-traffic samples while the watcher is running.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.72f), modifier = Modifier.padding(top = 8.dp))
             }
         }
     }
@@ -1413,7 +1413,7 @@ class MainActivity : ComponentActivity() {
             Spacer(Modifier.height(14.dp))
             MetalPanel(Modifier.fillMaxWidth()) {
                 Text("Appearance", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("Choose how the instrument surface should render.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.58f), modifier = Modifier.padding(top = 3.dp))
+                Text("Choose how the instrument surface should render.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.74f), modifier = Modifier.padding(top = 3.dp))
                 Spacer(Modifier.height(10.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("system" to "System", "light" to "Light", "dark" to "Dark").forEach { (mode, label) ->
@@ -1427,12 +1427,12 @@ class MainActivity : ComponentActivity() {
                                 .background(
                                     if (selected) {
                                         Brush.verticalGradient(
-                                            listOf(MetalAccent.copy(.92f), Color(0xFF98583C))
+                                            listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primary)
                                         )
                                     } else {
                                         Brush.verticalGradient(
                                             listOf(
-                                                MaterialTheme.colorScheme.surface.copy(.98f),
+                                                MaterialTheme.colorScheme.surface,
                                                 MaterialTheme.colorScheme.surfaceVariant
                                             )
                                         )
@@ -1442,8 +1442,8 @@ class MainActivity : ComponentActivity() {
                                 .border(
                                     BorderStroke(
                                         1.dp,
-                                        if (selected) Color.White.copy(.36f)
-                                        else MaterialTheme.colorScheme.outline.copy(.35f)
+                                        if (selected) MaterialTheme.colorScheme.onPrimary.copy(.45f)
+                                        else MaterialTheme.colorScheme.outline.copy(.65f)
                                     ),
                                     RoundedCornerShape(12.dp)
                                 )
@@ -1463,7 +1463,7 @@ class MainActivity : ComponentActivity() {
                 Text("Recovery", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Text("Retry delay: ${intervalSeconds}s", color = MaterialTheme.colorScheme.onSurface.copy(.78f))
                     Slider(value = intervalSeconds.toFloat(), onValueChange = { intervalSeconds = it.toInt() }, onValueChangeFinished = { prefs().edit().putLong(AutoReconnectService.PREF_INTERVAL_MS, intervalSeconds * 1000L).apply(); refreshWatcherSettings() }, valueRange = 30f..600f, steps = 18)
-                    Text("Attempts per recovery: $maxAttempts", color = MaterialTheme.colorScheme.onSurface.copy(.65f))
+                    Text("Attempts per recovery: $maxAttempts", color = MaterialTheme.colorScheme.onSurface.copy(.78f))
                     Slider(value = maxAttempts.toFloat(), onValueChange = { maxAttempts = it.toInt() }, onValueChangeFinished = { prefs().edit().putInt(AutoReconnectService.PREF_MAX_ATTEMPTS, maxAttempts).apply(); refreshWatcherSettings() }, valueRange = 1f..8f, steps = 6)
                     Text("Cooldown: $recoveryCooldownMinutes min", color = MaterialTheme.colorScheme.onSurface.copy(.65f))
                     Slider(value = recoveryCooldownMinutes.toFloat(), onValueChange = { recoveryCooldownMinutes = it.toInt() }, onValueChangeFinished = { prefs().edit().putLong(AutoReconnectService.PREF_RECOVERY_COOLDOWN_MS, recoveryCooldownMinutes * 60_000L).apply(); refreshWatcherSettings() }, valueRange = 1f..30f, steps = 28)
@@ -1516,7 +1516,7 @@ private fun MetalPanel(
                 RoundedCornerShape(24.dp)
             ),
         shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surface.copy(.94f),
+        color = MaterialTheme.colorScheme.surface,
         shadowElevation = 12.dp,
         tonalElevation = 0.dp
     ) {
