@@ -14,17 +14,21 @@ import android.telephony.PhoneStateListener
 import android.telephony.TelephonyDisplayInfo
 import android.telephony.TelephonyManager
 import android.telephony.SubscriptionManager
+import android.view.HapticFeedbackConstants
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.annotation.RequiresApi
-import androidx.compose.animation.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Analytics
 import androidx.compose.material.icons.rounded.Bolt
@@ -35,9 +39,16 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -224,34 +235,315 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun NetworkScreen() {
         var page by rememberSaveable { mutableIntStateOf(0) }
-        var refresh by remember { mutableIntStateOf(0) }
+        val haptic = LocalHapticFeedback.current
+        val view = LocalView.current
 
         LaunchedEffect(Unit) {
             while (true) {
-                refresh++
                 shizukuGranted = Shizuku.pingBinder() &&
                     Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
                 delay(1000)
             }
         }
 
-        Scaffold(
-            containerColor = CurioCream,
-            bottomBar = {
-                NavigationBar(containerColor = Color.White.copy(alpha = .94f)) {
-                    NavigationBarItem(page == 0, { page = 0 }, icon = { Icon(Icons.Rounded.Bolt, null) }, label = { Text("Control") })
-                    NavigationBarItem(page == 1, { page = 1 }, icon = { Icon(Icons.Rounded.History, null) }, label = { Text("History") })
-                    NavigationBarItem(page == 2, { page = 2 }, icon = { Icon(Icons.Rounded.Analytics, null) }, label = { Text("Usage") })
-                    NavigationBarItem(page == 3, { page = 3 }, icon = { Icon(Icons.Rounded.Settings, null) }, label = { Text("Settings") })
+        Box(Modifier.fillMaxSize()) {
+            AnimatedBackdrop()
+
+            Scaffold(
+                containerColor = Color.Transparent,
+                bottomBar = {
+                    FloatingNavigation(
+                        page = page,
+                        onPageSelected = {
+                            if (page != it) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                                page = it
+                            }
+                        }
+                    )
+                }
+            ) { padding ->
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                ) {
+                    AnimatedContent(
+                        targetState = page,
+                        label = "page_transition",
+                        transitionSpec = {
+                            if (targetState > initialState) {
+                                (slideInHorizontally(
+                                    animationSpec = tween(360),
+                                    initialOffsetX = { it / 12 }
+                                ) + fadeIn(tween(260))) togetherWith
+                                    (slideOutHorizontally(
+                                        animationSpec = tween(260),
+                                        targetOffsetX = { -it / 16 }
+                                    ) + fadeOut(tween(180)))
+                            } else {
+                                (slideInHorizontally(
+                                    animationSpec = tween(360),
+                                    initialOffsetX = { -it / 12 }
+                                ) + fadeIn(tween(260))) togetherWith
+                                    (slideOutHorizontally(
+                                        animationSpec = tween(260),
+                                        targetOffsetX = { it / 16 }
+                                    ) + fadeOut(tween(180)))
+                            }
+                        }
+                    ) { currentPage ->
+                        when (currentPage) {
+                            0 -> ControlPage()
+                            1 -> HistoryPage()
+                            2 -> UsagePage()
+                            else -> SettingsPage()
+                        }
+                    }
                 }
             }
-        ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding)) {
-                when (page) {
-                    0 -> ControlPage()
-                    1 -> HistoryPage()
-                    2 -> UsagePage()
-                    else -> SettingsPage()
+        }
+    }
+
+    @Composable
+    private fun AnimatedBackdrop() {
+        val infinite = rememberInfiniteTransition(label = "ambient_motion")
+        val driftA by infinite.animateFloat(
+            0f, 1f,
+            infiniteRepeatable(tween(12000), RepeatMode.Reverse),
+            label = "drift_a"
+        )
+        val driftB by infinite.animateFloat(
+            1f, 0f,
+            infiniteRepeatable(tween(15500), RepeatMode.Reverse),
+            label = "drift_b"
+        )
+        val pulse by infinite.animateFloat(
+            0.90f, 1.07f,
+            infiniteRepeatable(tween(5200), RepeatMode.Reverse),
+            label = "ambient_pulse"
+        )
+
+        Canvas(
+            Modifier
+                .fillMaxSize()
+                .background(CurioCream)
+        ) {
+            val width = size.width
+            val height = size.height
+
+            drawCircle(
+                brush = Brush.radialGradient(
+                    listOf(
+                        CurioRoseDark.copy(alpha = 0.14f),
+                        CurioRoseDark.copy(alpha = 0.035f),
+                        Color.Transparent
+                    )
+                ),
+                radius = width * 0.66f * pulse,
+                center = androidx.compose.ui.geometry.Offset(
+                    width * (0.06f + driftA * 0.24f),
+                    height * (0.10f + driftB * 0.09f)
+                )
+            )
+
+            drawCircle(
+                brush = Brush.radialGradient(
+                    listOf(
+                        Color(0xFF5D806D).copy(alpha = 0.11f),
+                        Color(0xFF5D806D).copy(alpha = 0.028f),
+                        Color.Transparent
+                    )
+                ),
+                radius = width * 0.58f,
+                center = androidx.compose.ui.geometry.Offset(
+                    width * (0.96f - driftB * 0.23f),
+                    height * (0.78f + driftA * 0.11f)
+                )
+            )
+
+            drawCircle(
+                brush = Brush.radialGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.48f),
+                        Color.White.copy(alpha = 0.08f),
+                        Color.Transparent
+                    )
+                ),
+                radius = width * 0.40f,
+                center = androidx.compose.ui.geometry.Offset(
+                    width * 0.5f,
+                    height * (0.40f + driftA * 0.05f)
+                )
+            )
+
+            drawRect(
+                brush = Brush.horizontalGradient(
+                    listOf(
+                        Color.Transparent,
+                        CurioInk.copy(alpha = 0.05f),
+                        Color.Transparent
+                    )
+                ),
+                topLeft = androidx.compose.ui.geometry.Offset(width * 0.09f, height * 0.24f),
+                size = androidx.compose.ui.geometry.Size(width * 0.82f, 1f)
+            )
+        }
+    }
+
+    @Composable
+    private fun FloatingNavigation(
+        page: Int,
+        onPageSelected: (Int) -> Unit
+    ) {
+        val items = listOf(
+            Triple(Icons.Rounded.Bolt, "Control", 0),
+            Triple(Icons.Rounded.History, "History", 1),
+            Triple(Icons.Rounded.Analytics, "Usage", 2),
+            Triple(Icons.Rounded.Settings, "Settings", 3)
+        )
+
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(74.dp)
+                    .border(
+                        BorderStroke(1.dp, Color.White.copy(alpha = 0.78f)),
+                        RoundedCornerShape(30.dp)
+                    ),
+                shape = RoundedCornerShape(30.dp),
+                color = Color.White.copy(alpha = 0.80f),
+                tonalElevation = 4.dp,
+                shadowElevation = 16.dp
+            ) {
+                Row(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp, vertical = 7.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    items.forEach { (icon, label, index) ->
+                        NavMorphItem(
+                            icon = icon,
+                            label = label,
+                            selected = page == index,
+                            onClick = { onPageSelected(index) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun NavMorphItem(
+        icon: androidx.compose.ui.graphics.vector.ImageVector,
+        label: String,
+        selected: Boolean,
+        onClick: () -> Unit
+    ) {
+        val scale by animateFloatAsState(
+            if (selected) 1f else 0.92f,
+            spring(dampingRatio = 0.63f, stiffness = 520f),
+            label = "nav_scale"
+        )
+        val rotation by animateFloatAsState(
+            if (selected) 0f else -4f,
+            spring(dampingRatio = 0.72f, stiffness = 440f),
+            label = "nav_rotation"
+        )
+        val widthWeight by animateFloatAsState(
+            if (selected) 1.30f else 0.84f,
+            spring(dampingRatio = 0.70f, stiffness = 420f),
+            label = "nav_weight"
+        )
+        val activeAlpha by animateFloatAsState(
+            if (selected) 1f else 0f,
+            tween(220),
+            label = "nav_alpha"
+        )
+
+        Box(
+            Modifier
+                .weight(widthWeight)
+                .fillMaxHeight()
+                .scale(scale)
+                .clip(RoundedCornerShape(22.dp))
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(2.dp)
+                    .background(
+                        CurioRoseDark.copy(alpha = 0.12f * activeAlpha),
+                        RoundedCornerShape(20.dp)
+                    )
+                    .border(
+                        BorderStroke(
+                            1.dp,
+                            CurioRoseDark.copy(alpha = 0.12f * activeAlpha)
+                        ),
+                        RoundedCornerShape(20.dp)
+                    )
+            )
+
+            Row(
+                Modifier
+                    .padding(horizontal = 10.dp)
+                    .animateContentSize(
+                        spring(dampingRatio = 0.62f, stiffness = 450f)
+                    ),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Box(
+                    Modifier
+                        .size(if (selected) 38.dp else 34.dp)
+                        .background(
+                            if (selected) CurioRoseDark.copy(alpha = 0.13f)
+                            else Color.Transparent,
+                            CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = label,
+                        tint = if (selected) CurioRoseDark
+                        else CurioInk.copy(alpha = 0.50f),
+                        modifier = Modifier
+                            .size(if (selected) 20.dp else 21.dp)
+                            .rotate(rotation)
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = selected,
+                    enter = fadeIn(tween(170)) + expandHorizontally(tween(250)),
+                    exit = fadeOut(tween(110)) + shrinkHorizontally(tween(180))
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(Modifier.width(7.dp))
+                        Text(
+                            text = label,
+                            color = CurioInk,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Clip
+                        )
+                    }
                 }
             }
         }
