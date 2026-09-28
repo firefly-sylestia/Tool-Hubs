@@ -484,7 +484,7 @@ class AutoReconnectService : Service() {
 
         val openIntent = PendingIntent.getActivity(this, 700, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_menu_upload)
+            .setSmallIcon(R.drawable.ic_stat_network)
             .setContentIntent(openIntent)
             .setOnlyAlertOnce(true)
             .setContentTitle("5G Reconnect")
