@@ -52,6 +52,12 @@ class AutoReconnectService : Service() {
         const val PREF_LTE_FALLBACK_MS = "lte_fallback_ms"
         const val PREF_RECOVERY_TOTAL_MS = "recovery_total_ms"
         const val PREF_RECOVERY_COUNT = "recovery_count"
+        const val PREF_ATTEMPT_STARTED_ELAPSED = "attempt_started_elapsed"
+        const val PREF_SERVICE_ACTIVE = "service_active"
+        const val PREF_CURRENT_NETWORK = "current_network"
+        const val PREF_STATUS = "service_status"
+        const val PREF_LAST_EVENT_DETAIL = "last_event_detail"
+        const val PREF_LAST_EVENT_AT = "last_event_at"
         const val PREF_BILLING_DAY = "billing_cycle_day"
         const val MAX_HISTORY = 200
         const val DEFAULT_INTERVAL_MS = 30_000L
@@ -132,6 +138,18 @@ class AutoReconnectService : Service() {
         .putBoolean(PREF_CIRCUIT_OPEN, circuitOpen)
         .apply()
 
+    private fun publishState(network: String, status: String, event: String? = null) {
+        val editor = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+            .putBoolean(PREF_SERVICE_ACTIVE, isRunning)
+            .putString(PREF_CURRENT_NETWORK, network)
+            .putString(PREF_STATUS, status)
+        if (event != null) {
+            editor.putString(PREF_LAST_EVENT_DETAIL, event)
+                .putLong(PREF_LAST_EVENT_AT, System.currentTimeMillis())
+        }
+        editor.apply()
+    }
+
     override fun onCreate() {
         super.onCreate()
         isRunning = true
@@ -144,7 +162,8 @@ class AutoReconnectService : Service() {
         reloadSettings()
         registerNetworkObserver()
         createChannel()
-        startForeground(NOTIFICATION_ID, buildNotification("Starting 5G check…"))
+        publishState(currentNetworkLabel(), "Starting background watcher…")
+        startForeground(NOTIFICATION_ID, buildNotification("Starting background watcher…"))
         startWatcher()
     }
 
@@ -211,6 +230,19 @@ class AutoReconnectService : Service() {
         }
     }
 
+    private fun currentNetworkLabel(): String = when {
+        isActually5G() -> "5G"
+        currentDataType() == TelephonyManager.NETWORK_TYPE_LTE -> "4G / LTE"
+        currentDataType() == TelephonyManager.NETWORK_TYPE_HSPAP ||
+            currentDataType() == TelephonyManager.NETWORK_TYPE_HSPA ||
+            currentDataType() == TelephonyManager.NETWORK_TYPE_HSDPA ||
+            currentDataType() == TelephonyManager.NETWORK_TYPE_HSUPA ||
+            currentDataType() == TelephonyManager.NETWORK_TYPE_UMTS -> "3G"
+        currentDataType() == TelephonyManager.NETWORK_TYPE_EDGE ||
+            currentDataType() == TelephonyManager.NETWORK_TYPE_GPRS -> "2G"
+        else -> "Unknown"
+    }
+
     private fun currentDataType(): Int =
         runCatching { telephony.dataNetworkType }
             .getOrDefault(TelephonyManager.NETWORK_TYPE_UNKNOWN)
@@ -242,13 +274,7 @@ class AutoReconnectService : Service() {
     }
 
     private fun observeNetwork() {
-        val current = when {
-            isActually5G() -> "5G"
-            currentDataType() == TelephonyManager.NETWORK_TYPE_LTE -> "4G / LTE"
-            currentDataType() == TelephonyManager.NETWORK_TYPE_HSPAP || currentDataType() == TelephonyManager.NETWORK_TYPE_HSPA || currentDataType() == TelephonyManager.NETWORK_TYPE_HSDPA || currentDataType() == TelephonyManager.NETWORK_TYPE_HSUPA || currentDataType() == TelephonyManager.NETWORK_TYPE_UMTS -> "3G"
-            currentDataType() == TelephonyManager.NETWORK_TYPE_EDGE || currentDataType() == TelephonyManager.NETWORK_TYPE_GPRS -> "2G"
-            else -> "Unknown"
-        }
+        val current = currentNetworkLabel()
         if (current == "5G") {
             consecutiveFailures = 0
             circuitOpen = false
@@ -256,9 +282,14 @@ class AutoReconnectService : Service() {
             persistRetryState()
         }
         if (current != lastObservedNetwork) {
-            if (lastObservedNetwork == null) recordHistory(current, "Monitoring started")
-            else recordHistory(current, "Network changed from $lastObservedNetwork", "network")
+            val detail = if (lastObservedNetwork == null) "Monitoring started" else "Network changed from $lastObservedNetwork"
+            recordHistory(current, detail, if (lastObservedNetwork == null) "system" else "network")
             lastObservedNetwork = current
+            publishState(current, when {
+                current == "5G" -> "5G active · monitoring for LTE fallback"
+                current == "4G / LTE" -> "4G / LTE detected · recovery watcher active"
+                else -> "Monitoring $current"
+            }, detail)
         }
         usageTracker.sample(current)
         trackFallbackImpact(current)
@@ -347,13 +378,25 @@ class AutoReconnectService : Service() {
         try {
             attemptTimes.addLast(now)
         recordHistory("4G / LTE", "Automatic 5G reconnect attempt started", "attempt")
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                .putLong(PREF_ATTEMPT_STARTED_ELAPSED, SystemClock.elapsedRealtime())
+                .apply()
             val attempt = attemptTimes.size
             updateNotification("Trying 5G · attempt " + attempt + "/" + maxAttempts)
             val result = withContext(Dispatchers.IO) { bridge.reconnect5G() }
             val switchedTo5G = waitFor5G(12_000L)
             if (switchedTo5G) {
+                val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                val started = prefs.getLong(PREF_ATTEMPT_STARTED_ELAPSED, 0L)
+                val latency = if (started > 0L) (SystemClock.elapsedRealtime() - started).coerceAtLeast(0L) else 0L
+                val count = prefs.getInt(PREF_RECOVERY_COUNT, 0)
+                val total = prefs.getLong(PREF_RECOVERY_TOTAL_MS, 0L)
                 recordHistory("5G", "Automatic reconnect confirmed", "success")
+                prefs.edit().remove(PREF_ATTEMPT_STARTED_ELAPSED)
+                    .putLong(PREF_RECOVERY_TOTAL_MS, total + latency)
+                    .putInt(PREF_RECOVERY_COUNT, count + 1).apply()
                 nextAttemptAt = 0L; consecutiveFailures = 0; circuitOpen = false; persistRetryState()
+                publishState("5G", "5G switch confirmed · attempt " + attempt + "/" + maxAttempts, "Automatic reconnect confirmed")
                 updateNotification("5G switch confirmed · attempt " + attempt + "/" + maxAttempts)
             } else {
                 consecutiveFailures++
@@ -364,7 +407,8 @@ class AutoReconnectService : Service() {
                 persistRetryState()
                 val detail = if (result.startsWith("5G re-selection triggered")) "5G not detected after trigger" else result.take(100)
                 recordHistory("4G / LTE", if (circuitOpen) "Reconnect paused after $consecutiveFailures failures: $detail" else "Reconnect failed: $detail", "failed")
-                updateNotification(if (circuitOpen) "Reconnect paused after repeated failures · tap Resume" else "5G switch failed · retry in ${formatInterval(delay)} · $detail")
+                publishState("4G / LTE", if (circuitOpen) "Reconnect paused after repeated failures" else "4G / LTE detected · retry in " + formatInterval(delay), detail)
+                updateNotification(if (circuitOpen) "Reconnect paused after repeated failures · tap Resume" else "5G switch failed · retry in " + formatInterval(delay) + " · " + detail)
             }
         } finally {
             operationRunning = false
@@ -408,8 +452,11 @@ class AutoReconnectService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val openIntent = PendingIntent.getActivity(this, 700, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_upload)
+            .setContentIntent(openIntent)
+            .setOnlyAlertOnce(true)
             .setContentTitle("5G Reconnect")
             .setContentText(text)
             .setOngoing(true)
