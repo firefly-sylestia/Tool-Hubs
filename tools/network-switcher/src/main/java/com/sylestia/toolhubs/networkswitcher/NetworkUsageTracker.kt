@@ -23,6 +23,8 @@ class NetworkUsageTracker(context: Context) {
     private var lastTotal = prefs.getLong(KEY_LAST_TOTAL, -1L)
     private var lastNetwork = prefs.getString(KEY_LAST_NETWORK, null)
     private var lastElapsed = prefs.getLong(KEY_LAST_ELAPSED, -1L)
+    private var lastSpeedTotal = prefs.getLong(KEY_LAST_SPEED_TOTAL, -1L)
+    private var lastSpeedElapsed = prefs.getLong(KEY_LAST_SPEED_ELAPSED, -1L)
 
     fun sample(network: String) {
         val total = TrafficStats.getMobileRxBytes() + TrafficStats.getMobileTxBytes()
@@ -35,6 +37,18 @@ class NetworkUsageTracker(context: Context) {
             }
         }
         val nowWall = System.currentTimeMillis()
+        if (lastSpeedTotal >= 0L && total >= lastSpeedTotal && lastSpeedElapsed >= 0L && nowElapsed > lastSpeedElapsed) {
+            val bytesPerSecond = ((total - lastSpeedTotal) * 1000L / (nowElapsed - lastSpeedElapsed)).coerceAtLeast(0L)
+            if (bytesPerSecond > prefs.getLong(KEY_PEAK_BPS, 0L)) {
+                prefs.edit()
+                    .putLong(KEY_PEAK_BPS, bytesPerSecond)
+                    .putLong(KEY_PEAK_AT, nowWall)
+                    .putString(KEY_PEAK_NETWORK, network)
+                    .apply()
+            }
+        }
+        lastSpeedTotal = total
+        lastSpeedElapsed = nowElapsed
         if (network != lastNetwork || nowWall - lastPersistAt >= PERSIST_EVERY_MS) {
             persist(total, network, nowElapsed, nowWall)
         }
@@ -49,6 +63,8 @@ class NetworkUsageTracker(context: Context) {
             .putLong(KEY_LAST_TOTAL, total)
             .putString(KEY_LAST_NETWORK, network)
             .putLong(KEY_LAST_ELAPSED, elapsed)
+            .putLong(KEY_LAST_SPEED_TOTAL, lastSpeedTotal)
+            .putLong(KEY_LAST_SPEED_ELAPSED, lastSpeedElapsed)
             .putLong(KEY_LTE_BYTES, prefs.getLong(KEY_LTE_BYTES, 0L) + pendingLte)
             .putLong(KEY_5G_BYTES, prefs.getLong(KEY_5G_BYTES, 0L) + pending5G)
             .putLong("$KEY_LTE_BYTES:" + day, prefs.getLong("$KEY_LTE_BYTES:" + day, 0L) + pendingLte)
@@ -70,6 +86,11 @@ class NetworkUsageTracker(context: Context) {
         private const val KEY_LAST_ELAPSED = "usage_last_elapsed"
         const val KEY_LTE_BYTES = "usage_lte_bytes"
         const val KEY_5G_BYTES = "usage_5g_bytes"
+        const val KEY_PEAK_BPS = "usage_peak_bps"
+        const val KEY_PEAK_AT = "usage_peak_at"
+        const val KEY_PEAK_NETWORK = "usage_peak_network"
+        private const val KEY_LAST_SPEED_TOTAL = "usage_last_speed_total"
+        private const val KEY_LAST_SPEED_ELAPSED = "usage_last_speed_elapsed"
         const val PERSIST_EVERY_MS = 30_000L
 
         fun totalForLastDays(context: Context, key: String, days: Int): Long {
