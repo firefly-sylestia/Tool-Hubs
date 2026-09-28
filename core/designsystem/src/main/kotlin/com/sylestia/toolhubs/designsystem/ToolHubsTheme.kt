@@ -8,17 +8,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.Color
 
-// Graphite canvas with cyan connectivity and amber recovery states.
-val CurioRoseWood = Color(0xFF18D5E5)
-val CurioRoseDark = Color(0xFF0A9EAD)
-val CurioInk = Color(0xFFE7F5F6)
-val CurioCream = Color(0xFF0B1115)
-val CurioSurface = Color(0xFF131D22)
-val CurioDarkBackground = Color(0xFF0B1115)
-val CurioDarkSurface = Color(0xFF131D22)
-val CurioDarkCard = Color(0xFF1A282E)
-val CurioAmber = Color(0xFFFFB74D)
-val CurioFailure = Color(0xFFFF6B6B)
+// Refreshed neutral canvas with crisp berry actions and high-contrast ink.
+val CurioRoseWood = Color(0xFFB6415D)
+val CurioRoseDark = Color(0xFF76364A)
+val CurioInk = Color(0xFF24111A)
+val CurioCream = Color(0xFFF7F7FB)
+val CurioSurface = Color(0xFFFFFFFF)
+val CurioDarkBackground = Color(0xFF11131C)
+val CurioDarkSurface = Color(0xFF1A1E2B)
+val CurioDarkCard = Color(0xFF222839)
 
 private val CurioLightColors = lightColorScheme(
     primary = CurioInk,
