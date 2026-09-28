@@ -497,28 +497,37 @@ class MainActivity : ComponentActivity() {
         Box(
             modifier
                 .fillMaxHeight()
-                .padding(top = lift)
+                .offset(y = lift)
                 .scale(scale)
                 .shadow(if (selected) 10.dp else 3.dp, RoundedCornerShape(17.dp), clip = false)
                 .clip(RoundedCornerShape(17.dp))
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center
         ) {
-            if (selected) {
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .background(
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .background(
+                        if (selected) {
                             Brush.verticalGradient(
                                 listOf(MetalLight, MetalBase, Color(0xFF9A9FA3))
-                            ),
-                            RoundedCornerShape(17.dp)
-                        )
-                        .border(
-                            BorderStroke(1.dp, Color.White.copy(.76f)),
-                            RoundedCornerShape(17.dp)
-                        )
-                )
+                            )
+                        } else {
+                            Brush.verticalGradient(
+                                listOf(MetalDark, MetalDeep, Color(0xFF3A3F44))
+                            )
+                        },
+                        RoundedCornerShape(17.dp)
+                    )
+                    .border(
+                        BorderStroke(
+                            1.dp,
+                            if (selected) Color.White.copy(.76f) else Color.Black.copy(.28f)
+                        ),
+                        RoundedCornerShape(17.dp)
+                    )
+            )
+            if (selected) {
                 Box(
                     Modifier
                         .matchParentSize()
@@ -537,7 +546,7 @@ class MainActivity : ComponentActivity() {
                 Icon(
                     icon,
                     null,
-                    tint = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(.55f),
+                    tint = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(.82f),
                     modifier = Modifier.size(if (selected) 21.dp else 20.dp)
                 )
                 AnimatedVisibility(
