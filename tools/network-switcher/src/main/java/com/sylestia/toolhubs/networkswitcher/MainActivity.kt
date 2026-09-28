@@ -574,7 +574,6 @@ private fun HistoryView(context: android.content.Context) {
             }
         }
     }
-    DataTrackerView(context)
     if (showAll) ModalBottomSheet(onDismissRequest = { showAll = false }, containerColor = CurioCream) {
         var filter by rememberSaveable { mutableStateOf("All") }
         var expandedTime by rememberSaveable { mutableLongStateOf(-1L) }
