@@ -171,6 +171,11 @@ class AutoReconnectService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent == null && !getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getBoolean(PREF_AUTO_ENABLED, false)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_START -> {
                 getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -178,7 +183,12 @@ class AutoReconnectService : Service() {
                 unregisterNetworkObserver()
                 reloadSettings()
                 registerNetworkObserver()
+                paused = false
+                circuitOpen = false
+                consecutiveFailures = 0
                 nextAttemptAt = 0L
+                persistRetryState()
+                publishState(currentNetworkLabel(), "Background watcher started")
             }
             ACTION_BOOT_START -> {
                 unregisterNetworkObserver()
@@ -187,12 +197,14 @@ class AutoReconnectService : Service() {
             }
             ACTION_STOP -> {
                 getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                    .edit().putBoolean(PREF_AUTO_ENABLED, false).apply()
+                    .edit().putBoolean(PREF_AUTO_ENABLED, false)
+                    .putBoolean(PREF_SERVICE_ACTIVE, false).apply()
                 stopSelf()
                 return START_NOT_STICKY
             }
             ACTION_PAUSE -> {
                 paused = true
+                publishState(currentNetworkLabel(), "Paused · tap Resume to continue")
                 updateNotification("Paused · tap Resume to continue")
             }
             ACTION_RESUME -> {
@@ -201,11 +213,13 @@ class AutoReconnectService : Service() {
                 consecutiveFailures = 0
                 nextAttemptAt = 0L
                 persistRetryState()
-                updateNotification(when {
-                isActually5G() -> "5G active · monitoring for LTE fallback"
-                isLteFallback() -> "4G / LTE detected · recovery active"
-                else -> "Monitoring cellular state"
-            })
+                val status = when {
+                    isActually5G() -> "5G active · monitoring for LTE fallback"
+                    isLteFallback() -> "4G / LTE detected · recovery active"
+                    else -> "Monitoring cellular state"
+                }
+                publishState(currentNetworkLabel(), status)
+                updateNotification(status)
             }
         }
         return START_STICKY
@@ -490,10 +504,12 @@ class AutoReconnectService : Service() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // Removing the app's task from Recents must not be interpreted as stopping
-        // the explicitly enabled foreground watcher.
         if (getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(PREF_AUTO_ENABLED, false)) {
-            updateNotification("Watching for 5G drops")
+            updateNotification(when {
+                isActually5G() -> "5G active · monitoring for LTE fallback"
+                isLteFallback() -> "4G / LTE detected · recovery active"
+                else -> "Monitoring cellular state"
+            })
         }
         super.onTaskRemoved(rootIntent)
     }
@@ -501,6 +517,8 @@ class AutoReconnectService : Service() {
     override fun onDestroy() {
         isRunning = false
         runCatching { usageTracker.flush() }
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+            .putBoolean(PREF_SERVICE_ACTIVE, false).apply()
         unregisterNetworkObserver()
         scope.cancel()
         super.onDestroy()
