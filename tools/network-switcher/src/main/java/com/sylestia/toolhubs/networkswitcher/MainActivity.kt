@@ -3,1724 +3,1673 @@
 package com.sylestia.toolhubs.networkswitcher
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
-import android.provider.Settings
-import android.telephony.PhoneStateListener
-import android.telephony.TelephonyDisplayInfo
-import android.telephony.TelephonyManager
+import android.os.SystemClock
+import android.provider.Settings as AndroidSettings
 import android.telephony.SubscriptionManager
-import android.view.HapticFeedbackConstants
+import android.telephony.TelephonyManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.annotation.RequiresApi
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Analytics
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.rounded.Warning
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.core.content.PermissionChecker
-import com.sylestia.toolhubs.designsystem.CurioCream
-import com.sylestia.toolhubs.designsystem.CurioInk
-import com.sylestia.toolhubs.ui.HubScreenHeader
+import androidx.core.view.WindowCompat
+import com.sylestia.toolhubs.designsystem.ToolHubsTheme
+import com.sylestia.toolhubs.designsystem.hubAccents
+import com.sylestia.toolhubs.ui.HubBackdrop
+import com.sylestia.toolhubs.ui.HubBottomNav
+import com.sylestia.toolhubs.ui.HubEmptyState
+import com.sylestia.toolhubs.ui.HubGlassCard
+import com.sylestia.toolhubs.ui.HubHairline
+import com.sylestia.toolhubs.ui.HubNavItem
+import com.sylestia.toolhubs.ui.HubPill
+import com.sylestia.toolhubs.ui.HubPrimaryButton
+import com.sylestia.toolhubs.ui.HubProgressRing
+import com.sylestia.toolhubs.ui.HubQuietButton
+import com.sylestia.toolhubs.ui.HubReveal
+import com.sylestia.toolhubs.ui.HubRowDivider
+import com.sylestia.toolhubs.ui.HubHeroHeader
+import com.sylestia.toolhubs.ui.HubSectionTitle
+import com.sylestia.toolhubs.ui.HubSegmented
+import com.sylestia.toolhubs.ui.HubSliderRow
+import com.sylestia.toolhubs.ui.HubStatTile
+import com.sylestia.toolhubs.ui.HubStatusDot
+import com.sylestia.toolhubs.ui.HubToggleRow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import rikka.shizuku.Shizuku
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import rikka.shizuku.Shizuku
 
-private val NetworkLightColors = lightColorScheme(
-    primary = Color(0xFF7A402B),
-    onPrimary = Color.White,
-    secondary = Color(0xFF4F5961),
-    onSecondary = Color.White,
-    tertiary = Color(0xFF56634D),
-    onTertiary = Color.White,
-    background = Color(0xFFDDE1E4),
-    onBackground = Color(0xFF171A1D),
-    surface = Color(0xFFF2F4F5),
-    onSurface = Color(0xFF171A1D),
-    surfaceVariant = Color(0xFFC9CED2),
-    onSurfaceVariant = Color(0xFF343B40),
-    outline = Color(0xFF697278)
+/** Snapshot of everything the dashboard polls out of the watcher's shared preferences. */
+private data class WatcherSnapshot(
+    val network: String,
+    val status: String,
+    val autoEnabled: Boolean,
+    val serviceActive: Boolean,
+    val paused: Boolean,
+    val circuitOpen: Boolean,
+    val lastEvent: String?,
+    val nextAttemptRemainingMs: Long,
 )
 
-private val NetworkDarkColors = darkColorScheme(
-    primary = Color(0xFFD99570),
-    onPrimary = Color(0xFF24140D),
-    secondary = Color(0xFFB4BDC3),
-    onSecondary = Color(0xFF171A1D),
-    tertiary = Color(0xFFB2C19F),
-    onTertiary = Color(0xFF172016),
-    background = Color(0xFF101417),
-    onBackground = Color(0xFFF1F3F4),
-    surface = Color(0xFF1D2327),
-    onSurface = Color(0xFFF1F3F4),
-    surfaceVariant = Color(0xFF30383E),
-    onSurfaceVariant = Color(0xFFD1D7DB),
-    outline = Color(0xFF7E898F)
+private data class SimChoice(val id: Int, val label: String)
+
+private data class HistoryEntry(
+    val timestamp: Long,
+    val time: String,
+    val network: String,
+    val detail: String,
+    val type: String,
 )
 
 class MainActivity : ComponentActivity() {
+
     private val shizukuPermissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
-        if (requestCode == 100 && grantResult == PackageManager.PERMISSION_GRANTED) {
-            runOnUiThread { shizukuGranted = true }
+        if (requestCode == SHIZUKU_REQUEST_CODE && grantResult == PackageManager.PERMISSION_GRANTED) {
+            runOnUiThread { shizukuPermissionResult = true }
+            ShizukuHealthMonitor.refresh()
         }
     }
-    private var shizukuGranted by mutableStateOf(false)
+
+    @Suppress("unused")
+    private var shizukuPermissionResult by mutableStateOf(false)
     private var themeMode by mutableStateOf("system")
+
     private val telephony by lazy { getSystemService(TelephonyManager::class.java) }
-    @Volatile private var display5GSignal = false
 
-    private val phoneStateListener = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        object : PhoneStateListener() {
-            override fun onDisplayInfoChanged(info: TelephonyDisplayInfo) {
-                display5GSignal = info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA ||
-                    info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE
-            }
-        }
-    } else null
-
-    private val telephonyCallback by lazy { createTelephonyCallback() }
-
-    @RequiresApi(Build.VERSION_CODES.S)
-    private fun createTelephonyCallback(): android.telephony.TelephonyCallback =
-        object : android.telephony.TelephonyCallback(), android.telephony.TelephonyCallback.DisplayInfoListener {
-            override fun onDisplayInfoChanged(info: TelephonyDisplayInfo) {
-                display5GSignal = info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA ||
-                    info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE
-            }
-        }
+    /** Shared with the screen so manual re-triggers can confirm 5G without a second listener. */
+    var radioWatcher: RadioWatcher? = null
+        private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 42)
         }
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 43)
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 43)
+        }
 
-        themeMode = getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE)
-            .getString("theme_mode", "system") ?: "system"
-        shizukuGranted = Shizuku.pingBinder() &&
-            Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+        themeMode = store(this).getString(AutoReconnectService.PREF_THEME_MODE, "system") ?: "system"
+        shizukuPermissionResult = ShizukuHealthMonitor.isReady
         ShizukuHealthMonitor.install()
         Shizuku.addRequestPermissionResultListener(shizukuPermissionListener)
-        registerNetworkObserver()
+
+        radioWatcher = runCatching {
+            RadioWatcher(telephony, ContextCompat.getMainExecutor(this)).also { it.start() }
+        }.getOrNull()
+
         setContent {
             val dark = when (themeMode) {
                 "dark" -> true
                 "light" -> false
                 else -> androidx.compose.foundation.isSystemInDarkTheme()
             }
-            com.sylestia.toolhubs.designsystem.ToolHubsTheme(darkTheme = dark) {
-                MaterialTheme(
-                    colorScheme = if (dark) NetworkDarkColors else NetworkLightColors
-                ) {
-                    NetworkScreen()
+            ToolHubsTheme(darkTheme = dark) {
+                SideEffect {
+                    WindowCompat.getInsetsController(window, window.decorView)
+                        .isAppearanceLightStatusBars = !dark
                 }
+                NetworkApp(
+                    context = this,
+                    radioWatcher = radioWatcher,
+                    themeMode = themeMode,
+                    onThemeMode = { mode ->
+                        themeMode = mode
+                        store(this).edit().putString(AutoReconnectService.PREF_THEME_MODE, mode).apply()
+                    },
+                )
             }
         }
     }
 
     override fun onDestroy() {
-        unregisterNetworkObserver()
+        runCatching { radioWatcher?.stop() }
         Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener)
         super.onDestroy()
     }
 
-    private fun registerNetworkObserver() {
+    fun hasPhonePermission(): Boolean =
+        checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+
+    fun hasNotificationPermission(): Boolean =
+        Build.VERSION.SDK_INT < 33 ||
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+
+    fun batteryOptimizationExempt(): Boolean =
+        getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) == true
+
+    fun openBatteryOptimization() {
         runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                telephony.registerTelephonyCallback(mainExecutor, telephonyCallback)
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                @Suppress("DEPRECATION")
-                telephony.listen(phoneStateListener, PhoneStateListener.LISTEN_DISPLAY_INFO_CHANGED)
-            }
-        }
-    }
-
-    private fun unregisterNetworkObserver() {
-        runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) telephony.unregisterTelephonyCallback(telephonyCallback)
-            else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                @Suppress("DEPRECATION")
-                telephony.listen(phoneStateListener, PhoneStateListener.LISTEN_NONE)
-            }
-        }
-    }
-
-    private fun isActually5G(): Boolean {
-        val dataType = runCatching { telephony.dataNetworkType }.getOrDefault(TelephonyManager.NETWORK_TYPE_UNKNOWN)
-        return dataType == TelephonyManager.NETWORK_TYPE_NR || display5GSignal
-    }
-
-    private fun currentNetwork(): String = runCatching {
-        when {
-            isActually5G() -> "5G"
-            telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_LTE -> "4G / LTE"
-            telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_HSPAP ||
-                telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_HSPA ||
-                telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_HSDPA ||
-                telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_HSUPA ||
-                telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_UMTS -> "3G"
-            telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_EDGE ||
-                telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_GPRS -> "2G"
-            else -> "Unknown"
-        }
-    }.getOrDefault("Permission required")
-
-    data class SimChoice(val id: Int, val label: String)
-
-    private fun activeSims(): List<SimChoice> = runCatching {
-        getSystemService(SubscriptionManager::class.java).activeSubscriptionInfoList.orEmpty().map {
-            SimChoice(it.subscriptionId, "SIM ${it.simSlotIndex + 1} · ${it.carrierName}")
-        }
-    }.getOrDefault(emptyList())
-
-    private fun diagnostics(): List<Pair<String, String>> {
-        val preferred = runCatching {
-            val types = telephony.getAllowedNetworkTypesForReason(TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER)
-            if (types and TelephonyManager.NETWORK_TYPE_BITMASK_NR != 0L) "5G allowed" else "5G disabled"
-        }.getOrDefault("Unavailable")
-        val data = runCatching { if (telephony.isDataEnabled) "Enabled" else "Disabled" }.getOrDefault("Unavailable")
-        val carrier5g = runCatching {
-            when {
-                telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_NR -> "NR / SA detected"
-                display5GSignal -> "NSA advertised"
-                else -> "Not currently advertised"
-            }
-        }.getOrDefault("Unavailable")
-        return listOf(
-            "Carrier 5G" to carrier5g,
-            "Preferred radio" to preferred,
-            "Mobile data" to data,
-            "Active SIMs" to activeSims().size.toString()
-        )
-    }
-
-    private fun prefs() = getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE)
-
-    private fun startBackgroundWatcher() {
-        ContextCompat.startForegroundService(
-            this,
-            Intent(this, AutoReconnectService::class.java).setAction(AutoReconnectService.ACTION_START)
-        )
-    }
-
-    private fun stopBackgroundWatcher() {
-        startService(Intent(this, AutoReconnectService::class.java).setAction(AutoReconnectService.ACTION_STOP))
-    }
-
-    private fun refreshWatcherSettings() {
-        if (prefs().getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)) {
-            startBackgroundWatcher()
-        }
-    }
-
-    private fun openBatteryOptimization() {
-        runCatching {
-            startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            startActivity(Intent(AndroidSettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                 data = Uri.parse("package:$packageName")
             })
         }.recoverCatching {
-            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            startActivity(Intent(AndroidSettings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
         }
     }
 
-    private fun hasNotificationPermission(): Boolean =
-        Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    fun openShizuku() {
+        packageManager.getLaunchIntentForPackage(SHIZUKU_PACKAGE)?.let { startActivity(it) }
+    }
 
-    private fun hasPhonePermission(): Boolean =
-        checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
-
-    private fun batteryOptimizationAllowed(): Boolean =
-        getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) == true
-
-    private fun requestMissingPermission(kind: String) {
-        when (kind) {
-            "phone" -> if (!hasPhonePermission()) requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 42)
-            "notifications" -> if (Build.VERSION.SDK_INT >= 33 && !hasNotificationPermission()) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 43)
-            "shizuku" -> {
-                if (!Shizuku.pingBinder()) {
-                    startActivity(packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api"))
-                } else Shizuku.requestPermission(100)
+    fun requestShizuku() {
+        ShizukuHealthMonitor.refresh()
+        when (ShizukuHealthMonitor.state) {
+            ShizukuHealth.READY -> Unit
+            ShizukuHealth.PERMISSION_REQUIRED -> runCatching {
+                if (!Shizuku.shouldShowRequestPermissionRationale()) Shizuku.requestPermission(SHIZUKU_REQUEST_CODE)
             }
-            "battery" -> openBatteryOptimization()
+            else -> openShizuku()
         }
     }
 
-    @Composable
-    private fun NetworkScreen() {
-        var page by rememberSaveable { mutableIntStateOf(0) }
-        val haptic = LocalHapticFeedback.current
-        val view = LocalView.current
-
-        LaunchedEffect(Unit) {
-            while (true) {
-                shizukuGranted = runCatching {
-                    Shizuku.pingBinder() &&
-                        Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
-                }.getOrDefault(false)
-                delay(1000)
-            }
-        }
-
-        Box(Modifier.fillMaxSize()) {
-            AnimatedBackdrop()
-
-            Scaffold(
-                containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0f),
-                bottomBar = {
-                    FloatingNavigation(
-                        page = page,
-                        onPageSelected = {
-                            if (page != it) {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                                page = it
-                            }
-                        }
-                    )
-                }
-            ) { padding ->
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .padding(padding)
-                ) {
-                    key(page) {
-                        when (page) {
-                            0 -> ControlPage()
-                            1 -> HistoryPage()
-                            2 -> UsagePage()
-                            else -> SettingsPage()
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private val MetalBase = Color(0xFFB9BDC1)
-    private val MetalDark = Color(0xFF565B60)
-    private val MetalDeep = Color(0xFF2D3135)
-    private val MetalLight = Color(0xFFE8EAEB)
-    private val MetalAccent = Color(0xFFB76E4A)
-
-    @Composable
-    private fun AnimatedBackdrop() {
-        val dark = when (themeMode) {
-            "dark" -> true
-            "light" -> false
-            else -> androidx.compose.foundation.isSystemInDarkTheme()
-        }
-        val infinite = rememberInfiniteTransition(label = "metal_ambient")
-        val drift by infinite.animateFloat(
-            -0.04f, 0.04f,
-            infiniteRepeatable(tween(9000), RepeatMode.Reverse),
-            label = "metal_drift"
+    fun resumeWatcher() {
+        ContextCompat.startForegroundService(
+            this,
+            Intent(this, AutoReconnectService::class.java).setAction(AutoReconnectService.ACTION_RESUME),
         )
-        val sheen by infinite.animateFloat(
-            0f, 1f,
-            infiniteRepeatable(tween(7000), RepeatMode.Restart),
-            label = "metal_sheen"
+    }
+
+    fun stopWatcher() {
+        startService(Intent(this, AutoReconnectService::class.java).setAction(AutoReconnectService.ACTION_STOP))
+    }
+
+    fun startWatcher() {
+        ContextCompat.startForegroundService(
+            this,
+            Intent(this, AutoReconnectService::class.java).setAction(AutoReconnectService.ACTION_START),
         )
+    }
 
-        Canvas(
-            Modifier
-                .fillMaxSize()
-                .background(MetalBase)
-        ) {
-            val w = size.width
-            val h = size.height
+    fun currentSims(): List<SimChoice> = runCatching {
+        getSystemService(SubscriptionManager::class.java).activeSubscriptionInfoList.orEmpty().map {
+            SimChoice(it.subscriptionId, "SIM " + (it.simSlotIndex + 1) + " / " + it.carrierName)
+        }
+    }.getOrDefault(emptyList())
 
-            drawRect(
-                brush = Brush.linearGradient(
-                    colors = if (dark) {
-                        listOf(
-                            Color(0xFF252A2F),
-                            Color(0xFF171B1F),
-                            Color(0xFF30363B),
-                            Color(0xFF121519)
-                        )
-                    } else {
-                        listOf(
-                            Color(0xFFE9EBEC),
-                            Color(0xFFB9BDC1),
-                            Color(0xFF9FA4A8),
-                            Color(0xFFE1E3E4)
-                        )
-                    },
-                    start = androidx.compose.ui.geometry.Offset(0f, 0f),
-                    end = androidx.compose.ui.geometry.Offset(w, h)
-                )
-            )
+    fun diagnostics(state: RadioState): List<Pair<String, String>> {
+        val preferred = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            runCatching {
+                val types = telephony.getAllowedNetworkTypesForReason(TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER)
+                if (types and TelephonyManager.NETWORK_TYPE_BITMASK_NR != 0L) "5G allowed" else "5G not allowed"
+            }.getOrDefault("Unavailable")
+        } else {
+            "Unavailable on this Android version"
+        }
+        val data = runCatching { if (telephony.isDataEnabled) "Enabled" else "Disabled" }.getOrDefault("Unavailable")
+        val carrier = when {
+            state.dataType == TelephonyManager.NETWORK_TYPE_NR -> "NR / standalone detected"
+            state.is5G -> "NSA advertised"
+            state.detectionReliable -> "Not currently on 5G"
+            else -> "Not detectable on this Android version"
+        }
+        return listOf(
+            "Carrier 5G" to carrier,
+            "Preferred radio" to preferred,
+            "Mobile data" to data,
+            "Active SIMs" to currentSims().size.toString(),
+        )
+    }
 
-            repeat(32) { i ->
-                val y = h * i / 32f
-                drawLine(
-                    color = Color.White.copy(alpha = if (i % 3 == 0) .055f else .028f),
-                    start = androidx.compose.ui.geometry.Offset(0f, y),
-                    end = androidx.compose.ui.geometry.Offset(w, y + w * .012f),
-                    strokeWidth = if (i % 4 == 0) 1.5f else 0.7f
-                )
-            }
+    companion object {
+        private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
+        private const val SHIZUKU_REQUEST_CODE = 100
+        const val MANUAL_CONFIRM_TIMEOUT_MS = 12_000L
 
-            drawCircle(
-                brush = Brush.radialGradient(
-                    listOf(
-                        Color.White.copy(alpha = .24f),
-                        Color.Transparent
-                    )
-                ),
-                radius = w * .52f,
-                center = androidx.compose.ui.geometry.Offset(
-                    w * (.25f + drift),
-                    h * .14f
-                )
-            )
+        fun store(context: Context) =
+            context.getSharedPreferences(AutoReconnectService.PREFS_NAME, Context.MODE_PRIVATE)
+    }
+}
 
-            val sheenX = w * (sheen * 1.45f - .22f)
-            drawRect(
-                brush = Brush.linearGradient(
-                    listOf(Color.Transparent, Color.White.copy(alpha = .09f), Color.Transparent),
-                    start = androidx.compose.ui.geometry.Offset(sheenX - w * .22f, 0f),
-                    end = androidx.compose.ui.geometry.Offset(sheenX + w * .22f, h)
-                )
-            )
+// ── root screen ──────────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun NetworkApp(
+    context: MainActivity,
+    radioWatcher: RadioWatcher?,
+    themeMode: String,
+    onThemeMode: (String) -> Unit,
+) {
+    val haptic = LocalHapticFeedback.current
+    var page by rememberSaveable { mutableIntStateOf(0) }
+    var snapshot by remember { mutableStateOf(readSnapshot(context)) }
+    var radio by remember { mutableStateOf(runCatching { radioWatcher?.snapshot() }.getOrNull()) }
+    var shizuku by remember { mutableStateOf(ShizukuHealthMonitor.refresh()) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            snapshot = readSnapshot(context)
+            radio = runCatching { radioWatcher?.snapshot() }.getOrNull()
+            shizuku = runCatching { ShizukuHealthMonitor.refresh() }.getOrDefault(ShizukuHealth.UNAVAILABLE)
+            delay(1_000)
         }
     }
 
-    @Composable
-    private fun FloatingNavigation(page: Int, onPageSelected: (Int) -> Unit) {
-        val items = listOf(
-            Triple(Icons.Rounded.Bolt, "WATCH", 0),
-            Triple(Icons.Rounded.History, "EVENTS", 1),
-            Triple(Icons.Rounded.Analytics, "DATA", 2),
-            Triple(Icons.Rounded.Settings, "TUNE", 3)
-        )
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 9.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(76.dp)
-                    .shadow(24.dp, RoundedCornerShape(22.dp), clip = false)
-                    .border(
-                        BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(.65f)),
-                        RoundedCornerShape(22.dp)
+    val accents = MaterialTheme.hubAccents
+    val accent = when {
+        radio?.is5G == true -> accents.success
+        radio?.isLteFallback == true -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.primary
+    }
+
+    HubBackdrop {
+        Scaffold(
+            containerColor = Color.Transparent,
+            // Insets are applied by the pages themselves, so Scaffold must not add its own
+            // system-bar padding on top and push the content down twice.
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            bottomBar = {
+                HubBottomNav(
+                    items = listOf(
+                        HubNavItem(Icons.Rounded.Bolt, "Watch"),
+                        HubNavItem(Icons.Rounded.History, "Events"),
+                        HubNavItem(Icons.Rounded.Analytics, "Data"),
+                        HubNavItem(Icons.Rounded.Settings, "Tune"),
                     ),
-                shape = RoundedCornerShape(22.dp),
-                color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 20.dp,
-                tonalElevation = 0.dp
-            ) {
-                Row(
-                    Modifier.fillMaxSize().padding(7.dp),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    items.forEach { (icon, label, index) ->
-                        MetalNavButton(
-                            icon = icon,
-                            label = label,
-                            selected = page == index,
-                            onClick = { onPageSelected(index) },
-                            modifier = Modifier.weight(if (page == index) 1.24f else .90f)
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun MetalNavButton(
-        icon: androidx.compose.ui.graphics.vector.ImageVector,
-        label: String,
-        selected: Boolean,
-        onClick: () -> Unit,
-        modifier: Modifier
-    ) {
-        val scale by animateFloatAsState(
-            if (selected) 1f else .94f,
-            spring(dampingRatio = .62f, stiffness = 600f),
-            label = "metal_nav_scale"
-        )
-        val lift by animateDpAsState(
-            if (selected) 0.dp else 2.dp,
-            spring(dampingRatio = .65f, stiffness = 650f),
-            label = "metal_nav_lift"
-        )
-        Box(
-            modifier
-                .fillMaxHeight()
-                .offset(y = lift)
-                .scale(scale)
-                .shadow(if (selected) 10.dp else 3.dp, RoundedCornerShape(17.dp), clip = false)
-                .clip(RoundedCornerShape(17.dp))
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .background(
-                        if (selected) {
-                            Brush.verticalGradient(
-                                listOf(MetalLight, MetalBase, Color(0xFF9A9FA3))
-                            )
-                        } else {
-                            Brush.verticalGradient(
-                                listOf(MetalDark, MetalDeep, Color(0xFF3A3F44))
-                            )
-                        },
-                        RoundedCornerShape(17.dp)
-                    )
-                    .border(
-                        BorderStroke(
-                            1.dp,
-                            if (selected) Color.White.copy(.76f) else Color.Black.copy(.28f)
-                        ),
-                        RoundedCornerShape(17.dp)
-                    )
-            )
-            if (selected) {
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .padding(top = 2.dp)
-                        .border(
-                            BorderStroke(2.dp, Color.Black.copy(.15f)),
-                            RoundedCornerShape(15.dp)
-                        )
+                    selectedIndex = page,
+                    onSelect = {
+                        if (it != page) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            page = it
+                        }
+                    },
                 )
-            }
-
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    icon,
-                    null,
-                    tint = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(.82f),
-                    modifier = Modifier.size(if (selected) 21.dp else 20.dp)
-                )
-                AnimatedVisibility(
-                    visible = selected,
-                    enter = fadeIn(tween(120)) + expandVertically(tween(180)),
-                    exit = fadeOut(tween(90)) + shrinkVertically(tween(130))
-                ) {
-                    Text(
-                        label,
-                        fontSize = 8.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.2.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(top = 3.dp)
-                    )
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun MetalPanel(
-        modifier: Modifier = Modifier,
-        content: @Composable ColumnScope.() -> Unit
-    ) {
-        Surface(
-            modifier = modifier
-                .shadow(14.dp, RoundedCornerShape(24.dp), clip = false)
-                .border(
-                    BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(.55f)),
-                    RoundedCornerShape(24.dp)
-                ),
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 12.dp,
-            tonalElevation = 0.dp
-        ) {
-            Column(
-                Modifier
-                    .background(
-                        Brush.linearGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.onSurface.copy(.07f),
-                                Color.Transparent,
-                                MaterialTheme.colorScheme.onSurface.copy(.06f)
-                            )
-                        )
-                    )
-                    .padding(18.dp),
-                content = content
-            )
-        }
-    }
-
-    @Composable
-    private fun TactileButton(
-        text: String,
-        icon: androidx.compose.ui.graphics.vector.ImageVector,
-        enabled: Boolean = true,
-        onClick: () -> Unit
-    ) {
-        var pressed by remember { mutableStateOf(false) }
-        val haptic = LocalHapticFeedback.current
-        val view = LocalView.current
-        val scale by animateFloatAsState(
-            if (pressed) .965f else 1f,
-            spring(dampingRatio = .48f, stiffness = 750f),
-            label = "tactile_scale"
-        )
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(60.dp)
-                .scale(scale)
-                .shadow(12.dp, RoundedCornerShape(18.dp), clip = false)
-                .clip(RoundedCornerShape(18.dp))
-                .clickable(enabled = enabled) {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                    pressed = true
-                    onClick()
+            },
+        ) { padding ->
+            AnimatedContent(
+                targetState = page,
+                transitionSpec = {
+                    (fadeIn(tween(240, easing = FastOutSlowInEasing)) + slideInHorizontally { it / 14 }) togetherWith
+                        (fadeOut(tween(150)) + slideOutHorizontally { -it / 14 })
                 },
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(MetalLight, Color(0xFFD0D3D5), Color(0xFF989DA1))
-                        ),
-                        RoundedCornerShape(18.dp)
-                    )
-                    .border(
-                        BorderStroke(1.dp, Color.White.copy(.72f)),
-                        RoundedCornerShape(18.dp)
-                    )
-            )
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = 12.dp)
-                    .background(
-                        MetalDark.copy(.34f),
-                        RoundedCornerShape(50)
-                    )
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, null, tint = MetalDeep)
-                Spacer(Modifier.width(9.dp))
-                Text(text, color = MetalDeep, fontWeight = FontWeight.Bold)
-            }
-        }
-        LaunchedEffect(pressed) {
-            if (pressed) {
-                delay(90)
-                pressed = false
-            }
-        }
-    }
-
-    @Composable
-    private fun NetworkPulseOrb(network: String) {
-        val infinite = rememberInfiniteTransition(label = "metal_orb")
-        val pulse by infinite.animateFloat(
-            .96f, 1.04f,
-            infiniteRepeatable(tween(1100), RepeatMode.Reverse),
-            label = "orb_pulse"
-        )
-        val tint = if (network == "5G") Color(0xFF5D806D)
-        else if (network == "4G / LTE") MetalAccent
-        else MetalDeep
-
-        Box(Modifier.size(104.dp), contentAlignment = Alignment.Center) {
-            Box(
-                Modifier
-                    .size(92.dp)
-                    .scale(pulse)
-                    .background(
-                        Brush.radialGradient(
-                            listOf(Color.White.copy(.52f), Color.Transparent)
-                        ),
-                        CircleShape
-                    )
-                    .border(
-                        BorderStroke(1.dp, Color.White.copy(.66f)),
-                        CircleShape
-                    )
-            )
-            Box(
-                Modifier
-                    .size(72.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(MetalLight, Color(0xFF9B9FA3))
-                        ),
-                        CircleShape
-                    )
-                    .border(
-                        BorderStroke(2.dp, tint.copy(.45f)),
-                        CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        if (network == "5G") "5G" else if (network == "4G / LTE") "LTE" else "—",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Black,
-                        color = tint
-                    )
-                    Text(
-                        "RADIO",
-                        fontSize = 7.sp,
-                        letterSpacing = 1.1.sp,
-                        color = MetalDeep.copy(.52f)
-                    )
+                label = "page",
+                modifier = Modifier.fillMaxSize().padding(padding),
+            ) { target ->
+                when (target) {
+                    0 -> WatchPage(context, snapshot, radio, shizuku, accent)
+                    1 -> EventsPage(context)
+                    2 -> DataPage(context)
+                    else -> TunePage(context, themeMode, onThemeMode, radio, shizuku)
                 }
             }
         }
     }
+}
 
-    @Composable
-    private fun StatePill(label: String, active: Boolean) {
-        Row(
-            Modifier
-                .background(
-                    if (active) MetalDark else Color.Black.copy(.10f),
-                    RoundedCornerShape(8.dp)
-                )
-                .border(
-                    BorderStroke(1.dp, Color.White.copy(.28f)),
-                    RoundedCornerShape(8.dp)
-                )
-                .padding(horizontal = 9.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                Modifier
-                    .size(6.dp)
-                    .background(
-                        if (active) Color(0xFF9BE7C0) else Color.White.copy(.34f),
-                        CircleShape
-                    )
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                label,
-                fontSize = 8.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = .9.sp,
-                color = Color.White.copy(if (active) .86f else .48f)
-            )
-        }
+private fun readSnapshot(context: Context): WatcherSnapshot {
+    val store = MainActivity.store(context)
+    val nowWall = System.currentTimeMillis()
+    val nowElapsed = SystemClock.elapsedRealtime()
+    val deadlineWall = store.getLong(AutoReconnectService.PREF_NEXT_ATTEMPT_WALL, 0L)
+    val remaining = if (deadlineWall > nowWall) {
+        deadlineWall - nowWall
+    } else {
+        val deadlineElapsed = store.getLong(AutoReconnectService.PREF_NEXT_ATTEMPT, 0L)
+        if (deadlineElapsed > nowElapsed) deadlineElapsed - nowElapsed else 0L
     }
+    return WatcherSnapshot(
+        network = store.getString(AutoReconnectService.PREF_CURRENT_NETWORK, null) ?: "Unknown",
+        status = store.getString(AutoReconnectService.PREF_STATUS, null) ?: "Watcher idle",
+        autoEnabled = store.getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false),
+        serviceActive = store.getBoolean(AutoReconnectService.PREF_SERVICE_ACTIVE, false),
+        paused = store.getBoolean(AutoReconnectService.PREF_PAUSED, false),
+        circuitOpen = store.getBoolean(AutoReconnectService.PREF_CIRCUIT_OPEN, false),
+        lastEvent = store.getString(AutoReconnectService.PREF_LAST_EVENT_DETAIL, null),
+        nextAttemptRemainingMs = remaining,
+    )
+}
 
-    @Composable
-    private fun PermissionChecker() {
-        val phone = hasPhonePermission()
-        val notifications = hasNotificationPermission()
-        val shizuku = ShizukuHealthMonitor.refresh() == ShizukuHealth.READY
-        if (phone && notifications && shizuku) return
+// ── page 1: watch ────────────────────────────────────────────────────────────────────────────────
 
-        MetalPanel(Modifier.fillMaxWidth()) {
-                Text("Required access", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("The checker disappears automatically once everything is ready.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.74f))
-                Spacer(Modifier.height(12.dp))
-                PermissionRow("Phone state", phone, "phone")
-                PermissionRow("Notifications", notifications, "notifications")
-                PermissionRow("Shizuku", shizuku, "shizuku")
+@Composable
+private fun WatchPage(
+    context: MainActivity,
+    snapshot: WatcherSnapshot,
+    radio: RadioState?,
+    shizuku: ShizukuHealth,
+    accent: Color,
+) {
+    val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
 
-            }
+    val network = radio?.label ?: snapshot.network
+    val live5G = radio?.is5G == true
+    val fallback = radio?.isLteFallback == true
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .statusBarsPadding()
+            .padding(horizontal = 18.dp)
+            .padding(top = 14.dp, bottom = 22.dp),
+    ) {
+        HubReveal(0) {
+            HubHeroHeader(
+                kicker = "5G Reconnect",
+                title = "Radio guardian",
+                subtitle = "Keeps watch for LTE fallback and pulls you back onto 5G.",
+                icon = Icons.Rounded.Bolt,
+            )
         }
 
-    @Composable
-    private fun PermissionRow(label: String, allowed: Boolean, kind: String) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(label, fontWeight = FontWeight.Medium)
-                Text(if (allowed) "Allowed" else "Required", fontSize = 11.sp, color = if (allowed) Color(0xFF207561) else MaterialTheme.colorScheme.primary)
-            }
-            if (!allowed) Button(onClick = { requestMissingPermission(kind) }, shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)) { Text("Allow", fontWeight = FontWeight.Bold) }
-        }
-    }
+        Spacer(Modifier.height(16.dp))
+        HubReveal(1) { ReadinessCard(context, shizuku) }
+        Spacer(Modifier.height(14.dp))
 
-    @Composable
-    private fun ControlPage() {
-        val context = this
-        val haptic = LocalHapticFeedback.current
-        val view = LocalView.current
-        var network by remember { mutableStateOf(currentNetwork()) }
-        var auto by rememberSaveable { mutableStateOf(prefs().getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)) }
-        var running by remember { mutableStateOf(false) }
-        var status by remember { mutableStateOf("Ready") }
-        var pressed by remember { mutableStateOf(false) }
-
-        LaunchedEffect(Unit) {
-            while (true) {
-                auto = prefs().getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)
-                network = prefs().getString(AutoReconnectService.PREF_CURRENT_NETWORK, null) ?: currentNetwork()
-                status = prefs().getString(AutoReconnectService.PREF_STATUS, null) ?: when {
-                    network == "5G" -> if (auto) "5G active · watching for LTE fallback" else "5G active"
-                    network == "4G / LTE" && auto -> "LTE detected · recovery watcher active"
-                    network == "4G / LTE" -> "LTE detected"
-                    else -> network
+        HubReveal(2) {
+            HubGlassCard(accent = accent) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "CURRENT NETWORK",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.8.sp,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            network,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 40.sp,
+                            fontWeight = FontWeight.Black,
+                        )
+                        Text(
+                            snapshot.status,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    RadioOrb(network = network, accent = accent)
                 }
-                delay(1000)
-            }
-        }
 
-        Column(
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp, vertical = 18.dp)
-        ) {
-            ExpressivePageHeader(
-                title = "5G Reconnect",
-                subtitle = "A tiny network guardian that stays awake for you.",
-                icon = Icons.Rounded.Bolt
-            )
+                Spacer(Modifier.height(16.dp))
 
-            Spacer(Modifier.height(16.dp))
-            PermissionChecker()
-            Spacer(Modifier.height(14.dp))
-
-            MetalPanel(Modifier.fillMaxWidth()) {
-                Box(Modifier.fillMaxWidth()) {
-                    Box(
-                        Modifier
-                            .matchParentSize()
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                                        Color.Transparent,
-                                        Color(0xFF5D806D).copy(alpha = 0.07f)
-                                    )
-                                ),
-                                RoundedCornerShape(32.dp)
-                            )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    HubPill(
+                        label = when {
+                            snapshot.paused -> "Paused"
+                            snapshot.autoEnabled -> "Watching"
+                            else -> "Off"
+                        },
+                        active = snapshot.autoEnabled && !snapshot.paused,
+                        accent = accent,
                     )
+                    HubPill(
+                        label = when {
+                            live5G -> "5G ready"
+                            fallback -> "LTE fallback"
+                            radio?.detectionReliable == false -> "5G unknown"
+                            else -> network
+                        },
+                        active = live5G,
+                        accent = accent,
+                    )
+                    if (snapshot.circuitOpen) {
+                        HubPill("Cooling down", active = false, accent = MaterialTheme.colorScheme.tertiary)
+                    }
+                }
 
-                    Column(Modifier.padding(22.dp)) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    "CURRENT NETWORK",
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    letterSpacing = 1.4.sp
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    network,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 38.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    status,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f),
-                                    fontSize = 12.sp,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                if (snapshot.autoEnabled && !snapshot.paused && snapshot.nextAttemptRemainingMs > 0L) {
+                    Spacer(Modifier.height(14.dp))
+                    HubHairline()
+                    Spacer(Modifier.height(12.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        HubProgressRing(
+                            progress = 1f - (snapshot.nextAttemptRemainingMs.toFloat() / AutoReconnectService.MAX_BACKOFF_MS),
+                            modifier = Modifier.size(38.dp),
+                            accent = accent,
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            "Next recovery attempt in " + formatDuration(snapshot.nextAttemptRemainingMs),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+                HubHairline()
+                Spacer(Modifier.height(14.dp))
+
+                HubToggleRow(
+                    title = "Automatic 5G reconnect",
+                    subtitle = "Keeps watching after you leave the app.",
+                    checked = snapshot.autoEnabled && !snapshot.paused,
+                    onCheckedChange = { enabled ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        if (!enabled) {
+                            context.stopWatcher()
+                            message = "Watcher stopped."
+                        } else {
+                            // Arm the watcher unconditionally. It gates its own attempts on Shizuku
+                            // being ready, so refusing to enable used to leave the user toggling the
+                            // switch once they finally started Shizuku.
+                            if (!context.hasPhonePermission()) {
+                                context.requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 42)
                             }
-                            NetworkPulseOrb(network = network)
-                        }
-
-                        Spacer(Modifier.height(18.dp))
-
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            StatePill(
-                                label = if (auto) "WATCHING" else "OFF",
-                                active = auto
-                            )
-                            StatePill(
-                                label = when {
-                                    network == "5G" -> "5G READY"
-                                    network == "4G / LTE" -> "LTE FALLBACK"
-                                    else -> network.uppercase(Locale.getDefault())
-                                },
-                                active = network == "5G"
-                            )
-                        }
-
-                        Spacer(Modifier.height(18.dp))
-
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Color.Black.copy(alpha = 0.11f))
-                                .border(
-                                    BorderStroke(1.dp, Color.White.copy(.24f)),
-                                    RoundedCornerShape(14.dp)
-                                )
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text("AUTOMATIC 5G RECONNECT", fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = .8.sp)
-                                Text(
-                                    "Keeps watching after you leave the app.",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)
-                                )
+                            if (shizuku != ShizukuHealth.READY) context.requestShizuku()
+                            context.startWatcher()
+                            message = if (shizuku == ShizukuHealth.READY) {
+                                "Watcher started."
+                            } else {
+                                "Armed · recovery starts as soon as Shizuku is ready."
                             }
-                            Switch(
-                                checked = auto,
-                                onCheckedChange = { enabled ->
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                                    if (!enabled) {
-                                        auto = false
-                                        stopBackgroundWatcher()
-                                        status = "Background watcher stopped."
-                                    } else if (!hasPhonePermission()) {
-                                        requestMissingPermission("phone")
-                                    } else if (ShizukuHealthMonitor.refresh() != ShizukuHealth.READY) {
-                                        requestMissingPermission("shizuku")
-                                    } else {
-                                        auto = true
-                                        prefs().edit()
-                                            .putBoolean(AutoReconnectService.PREF_AUTO_ENABLED, true)
-                                            .apply()
-                                        startBackgroundWatcher()
-                                        status = "Background watcher started."
-                                    }
-                                }
-                            )
                         }
+                    },
+                )
+
+                AnimatedVisibility(visible = snapshot.paused && snapshot.autoEnabled) {
+                    Column {
+                        Spacer(Modifier.height(10.dp))
+                        HubQuietButton(
+                            text = "Resume watching",
+                            icon = Icons.Rounded.Refresh,
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { context.resumeWatcher() },
+                        )
                     }
                 }
             }
+        }
 
-            Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(14.dp))
 
-            val buttonScale by animateFloatAsState(
-                if (pressed) 0.965f else 1f,
-                spring(dampingRatio = 0.48f, stiffness = 700f),
-                label = "manual_button_scale"
-            )
-
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(60.dp)
-                    .scale(buttonScale)
-                    .shadow(14.dp, RoundedCornerShape(20.dp), clip = false)
-                    .clip(RoundedCornerShape(20.dp))
-                    .clickable(enabled = !running) {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                        pressed = true
-                        if (ShizukuHealthMonitor.refresh() != ShizukuHealth.READY) {
-                            requestMissingPermission("shizuku")
-                            pressed = false
-                        } else {
-                            running = true
-                            status = "Re-triggering 5G…"
-                            Thread {
-                                val result = NetworkSwitcherBridge(context).reconnect5G()
-                                val success = waitFor5GBlocking(12_000L)
-                                runOnUiThread {
-                                    status = when {
-                                        success -> "5G switch confirmed."
-                                        result.startsWith("5G re-selection triggered") ->
-                                            "Trigger sent · waiting for confirmed 5G."
-                                        else -> result
-                                    }
-                                    running = false
-                                    pressed = false
-                                }
-                            }.start()
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(MetalLight, Color(0xFFD0D3D5), Color(0xFF8F9498))
-                            ),
-                            RoundedCornerShape(20.dp)
-                        )
-                        .border(
-                            BorderStroke(1.dp, Color.White.copy(.80f)),
-                            RoundedCornerShape(20.dp)
-                        )
-                )
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .align(Alignment.BottomCenter)
-                        .padding(horizontal = 14.dp)
-                        .background(MetalDark.copy(.38f), RoundedCornerShape(50))
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Bolt, null, tint = MetalDeep)
-                    Spacer(Modifier.width(9.dp))
-                    Text(
-                        if (running) "Checking for 5G…" else "RE-TRIGGER 5G",
-                        color = MetalDeep,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = .6.sp
-                    )
-                }
-            }
-            LaunchedEffect(pressed) {
-                if (pressed) {
-                    delay(100)
-                    pressed = false
-                }
-            }
-
-            /* Legacy Material button retained only as historical reference. */
-            /* Button(
+        HubReveal(3) {
+            HubPrimaryButton(
+                text = if (busy) "Checking for 5G…" else "Re-trigger 5G now",
+                icon = Icons.Rounded.Bolt,
+                loading = busy,
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                    pressed = true
-                    if (ShizukuHealthMonitor.refresh() != ShizukuHealth.READY) {
-                        requestMissingPermission("shizuku")
-                        pressed = false
+                    if (ShizukuHealthMonitor.state != ShizukuHealth.READY) {
+                        context.requestShizuku()
+                        message = ShizukuHealthMonitor.state.describe()
                     } else {
-                        running = true
-                        status = "Re-triggering 5G…"
-                        Thread {
-                            val result = NetworkSwitcherBridge(context).reconnect5G()
-                            val success = waitFor5GBlocking(12_000L)
-                            runOnUiThread {
-                                status = when {
-                                    success -> "5G switch confirmed."
-                                    result.startsWith("5G re-selection triggered") ->
-                                        "Trigger sent · waiting for confirmed 5G."
-                                    else -> result
-                                }
-                                running = false
-                                pressed = false
+                        busy = true
+                        message = "Re-triggering 5G…"
+                        scope.launch {
+                            val watcher = context.radioWatcher
+                            val result = withContext(Dispatchers.IO) {
+                                runCatching { NetworkSwitcherBridge(context).reconnect5G() }
+                                    .getOrElse { "Reconnect failed: " + it.javaClass.simpleName }
                             }
-                        }.start()
+                            val confirmed = withContext(Dispatchers.Default) {
+                                val deadline = SystemClock.elapsedRealtime() + MainActivity.MANUAL_CONFIRM_TIMEOUT_MS
+                                while (SystemClock.elapsedRealtime() < deadline && watcher?.snapshot()?.is5G != true) {
+                                    delay(400)
+                                }
+                                watcher?.snapshot()?.is5G == true
+                            }
+                            message = when {
+                                confirmed -> "5G switch confirmed."
+                                result.startsWith("5G re-selection triggered") -> "Trigger sent · waiting for 5G to confirm."
+                                else -> result
+                            }
+                            busy = false
+                        }
                     }
                 },
-                enabled = !running,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(60.dp)
-                    .scale(buttonScale),
-                shape = RoundedCornerShape(20.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = CurioInk,
-                    contentColor = Color.White
-                )
-            ) {
-                Icon(Icons.Rounded.Bolt, null)
-                Spacer(Modifier.width(9.dp))
-                Text(
-                    if (running) "Checking for 5G…" else "Re-trigger 5G now",
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-            */
+            )
+        }
 
+        message?.let { text ->
             Spacer(Modifier.height(12.dp))
+            HubReveal(0) {
+                HubGlassCard(accent = MaterialTheme.colorScheme.primary, contentPadding = 14.dp) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        HubStatusDot(color = MaterialTheme.colorScheme.primary, pulsing = true)
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                "STATUS",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.4.sp,
+                            )
+                            Text(text, color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
 
-            val lastEvent = prefs().getString(AutoReconnectService.PREF_LAST_EVENT_DETAIL, null)
-            if (!lastEvent.isNullOrBlank()) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    color = Color.White.copy(alpha = 0.52f)
-                ) {
-                    Row(
-                        Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            Modifier
-                                .size(8.dp)
-                                .background(MaterialTheme.colorScheme.primary, CircleShape)
-                        )
+        snapshot.lastEvent?.takeIf { it.isNotBlank() }?.let { event ->
+            Spacer(Modifier.height(12.dp))
+            HubReveal(0) {
+                HubGlassCard(contentPadding = 14.dp) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        HubStatusDot(color = MaterialTheme.colorScheme.tertiary)
                         Spacer(Modifier.width(10.dp))
                         Column {
                             Text(
                                 "LAST EVENT",
+                                color = MaterialTheme.colorScheme.tertiary,
                                 fontSize = 9.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary,
-                                letterSpacing = 1.1.sp
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.4.sp,
                             )
                             Text(
-                                lastEvent,
+                                event,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
                 }
             }
-
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "The foreground watcher owns monitoring. Closing Recents does not turn it off.",
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.44f),
-                modifier = Modifier.padding(horizontal = 2.dp)
-            )
-            Spacer(Modifier.height(18.dp))
-            HomeTelemetryDashboard(this@MainActivity)
         }
-    }
 
-    @Composable
-    private fun ExpressivePageHeader(
-        title: String,
-        subtitle: String,
-        icon: androidx.compose.ui.graphics.vector.ImageVector
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                Modifier
-                    .size(48.dp)
-                    .background(
-                        Brush.linearGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                                Color.White.copy(alpha = 0.52f)
-                            )
-                        ),
-                        RoundedCornerShape(17.dp)
-                    )
-                    .border(
-                        BorderStroke(1.dp, Color.White.copy(alpha = 0.78f)),
-                        RoundedCornerShape(17.dp)
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
-            }
+        Spacer(Modifier.height(14.dp))
+        HubReveal(4) { TelemetryGlance(context) }
 
-            Spacer(Modifier.width(12.dp))
-
-            Column(Modifier.weight(1f)) {
-                Text(
-                    title,
-                    fontSize = 25.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    subtitle,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-
-    private fun waitFor5GBlocking(timeoutMs: Long): Boolean {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            if (isActually5G()) return true
-            Thread.sleep(500)
-        }
-        return isActually5G()
-    }
-
-    @Composable
-    private fun HomeTelemetryDashboard(context: android.content.Context) {
-        val prefs = context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
-        var tick by remember { mutableIntStateOf(0) }
-        LaunchedEffect(Unit) { while (true) { delay(2000); tick++ } }
-        val history = tick.let { readNetworkHistory(context) }
-        val lte = tick.let { prefs.getLong(NetworkUsageTracker.KEY_LTE_BYTES, 0L) }
-        val fiveG = tick.let { prefs.getLong(NetworkUsageTracker.KEY_5G_BYTES, 0L) }
-        val peak = tick.let { prefs.getLong(NetworkUsageTracker.KEY_PEAK_BPS, 0L) }
-        val peakAt = prefs.getLong(NetworkUsageTracker.KEY_PEAK_AT, 0L)
-        val peakNetwork = prefs.getString(NetworkUsageTracker.KEY_PEAK_NETWORK, "Mobile") ?: "Mobile"
-
-        Text("TELEMETRY", fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.7.sp, color = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            MetalPanel(Modifier.weight(1f)) {
-                Text("RECENT HISTORY", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                Spacer(Modifier.height(8.dp))
-                history.take(3).forEach { entry ->
-                    CompactHistoryRow(entry)
-                    Spacer(Modifier.height(6.dp))
-                }
-                if (history.isEmpty()) Text("Waiting for network events…", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.72f))
-            }
-            MetalPanel(Modifier.weight(1f)) {
-                Text("DATA OBSERVED", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                Spacer(Modifier.height(8.dp))
-                TelemetryStat("5G", formatBytes(fiveG))
-                TelemetryStat("LTE", formatBytes(lte))
-                Spacer(Modifier.height(7.dp))
-                Text("Full breakdown → DATA", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        MetalPanel(Modifier.fillMaxWidth()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("PEAK NETWORK SPEED", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
-                    Text(if (peak > 0L) formatSpeed(peak) else "Waiting for measurement…", fontSize = 28.sp, fontWeight = FontWeight.Black)
-                    if (peak > 0L) Text(peakNetwork + " · " + formatTimestamp(peakAt), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.74f))
-                }
-                Box(Modifier.size(48.dp).background(MaterialTheme.colorScheme.primary.copy(.12f), CircleShape), contentAlignment = Alignment.Center) {
-                    Text("MAX", fontSize = 10.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun CompactHistoryRow(entry: HistoryEntry) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            StatusBadge(entry.type, entry.network)
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f)) {
-                Text(entry.network, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Text(entry.detail.ifBlank { "Network observed" }, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
-            }
-            Text(entry.time.substringAfter("·").trim(), fontSize = 9.sp, color = MaterialTheme.colorScheme.primary)
-        }
-    }
-
-    @Composable
-    private fun StatusBadge(type: String, network: String) {
-        val label = when (type) {
-            "success" -> "OK"
-            "failed" -> "FAIL"
-            "attempt" -> "TRY"
-            "network" -> "CHANGE"
-            "sim_failover" -> "SIM"
-            else -> network.replace(" / LTE", "")
-        }
-        val accent = when (type) {
-            "success" -> Color(0xFF5F8B72)
-            "failed" -> Color(0xFFB35D4B)
-            else -> MaterialTheme.colorScheme.primary
-        }
-        Text(label, fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = .5.sp, color = accent, modifier = Modifier.background(accent.copy(.12f), RoundedCornerShape(7.dp)).border(1.dp, accent.copy(.24f), RoundedCornerShape(7.dp)).padding(horizontal = 6.dp, vertical = 4.dp))
-    }
-
-    @Composable
-    private fun TelemetryStat(label: String, value: String) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(label, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            Text(value, fontSize = 13.sp, fontWeight = FontWeight.Black)
-        }
-    }
-
-    private fun formatSpeed(bytesPerSecond: Long): String = when {
-        bytesPerSecond >= 1_000_000L -> String.format(Locale.getDefault(), "%.1f MB/s", bytesPerSecond / 1_000_000f)
-        bytesPerSecond >= 1_000L -> String.format(Locale.getDefault(), "%.0f KB/s", bytesPerSecond / 1_000f)
-        else -> "$bytesPerSecond B/s"
-    }
-
-    private fun formatTimestamp(timestamp: Long): String =
-        if (timestamp <= 0L) "—" else SimpleDateFormat("dd MMM · HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
-
-    @Composable
-    private fun DetailedHistoryView(context: android.content.Context) {
-        val entries = readNetworkHistory(context)
-        MetalPanel(Modifier.fillMaxWidth()) {
-            Text("NETWORK TIMELINE", fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(8.dp))
-            if (entries.isEmpty()) Text("No network changes recorded yet.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
-            else entries.take(60).forEachIndexed { index, entry ->
-                val next = entries.getOrNull(index + 1)
-                val duration = next?.let { (entry.timestamp - it.timestamp).coerceAtLeast(0L) }
-                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        StatusBadge(entry.type, entry.network)
-                        if (index < entries.lastIndex) Box(Modifier.width(1.dp).height(28.dp).background(MaterialTheme.colorScheme.outline.copy(.25f)))
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(entry.network, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
-                            Text(formatTimestamp(entry.timestamp), fontSize = 9.sp, color = MaterialTheme.colorScheme.primary)
-                        }
-                        Text(entry.detail.ifBlank { "Network state observed" }, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.74f))
-                        if (duration != null && duration > 0L) Text("Stayed on " + entry.network + " · " + formatDuration(duration), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.70f), modifier = Modifier.padding(top = 3.dp))
-                    }
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun DetailedDataUsageView(context: android.content.Context) {
-        val prefs = context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
-        var tick by remember { mutableIntStateOf(0) }
-        LaunchedEffect(Unit) { while (true) { delay(2000); tick++ } }
-        val lte = tick.let { prefs.getLong(NetworkUsageTracker.KEY_LTE_BYTES, 0L) }
-        val fiveG = tick.let { prefs.getLong(NetworkUsageTracker.KEY_5G_BYTES, 0L) }
-        val peak = tick.let { prefs.getLong(NetworkUsageTracker.KEY_PEAK_BPS, 0L) }
-        val peakAt = prefs.getLong(NetworkUsageTracker.KEY_PEAK_AT, 0L)
-        val peakNetwork = prefs.getString(NetworkUsageTracker.KEY_PEAK_NETWORK, "Mobile") ?: "Mobile"
-        val history = readNetworkHistory(context)
-        val sessions = history.sortedBy { it.timestamp }.zipWithNext().map { (a,b) -> a.network to (b.timestamp - a.timestamp).coerceAtLeast(0L) }
-        val lteTime = sessions.filter { it.first == "4G / LTE" }.sumOf { it.second }
-        val fiveGTime = sessions.filter { it.first == "5G" }.sumOf { it.second }
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            MetalPanel(Modifier.fillMaxWidth()) {
-                Text("OBSERVED DATA", fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.height(12.dp))
-                DataBranch("5G", fiveG, fiveGTime, Color(0xFF5F8B72))
-                Spacer(Modifier.height(10.dp))
-                DataBranch("4G / LTE", lte, lteTime, MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.height(10.dp))
-                Text("Device-wide mobile traffic sampled by radio state. This is not a carrier billing counter.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.72f))
-            }
-            MetalPanel(Modifier.fillMaxWidth()) {
-                Text("PEAK SPEED RECORDER", fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.height(6.dp))
-                Text(if (peak > 0L) formatSpeed(peak) else "No peak recorded yet", fontSize = 36.sp, fontWeight = FontWeight.Black)
-                if (peak > 0L) Text(peakNetwork + " · " + formatTimestamp(peakAt), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
-                Text("Peak is calculated from successive mobile-traffic samples while the watcher is running.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.72f), modifier = Modifier.padding(top = 8.dp))
-            }
-        }
-    }
-
-    @Composable
-    private fun DataBranch(network: String, bytes: Long, durationMs: Long, accent: Color) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.width(4.dp).height(44.dp).background(accent, RoundedCornerShape(3.dp)))
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(network, fontWeight = FontWeight.Black)
-                Text(formatDuration(durationMs), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.5f))
-            }
-            Text(formatBytes(bytes), fontSize = 18.sp, fontWeight = FontWeight.Black, color = accent)
-        }
-    }
-
-    private fun formatDuration(ms: Long): String {
-        val seconds = ms / 1000L
-        return when {
-            seconds >= 3600L -> (seconds / 3600).toString() + "h " + ((seconds % 3600) / 60).toString() + "m"
-            seconds >= 60L -> (seconds / 60).toString() + "m " + (seconds % 60).toString() + "s"
-            else -> seconds.toString() + "s"
-        }
-    }
-
-    @Composable
-    private fun HistoryPage() {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
-            ExpressivePageHeader("History", "Every observed network and recovery event.", Icons.Rounded.History)
-            Spacer(Modifier.height(14.dp))
-            DetailedHistoryView(this@MainActivity)
-        }
-    }
-
-    @Composable
-    private fun UsagePage() {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
-            ExpressivePageHeader("Usage", "Observed traffic, fallback time and recovery timing.", Icons.Rounded.Analytics)
-            Spacer(Modifier.height(14.dp))
-            DetailedDataUsageView(this@MainActivity)
-        }
-    }
-
-    @Composable
-    private fun SettingsPage() {
-        val context = this
-        val sims = remember { activeSims() }
-        var startAfterRestart by rememberSaveable { mutableStateOf(prefs().getBoolean(AutoReconnectService.PREF_START_AFTER_REBOOT, false)) }
-        var selectedSim by rememberSaveable { mutableIntStateOf(prefs().getInt(AutoReconnectService.PREF_SELECTED_SUBSCRIPTION, SubscriptionManager.INVALID_SUBSCRIPTION_ID)) }
-        var backupSim by rememberSaveable { mutableIntStateOf(prefs().getInt(AutoReconnectService.PREF_FAILOVER_TARGET, SubscriptionManager.INVALID_SUBSCRIPTION_ID)) }
-        var simFailover by rememberSaveable { mutableStateOf(prefs().getBoolean(AutoReconnectService.PREF_FAILOVER_ENABLED, false)) }
-        var intervalSeconds by rememberSaveable { mutableIntStateOf((prefs().getLong(AutoReconnectService.PREF_INTERVAL_MS, AutoReconnectService.DEFAULT_INTERVAL_MS) / 1000L).toInt()) }
-        var recoveryCooldownMinutes by rememberSaveable { mutableIntStateOf((prefs().getLong(AutoReconnectService.PREF_RECOVERY_COOLDOWN_MS, AutoReconnectService.DEFAULT_RECOVERY_COOLDOWN_MS) / 60_000L).toInt()) }
-        var maxAttempts by rememberSaveable { mutableIntStateOf(prefs().getInt(AutoReconnectService.PREF_MAX_ATTEMPTS, AutoReconnectService.DEFAULT_MAX_ATTEMPTS).coerceIn(1, 8)) }
-
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
-            ExpressivePageHeader("Settings", "Watcher, SIM and recovery behaviour.", Icons.Rounded.Settings)
-            Spacer(Modifier.height(14.dp))
-            MetalPanel(Modifier.fillMaxWidth()) {
-                Text("Appearance", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("Choose how the instrument surface should render.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.74f), modifier = Modifier.padding(top = 3.dp))
-                Spacer(Modifier.height(10.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("system" to "System", "light" to "Light", "dark" to "Dark").forEach { (mode, label) ->
-                        val selected = themeMode == mode
-                        Box(
-                            Modifier
-                                .weight(1f)
-                                .height(42.dp)
-                                .shadow(if (selected) 8.dp else 2.dp, RoundedCornerShape(12.dp), clip = false)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    if (selected) {
-                                        Brush.verticalGradient(
-                                            listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primary)
-                                        )
-                                    } else {
-                                        Brush.verticalGradient(
-                                            listOf(
-                                                MaterialTheme.colorScheme.surface,
-                                                MaterialTheme.colorScheme.surfaceVariant
-                                            )
-                                        )
-                                    },
-                                    RoundedCornerShape(12.dp)
-                                )
-                                .border(
-                                    BorderStroke(
-                                        1.dp,
-                                        if (selected) MaterialTheme.colorScheme.onPrimary.copy(.45f)
-                                        else MaterialTheme.colorScheme.outline.copy(.65f)
-                                    ),
-                                    RoundedCornerShape(12.dp)
-                                )
-                                .clickable {
-                                    themeMode = mode
-                                    prefs().edit().putString("theme_mode", mode).apply()
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface)
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-            MetalPanel(Modifier.fillMaxWidth()) {
-                Text("Recovery", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Text("Retry delay: ${intervalSeconds}s", color = MaterialTheme.colorScheme.onSurface.copy(.78f))
-                    Slider(value = intervalSeconds.toFloat(), onValueChange = { intervalSeconds = it.toInt() }, onValueChangeFinished = { prefs().edit().putLong(AutoReconnectService.PREF_INTERVAL_MS, intervalSeconds * 1000L).apply(); refreshWatcherSettings() }, valueRange = 30f..600f, steps = 18)
-                    Text("Attempts per recovery: $maxAttempts", color = MaterialTheme.colorScheme.onSurface.copy(.78f))
-                    Slider(value = maxAttempts.toFloat(), onValueChange = { maxAttempts = it.toInt() }, onValueChangeFinished = { prefs().edit().putInt(AutoReconnectService.PREF_MAX_ATTEMPTS, maxAttempts).apply(); refreshWatcherSettings() }, valueRange = 1f..8f, steps = 6)
-                    Text("Cooldown: $recoveryCooldownMinutes min", color = MaterialTheme.colorScheme.onSurface.copy(.65f))
-                    Slider(value = recoveryCooldownMinutes.toFloat(), onValueChange = { recoveryCooldownMinutes = it.toInt() }, onValueChangeFinished = { prefs().edit().putLong(AutoReconnectService.PREF_RECOVERY_COOLDOWN_MS, recoveryCooldownMinutes * 60_000L).apply(); refreshWatcherSettings() }, valueRange = 1f..30f, steps = 28)
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Start after restart", fontWeight = FontWeight.Medium)
-                    Text("Restart the watcher after boot when automatic reconnect is enabled.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
-                }
-                Switch(checked = startAfterRestart, onCheckedChange = {
-                    startAfterRestart = it
-                    prefs().edit().putBoolean(AutoReconnectService.PREF_START_AFTER_REBOOT, it).apply()
-                })
-            }
-            if (sims.isNotEmpty()) {
-                Spacer(Modifier.height(12.dp))
-                SimAndDiagnosticsCard(
-                    sims, selectedSim, backupSim, simFailover, diagnostics(),
-                    onSelected = { id -> selectedSim = id; prefs().edit().putInt(AutoReconnectService.PREF_SELECTED_SUBSCRIPTION, id).apply(); refreshWatcherSettings() },
-                    onBackup = { id -> backupSim = id; prefs().edit().putInt(AutoReconnectService.PREF_FAILOVER_TARGET, id).apply() },
-                    onFailover = { enabled -> simFailover = enabled; prefs().edit().putBoolean(AutoReconnectService.PREF_FAILOVER_ENABLED, enabled).apply() }
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            MetalPanel(Modifier.fillMaxWidth()) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Battery optimization", fontWeight = FontWeight.Medium)
-                        Text("For phones that aggressively stop background services.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
-                    }
-                    Button(onClick = { openBatteryOptimization() }, shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)) { Text("Open", fontWeight = FontWeight.Bold) }
-                }
-            }
-        }
-    }
-}
-
-
-@Composable
-private fun MetalPanel(
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Surface(
-        modifier = modifier
-            .shadow(14.dp, RoundedCornerShape(24.dp), clip = false)
-            .border(
-                BorderStroke(1.dp, Color.White.copy(.66f)),
-                RoundedCornerShape(24.dp)
-            ),
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 12.dp,
-        tonalElevation = 0.dp
-    ) {
-        Column(
-            Modifier
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            MaterialTheme.colorScheme.onSurface.copy(.07f),
-                            Color.Transparent,
-                            MaterialTheme.colorScheme.onSurface.copy(.06f)
-                        )
-                    )
-                )
-                .padding(18.dp),
-            content = content
+        Spacer(Modifier.height(14.dp))
+        Text(
+            "The foreground watcher owns monitoring, so closing Recents does not turn it off.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(horizontal = 2.dp),
         )
     }
 }
 
-private fun shizukuHealthLabel(state: ShizukuHealth) = when (state) {
-    ShizukuHealth.UNAVAILABLE -> "unavailable"
-    ShizukuHealth.PERMISSION_REQUIRED -> "permission required"
-    ShizukuHealth.BINDING -> "binding"
-    ShizukuHealth.READY -> "ready"
-    ShizukuHealth.SERVICE_DIED -> "service died — retry available"
+@Composable
+private fun ReadinessCard(context: MainActivity, shizuku: ShizukuHealth) {
+    val phone = context.hasPhonePermission()
+    val notifications = context.hasNotificationPermission()
+    val battery = context.batteryOptimizationExempt()
+
+    if (phone && notifications && shizuku == ShizukuHealth.READY) return
+
+    HubGlassCard(accent = MaterialTheme.colorScheme.tertiary) {
+        Text("Setup checklist", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        Text(
+            "These rows disappear once everything is ready.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp,
+        )
+        Spacer(Modifier.height(12.dp))
+
+        ChecklistRow(
+            label = "Shizuku",
+            detail = shizuku.describe(),
+            ok = shizuku == ShizukuHealth.READY,
+            actionLabel = when (shizuku) {
+                ShizukuHealth.PERMISSION_REQUIRED -> "Grant"
+                ShizukuHealth.READY -> null
+                else -> "Open"
+            },
+            onAction = { context.requestShizuku() },
+        )
+        ChecklistRow(
+            label = "Phone state",
+            detail = if (phone) "Allowed" else "Required to read the radio state",
+            ok = phone,
+            actionLabel = if (phone) null else "Allow",
+            onAction = { context.requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 42) },
+        )
+        ChecklistRow(
+            label = "Notifications",
+            detail = if (notifications) "Allowed" else "Needed for the watcher controls",
+            ok = notifications,
+            actionLabel = if (notifications) null else "Allow",
+            onAction = {
+                if (Build.VERSION.SDK_INT >= 33) {
+                    context.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 43)
+                }
+            },
+        )
+        ChecklistRow(
+            label = "Battery optimisation",
+            detail = if (battery) "Exempt" else "Recommended so the watcher survives",
+            ok = battery,
+            actionLabel = if (battery) null else "Open",
+            onAction = { context.openBatteryOptimization() },
+        )
+    }
 }
 
 @Composable
-private fun SimPicker(sims: List<MainActivity.SimChoice>, selected: Int, onSelected: (Int) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    val current = sims.firstOrNull { it.id == selected } ?: sims.first()
-    Box {
-        Button(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurface)) {
-            Icon(Icons.Rounded.Settings, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text(current.label, modifier = Modifier.weight(1f))
-            Icon(Icons.Rounded.History, contentDescription = "Choose SIM")
+private fun ChecklistRow(label: String, detail: String, ok: Boolean, actionLabel: String?, onAction: () -> Unit) {
+    val tint = if (ok) MaterialTheme.hubAccents.success else MaterialTheme.colorScheme.tertiary
+    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            if (ok) Icons.Rounded.CheckCircle else Icons.Rounded.Warning,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(19.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(label, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Text(
+                detail,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            sims.forEach { sim ->
-                DropdownMenuItem(text = { Text(sim.label) }, onClick = { onSelected(sim.id); expanded = false }, leadingIcon = { Icon(Icons.Rounded.Settings, contentDescription = null) })
+        if (actionLabel != null) HubQuietButton(text = actionLabel, onClick = onAction)
+    }
+}
+
+/** Breathing radio orb — the single most animated element in the app. */
+@Composable
+private fun RadioOrb(network: String, accent: Color) {
+    val accents = MaterialTheme.hubAccents
+    val transition = rememberInfiniteTransition(label = "orb")
+    val pulse by transition.animateFloat(
+        0f,
+        1f,
+        infiniteRepeatable(tween(2_400, easing = FastOutSlowInEasing), RepeatMode.Restart),
+        label = "orb_pulse",
+    )
+    val breathe by transition.animateFloat(
+        0.96f,
+        1.04f,
+        infiniteRepeatable(tween(1_800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "orb_breathe",
+    )
+    val tint by animateColorAsState(accent, tween(500), label = "orb_tint")
+
+    Box(Modifier.size(112.dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.matchParentSize()) {
+            val center = size.center
+            val minR = size.minDimension / 2f
+            repeat(2) { index ->
+                val phase = (pulse + index * 0.5f) % 1f
+                drawCircle(
+                    color = tint.copy(alpha = 0.30f * (1f - phase)),
+                    radius = minR * (0.45f + 0.55f * phase),
+                    center = center,
+                    style = Stroke(width = 2.5f + 3f * (1f - phase)),
+                )
+            }
+        }
+        Box(
+            Modifier
+                .size(84.dp)
+                .graphicsLayer {
+                    scaleX = breathe
+                    scaleY = breathe
+                }
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        listOf(tint.copy(alpha = 0.42f), accents.glassTop.copy(alpha = 0.95f))
+                    )
+                )
+                .border(2.dp, tint.copy(alpha = 0.55f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    when {
+                        network == "5G" -> "5G"
+                        network == "4G / LTE" -> "LTE"
+                        network == "Unknown" -> "—"
+                        else -> network.take(3).uppercase(Locale.getDefault())
+                    },
+                    color = tint,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Black,
+                )
+                Text(
+                    "RADIO",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.3.sp,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun SimAndDiagnosticsCard(
-    sims: List<MainActivity.SimChoice>, selected: Int, backup: Int, failover: Boolean,
-    diagnostics: List<Pair<String, String>>, onSelected: (Int) -> Unit,
-    onBackup: (Int) -> Unit, onFailover: (Boolean) -> Unit
-) {
-    MetalPanel(Modifier.fillMaxWidth()) {
-        Column {
-            Text("SIM & eligibility", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-            Text("Choose the SIM monitored for 5G. Failover only runs after 45 seconds with no cellular service.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
-            Spacer(Modifier.height(10.dp))
-            Text("Monitor this SIM", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-            SimPicker(sims, selected, onSelected)
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) { Text("Switch to backup SIM when service disappears"); Text("A 15-minute safety cooldown prevents SIM flapping.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f)) }
-                Switch(checked = failover, onCheckedChange = onFailover)
+private fun TelemetryGlance(context: Context) {
+    val store = remember { MainActivity.store(context) }
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(2_000)
+            tick++
+        }
+    }
+    val history = tick.let { readNetworkHistory(context) }
+    val lte = tick.let { store.getLong(NetworkUsageTracker.KEY_LTE_BYTES, 0L) }
+    val fiveG = tick.let { store.getLong(NetworkUsageTracker.KEY_5G_BYTES, 0L) }
+    val peak = tick.let { store.getLong(NetworkUsageTracker.KEY_PEAK_BPS, 0L) }
+
+    Column {
+        HubSectionTitle("Telemetry")
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            HubStatTile("Observed 5G", formatBytes(fiveG), MaterialTheme.hubAccents.success, Modifier.weight(1f))
+            HubStatTile("Observed LTE", formatBytes(lte), MaterialTheme.colorScheme.tertiary, Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(10.dp))
+        HubGlassCard(contentPadding = 16.dp) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "PEAK SPEED",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.3.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        if (peak > 0L) formatSpeed(peak) else "Measuring…",
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                HubProgressRing(
+                    progress = if (peak > 0L) (peak / 60_000_000f).coerceIn(0.05f, 1f) else 0.05f,
+                    modifier = Modifier.size(46.dp),
+                    accent = MaterialTheme.hubAccents.success,
+                )
             }
-            if (failover) {
-                Text("Backup data SIM", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { sims.filter { it.id != selected }.forEach { sim -> FilterChip(selected = backup == sim.id, onClick = { onBackup(sim.id) }, label = { Text(sim.label, fontWeight = FontWeight.Bold) }, colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, labelColor = MaterialTheme.colorScheme.onSurface, selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary)) } }
+        }
+        Spacer(Modifier.height(12.dp))
+        HubSectionTitle("Recent events")
+        Spacer(Modifier.height(6.dp))
+        HubGlassCard(contentPadding = 6.dp) {
+            if (history.isEmpty()) {
+                HubEmptyState("No events yet", "Network changes will appear here as they happen.")
+            } else {
+                val recent = history.take(3)
+                recent.forEachIndexed { index, entry ->
+                    HubReveal(index) { EventRow(entry, compact = true) }
+                    if (index < recent.lastIndex) HubRowDivider(Modifier.padding(horizontal = 12.dp))
+                }
             }
-            Spacer(Modifier.height(10.dp))
-            diagnostics.forEach { (label, value) -> Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) { Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(.76f)); Text(value, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface) } }
         }
     }
 }
+
+// ── page 2: events ───────────────────────────────────────────────────────────────────────────────
+
 @Composable
-private fun HistoryView(context: android.content.Context) {
+private fun EventsPage(context: Context) {
     var entries by remember { mutableStateOf(readNetworkHistory(context)) }
-    var showAll by rememberSaveable { mutableStateOf(false) }
+    var filter by rememberSaveable { mutableStateOf("All") }
+    var showExport by remember { mutableStateOf(false) }
+    val filters = listOf("All", "Success", "Failed", "Network")
+
     LaunchedEffect(Unit) {
         while (true) {
             entries = readNetworkHistory(context)
             delay(2_000)
         }
     }
-    MetalPanel(Modifier.fillMaxWidth()) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.History, null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Reconnect activity")
-                    Text("A quick read on the watcher", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .74f))
-                }
-                Button(onClick = { showAll = true }, shape = RoundedCornerShape(11.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurface)) { Text("View all", fontWeight = FontWeight.Bold) }
-            }
-            Spacer(Modifier.height(10.dp))
-            if (entries.isEmpty()) {
-                Text("No network changes recorded yet.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
-            } else {
-                val successes = entries.count { it.type == "success" || it.detail.contains("confirmed", true) }
-                val failures = entries.count { it.type == "failed" || it.detail.contains("failed", true) || it.detail.contains("error", true) }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    ActivityMetric("Success", successes.toString(), Color(0xFF207561), Modifier.weight(1f))
-                    ActivityMetric("Failed", failures.toString(), MaterialTheme.colorScheme.primary, Modifier.weight(1f))
-                }
-                entries.firstOrNull()?.let { latest ->
-                    Spacer(Modifier.height(13.dp))
-                    Text("LATEST", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
-                    Text(latest.detail.ifBlank { latest.network }, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                    Text(latest.time, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f))
+
+    val shown = entries.filter { entry ->
+        when (filter) {
+            "Success" -> entry.type == "success"
+            "Failed" -> entry.type == "failed"
+            "Network" -> entry.type == "network"
+            else -> true
+        }
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .statusBarsPadding()
+            .padding(horizontal = 18.dp)
+            .padding(top = 14.dp, bottom = 22.dp),
+    ) {
+        HubReveal(0) {
+            HubHeroHeader(
+                kicker = "History",
+                title = "Every recovery event",
+                subtitle = "Filter, inspect and export what the watcher observed.",
+                icon = Icons.Rounded.History,
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+        HubReveal(1) {
+            HubSegmented(
+                options = filters,
+                selectedIndex = filters.indexOf(filter).coerceAtLeast(0),
+                onSelect = { filter = filters[it] },
+            )
+        }
+        Spacer(Modifier.height(14.dp))
+        HubReveal(2) {
+            HubGlassCard(contentPadding = 6.dp) {
+                if (shown.isEmpty()) {
+                    HubEmptyState("Nothing recorded", "Events appear here as the radio changes state.")
+                } else {
+                    val visible = shown.take(80)
+                    visible.forEachIndexed { index, entry ->
+                        HubReveal(minOf(index, 8)) { EventRow(entry, compact = false) }
+                        if (index < visible.lastIndex) HubRowDivider(Modifier.padding(horizontal = 14.dp))
+                    }
                 }
             }
         }
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            HubQuietButton(
+                text = "Export report",
+                icon = Icons.Rounded.OpenInNew,
+                modifier = Modifier.weight(1f),
+                onClick = { showExport = true },
+            )
+            HubQuietButton(
+                text = "Clear history",
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    MainActivity.store(context).edit().remove(AutoReconnectService.PREF_HISTORY).apply()
+                    entries = emptyList()
+                },
+            )
+        }
     }
-    if (showAll) ModalBottomSheet(onDismissRequest = { showAll = false }, containerColor = MaterialTheme.colorScheme.surface) {
-        var filter by rememberSaveable { mutableStateOf("All") }
-        var expandedTime by rememberSaveable { mutableLongStateOf(-1L) }
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.History, null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(8.dp)); Text("Full activity", fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
-                Button(onClick = { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_TEXT, buildNetworkReport(context, entries)), "Export reconnect report")) }, shape = RoundedCornerShape(11.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurface)) { Text("Export", fontWeight = FontWeight.Bold) }
-                Button(onClick = { context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE).edit().remove(AutoReconnectService.PREF_HISTORY).apply(); entries = emptyList() }, shape = RoundedCornerShape(11.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) { Text("Clear", fontWeight = FontWeight.Bold) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("All", "Success", "Failed", "Network", "System").forEach { label -> FilterChip(selected = filter == label, onClick = { filter = label }, label = { Text(label, fontWeight = FontWeight.Bold) }, colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, labelColor = MaterialTheme.colorScheme.onSurface, selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary)) } }
-            val shown = entries.filter { entry -> when (filter) { "Success" -> entry.type == "success"; "Failed" -> entry.type == "failed"; "Network" -> entry.type == "network"; "System" -> entry.type == "system"; else -> true } }
-            shown.take(80).forEachIndexed { index, entry ->
-                Row(Modifier.fillMaxWidth().background(if (index == 0) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp)).clickable { expandedTime = if (expandedTime == entry.timestamp) -1L else entry.timestamp }.padding(12.dp), verticalAlignment = Alignment.Top) {
-                    Column(Modifier.weight(1f)) { Text(entry.network, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Text(entry.detail, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(.62f)); if (expandedTime == entry.timestamp) Text("Type: ${entry.type} · Recorded network: ${entry.network}\nTap to collapse. Additional radio and carrier details are shown in SIM & eligibility.", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 6.dp)) }
-                    Text(entry.time, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
-                }
+
+    if (showExport) {
+        ModalBottomSheet(
+            onDismissRequest = { showExport = false },
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ) {
+            Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(20.dp)) {
+                Text(
+                    "Reconnect report",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    "A JSON summary of observed traffic, fallback time and recovery timing.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                )
+                Spacer(Modifier.height(16.dp))
+                HubPrimaryButton(
+                    text = "Share as JSON",
+                    icon = Icons.Rounded.OpenInNew,
+                    onClick = {
+                        val share = Intent(Intent.ACTION_SEND).setType("application/json")
+                            .putExtra(Intent.EXTRA_TEXT, buildNetworkReport(context, entries))
+                        context.startActivity(Intent.createChooser(share, "Export reconnect report"))
+                        showExport = false
+                    },
+                )
             }
         }
     }
 }
 
-@Composable private fun ActivityMetric(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
-    Column(modifier.background(color.copy(.10f), RoundedCornerShape(16.dp)).padding(12.dp)) { Text(value, fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = color); Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.74f)) }
+@Composable
+private fun EventRow(entry: HistoryEntry, compact: Boolean) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = if (compact) 9.dp else 11.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        EventBadge(entry)
+        Spacer(Modifier.width(11.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    entry.network,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = if (compact) 12.sp else 13.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    entry.time,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Text(
+                entry.detail.ifBlank { "Network state observed" },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = if (compact) 10.sp else 11.sp,
+                maxLines = if (compact) 1 else 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
 }
 
-@Composable private fun DataTrackerView(context: android.content.Context) {
-    val prefs = context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
-    var refresh by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) { while (true) { delay(2_000); refresh++ } }
-    val lte = refresh.let { prefs.getLong(NetworkUsageTracker.KEY_LTE_BYTES, 0L) }
-    val fiveG = refresh.let { prefs.getLong(NetworkUsageTracker.KEY_5G_BYTES, 0L) }
-    val liveFallbackSeconds = run {
-        val started = prefs.getLong(AutoReconnectService.PREF_FALLBACK_STARTED, 0L)
-        if (started > 0L) (android.os.SystemClock.elapsedRealtime() - started).coerceAtLeast(0L) / 1000L else 0L
+@Composable
+private fun EventBadge(entry: HistoryEntry) {
+    val accents = MaterialTheme.hubAccents
+    val label: String
+    val tint: Color
+    when (entry.type) {
+        "success" -> {
+            label = "OK"
+            tint = accents.success
+        }
+        "failed" -> {
+            label = "FAIL"
+            tint = MaterialTheme.colorScheme.error
+        }
+        "attempt" -> {
+            label = "TRY"
+            tint = MaterialTheme.colorScheme.secondary
+        }
+        "network" -> {
+            label = "MOVE"
+            tint = MaterialTheme.colorScheme.tertiary
+        }
+        "sim_failover" -> {
+            label = "SIM"
+            tint = MaterialTheme.colorScheme.tertiary
+        }
+        else -> {
+            label = entry.network.replace(" / LTE", "").take(4).uppercase(Locale.getDefault())
+            tint = MaterialTheme.colorScheme.primary
+        }
     }
-    val fallbackMinutes = prefs.getLong(AutoReconnectService.PREF_LTE_FALLBACK_MS, 0L) / 60_000L + liveFallbackSeconds / 60L
-    val recoveries = prefs.getInt(AutoReconnectService.PREF_RECOVERY_COUNT, 0)
-    val triggerCount = prefs.getInt(AutoReconnectService.PREF_TRIGGER_RECOVERY_COUNT, 0)
-    val averageRecovery = if (triggerCount == 0) 0L else prefs.getLong(AutoReconnectService.PREF_TRIGGER_RECOVERY_TOTAL_MS, 0L) / triggerCount / 1_000L
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(9.dp))
+            .background(tint.copy(alpha = 0.14f))
+            .border(1.dp, tint.copy(alpha = 0.26f), RoundedCornerShape(9.dp))
+            .padding(horizontal = 7.dp, vertical = 5.dp),
+    ) {
+        Text(label, color = tint, fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 0.6.sp)
+    }
+}
+
+// ── page 3: data ─────────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun DataPage(context: Context) {
+    val store = remember { MainActivity.store(context) }
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(2_000)
+            tick++
+        }
+    }
+    val history = tick.let { readNetworkHistory(context) }
+    val lte = tick.let { store.getLong(NetworkUsageTracker.KEY_LTE_BYTES, 0L) }
+    val fiveG = tick.let { store.getLong(NetworkUsageTracker.KEY_5G_BYTES, 0L) }
+    val peak = tick.let { store.getLong(NetworkUsageTracker.KEY_PEAK_BPS, 0L) }
+    val peakAt = store.getLong(NetworkUsageTracker.KEY_PEAK_AT, 0L)
+    val peakNetwork = store.getString(NetworkUsageTracker.KEY_PEAK_NETWORK, "Mobile") ?: "Mobile"
+    var billingDay by rememberSaveable { mutableIntStateOf(store.getInt(AutoReconnectService.PREF_BILLING_DAY, 1)) }
+
+    val sessions = history.sortedBy { it.timestamp }.zipWithNext()
+        .map { pair -> pair.first.network to (pair.second.timestamp - pair.first.timestamp).coerceAtLeast(0L) }
+    val liveFallback = run {
+        val started = store.getLong(AutoReconnectService.PREF_FALLBACK_STARTED, 0L)
+        val now = SystemClock.elapsedRealtime()
+        if (started > 0L && started <= now) now - started else 0L
+    }
+    val fiveGTime = sessions.filter { it.first == "5G" }.sumOf { it.second }
+    val fallbackTotal = store.getLong(AutoReconnectService.PREF_LTE_FALLBACK_MS, 0L) + liveFallback
+    val triggerCount = store.getInt(AutoReconnectService.PREF_TRIGGER_RECOVERY_COUNT, 0)
+    val avgRecovery = if (triggerCount == 0) 0L else
+        store.getLong(AutoReconnectService.PREF_TRIGGER_RECOVERY_TOTAL_MS, 0L) / triggerCount / 1_000L
     val weeklyLte = NetworkUsageTracker.totalForLastDays(context, NetworkUsageTracker.KEY_LTE_BYTES, 7)
     val weekly5G = NetworkUsageTracker.totalForLastDays(context, NetworkUsageTracker.KEY_5G_BYTES, 7)
-    var billingDay by rememberSaveable { mutableIntStateOf(prefs.getInt(AutoReconnectService.PREF_BILLING_DAY, 1)) }
-    MetalPanel(Modifier.fillMaxWidth().padding(top = 14.dp)) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Analytics, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(8.dp)); Column { Text("Mobile data tracker"); Text("Measured while the watcher is on", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f)) } }
-            Spacer(Modifier.height(12.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("observed on LTE", formatBytes(lte), MaterialTheme.colorScheme.primary, Modifier.weight(1f)); ActivityMetric("observed on 5G", formatBytes(fiveG), Color(0xFF207561), Modifier.weight(1f)) }
-            Spacer(Modifier.height(8.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("LTE fallback minutes", fallbackMinutes.toString(), MaterialTheme.colorScheme.primary, Modifier.weight(1f)); ActivityMetric("avg. trigger → 5G", if (averageRecovery == 0L) "—" else "${averageRecovery}s", Color(0xFF207561), Modifier.weight(1f)) }
-            Text("Last 7 days · LTE ${formatBytes(weeklyLte)} · 5G ${formatBytes(weekly5G)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.62f), modifier = Modifier.padding(top = 9.dp))
-            Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text("Billing cycle starts on day $billingDay", fontSize = 11.sp, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface.copy(.62f)); Button(onClick = { billingDay = if (billingDay == 28) 1 else billingDay + 1; prefs.edit().putInt(AutoReconnectService.PREF_BILLING_DAY, billingDay).apply() }, shape = RoundedCornerShape(11.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurface)) { Text("Change", fontWeight = FontWeight.Bold) } }
-            Text("Observed mobile traffic attributed to the sampled radio state; this is not a carrier billing counter.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.48f), modifier = Modifier.padding(top = 10.dp))
+    val total = lte + fiveG
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .statusBarsPadding()
+            .padding(horizontal = 18.dp)
+            .padding(top = 14.dp, bottom = 22.dp),
+    ) {
+        HubReveal(0) {
+            HubHeroHeader(
+                kicker = "Usage",
+                title = "Observed traffic",
+                subtitle = "Mobile traffic sampled by the radio state that carried it.",
+                icon = Icons.Rounded.Analytics,
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+        HubReveal(1) {
+            HubGlassCard(accent = MaterialTheme.hubAccents.success) {
+                Text(
+                    "5G SHARE",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.5.sp,
+                    color = MaterialTheme.hubAccents.success,
+                )
+                Text(
+                    if (total > 0L) (fiveG * 100L / total).toString() + "%" else "—",
+                    fontSize = 40.sp,
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    formatBytes(fiveG) + " on 5G · " + formatBytes(lte) + " on LTE",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
+                Spacer(Modifier.height(14.dp))
+                NetworkSplitBar(lte = lte, fiveG = fiveG)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            HubStatTile("5G time", formatDuration(fiveGTime), MaterialTheme.hubAccents.success, Modifier.weight(1f))
+            HubStatTile("LTE fallback", formatDuration(fallbackTotal), MaterialTheme.colorScheme.tertiary, Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(12.dp))
+        HubReveal(3) {
+            HubGlassCard {
+                Text(
+                    "PEAK SPEED RECORDER",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.5.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    if (peak > 0L) formatSpeed(peak) else "No peak recorded yet",
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                if (peak > 0L) {
+                    Text(
+                        peakNetwork + " · " + formatTimestamp(peakAt),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Measured from successive mobile-traffic samples while the watcher runs.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        HubReveal(4) {
+            HubGlassCard {
+                Text(
+                    "RECOVERY TIMING",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.5.sp,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    HubStatTile(
+                        "Successful recoveries",
+                        store.getInt(AutoReconnectService.PREF_RECOVERY_COUNT, 0).toString(),
+                        MaterialTheme.hubAccents.success,
+                        Modifier.weight(1f),
+                    )
+                    HubStatTile(
+                        "Avg trigger to 5G",
+                        if (avgRecovery == 0L) "—" else avgRecovery.toString() + "s",
+                        MaterialTheme.colorScheme.secondary,
+                        Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                HubHairline()
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Last 7 days · LTE " + formatBytes(weeklyLte) + " · 5G " + formatBytes(weekly5G),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Billing cycle starts on day " + billingDay,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    HubQuietButton(text = "Change") {
+                        billingDay = if (billingDay >= 28) 1 else billingDay + 1
+                        store.edit().putInt(AutoReconnectService.PREF_BILLING_DAY, billingDay).apply()
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "Android exposes aggregate mobile traffic, not carrier-billing bytes split by radio. Each " +
+                "delta is attributed to the radio state active during the sample, so this is an " +
+                "observation rather than an exact billing counter.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 10.sp,
+        )
+    }
+}
+
+@Composable
+private fun NetworkSplitBar(lte: Long, fiveG: Long) {
+    val accents = MaterialTheme.hubAccents
+    val total = (lte + fiveG).coerceAtLeast(1L)
+    val fraction by animateFloatAsState(
+        (fiveG.toFloat() / total).coerceIn(0f, 1f),
+        spring(dampingRatio = 0.85f, stiffness = 170f),
+        label = "split",
+    )
+    Column {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(12.dp)
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.30f)),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(fraction)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(50))
+                    .background(Brush.horizontalGradient(listOf(accents.success, accents.auroraStart))),
+            )
+        }
+        Spacer(Modifier.height(7.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(8.dp).background(accents.success, CircleShape))
+            Spacer(Modifier.width(6.dp))
+            Text("5G", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(16.dp))
+            Box(Modifier.size(8.dp).background(MaterialTheme.colorScheme.tertiary, CircleShape))
+            Spacer(Modifier.width(6.dp))
+            Text("LTE", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
 
-private fun formatBytes(bytes: Long): String = when { bytes >= 1_073_741_824L -> String.format(Locale.getDefault(), "%.1f GB", bytes / 1_073_741_824f); bytes >= 1_048_576L -> String.format(Locale.getDefault(), "%.1f MB", bytes / 1_048_576f); else -> "$bytes B" }
+// ── page 4: tune ─────────────────────────────────────────────────────────────────────────────────
 
-private data class HistoryEntry(val timestamp: Long, val time: String, val network: String, val detail: String, val type: String)
+@Composable
+private fun TunePage(
+    context: MainActivity,
+    themeMode: String,
+    onThemeMode: (String) -> Unit,
+    radio: RadioState?,
+    shizuku: ShizukuHealth,
+) {
+    val store = MainActivity.store(context)
+    val sims = remember { context.currentSims() }
 
-private fun readNetworkHistory(context: android.content.Context): List<HistoryEntry> {
-    val values = context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
+    var startAfterRestart by rememberSaveable {
+        mutableStateOf(store.getBoolean(AutoReconnectService.PREF_START_AFTER_REBOOT, false))
+    }
+    var selectedSim by rememberSaveable {
+        mutableIntStateOf(store.getInt(AutoReconnectService.PREF_SELECTED_SUBSCRIPTION, SubscriptionManager.INVALID_SUBSCRIPTION_ID))
+    }
+    var backupSim by rememberSaveable {
+        mutableIntStateOf(store.getInt(AutoReconnectService.PREF_FAILOVER_TARGET, SubscriptionManager.INVALID_SUBSCRIPTION_ID))
+    }
+    var failover by rememberSaveable {
+        mutableStateOf(store.getBoolean(AutoReconnectService.PREF_FAILOVER_ENABLED, false))
+    }
+    var intervalSeconds by rememberSaveable {
+        mutableIntStateOf((store.getLong(AutoReconnectService.PREF_INTERVAL_MS, AutoReconnectService.DEFAULT_INTERVAL_MS) / 1000L).toInt())
+    }
+    var cooldownMinutes by rememberSaveable {
+        mutableIntStateOf((store.getLong(AutoReconnectService.PREF_RECOVERY_COOLDOWN_MS, AutoReconnectService.DEFAULT_RECOVERY_COOLDOWN_MS) / 60_000L).toInt())
+    }
+    var maxAttempts by rememberSaveable {
+        mutableIntStateOf(store.getInt(AutoReconnectService.PREF_MAX_ATTEMPTS, AutoReconnectService.DEFAULT_MAX_ATTEMPTS).coerceIn(1, 8))
+    }
+
+    fun refreshWatcher() {
+        if (store.getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)) context.startWatcher()
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .statusBarsPadding()
+            .padding(horizontal = 18.dp)
+            .padding(top = 14.dp, bottom = 22.dp),
+    ) {
+        HubReveal(0) {
+            HubHeroHeader(
+                kicker = "Settings",
+                title = "Tune the guardian",
+                subtitle = "Appearance, recovery behaviour, SIM choice and diagnostics.",
+                icon = Icons.Rounded.Settings,
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        HubReveal(1) {
+            HubGlassCard {
+                Text("Appearance", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text(
+                    "The whole surface cross-fades when you switch, in both directions.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
+                Spacer(Modifier.height(12.dp))
+                HubSegmented(
+                    options = listOf("System", "Light", "Dark"),
+                    selectedIndex = listOf("system", "light", "dark").indexOf(themeMode).coerceAtLeast(0),
+                    onSelect = { onThemeMode(listOf("system", "light", "dark")[it]) },
+                )
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        HubReveal(2) {
+            HubGlassCard {
+                Text("Recovery", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text(
+                    "How hard the watcher tries before it cools down.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
+                Spacer(Modifier.height(6.dp))
+                HubSliderRow(
+                    title = "Base retry delay",
+                    valueLabel = intervalSeconds.toString() + "s",
+                    value = intervalSeconds.toFloat(),
+                    range = 30f..600f,
+                    steps = 18,
+                    onValueChange = { intervalSeconds = it.toInt() },
+                    onValueChangeFinished = {
+                        store.edit().putLong(AutoReconnectService.PREF_INTERVAL_MS, intervalSeconds * 1000L).apply()
+                        refreshWatcher()
+                    },
+                )
+                HubSliderRow(
+                    title = "Failed attempts before cooling down",
+                    valueLabel = maxAttempts.toString(),
+                    value = maxAttempts.toFloat(),
+                    range = 1f..8f,
+                    steps = 6,
+                    onValueChange = { maxAttempts = it.toInt() },
+                    onValueChangeFinished = {
+                        store.edit().putInt(AutoReconnectService.PREF_MAX_ATTEMPTS, maxAttempts).apply()
+                        refreshWatcher()
+                    },
+                )
+                HubSliderRow(
+                    title = "Cooldown",
+                    valueLabel = cooldownMinutes.toString() + " min",
+                    value = cooldownMinutes.toFloat(),
+                    range = 1f..30f,
+                    steps = 28,
+                    onValueChange = { cooldownMinutes = it.toInt() },
+                    onValueChangeFinished = {
+                        store.edit().putLong(AutoReconnectService.PREF_RECOVERY_COOLDOWN_MS, cooldownMinutes * 60_000L).apply()
+                        refreshWatcher()
+                    },
+                )
+                HubHairline()
+                Spacer(Modifier.height(10.dp))
+                HubToggleRow(
+                    title = "Start after restart",
+                    subtitle = "Re-arm the watcher after a reboot, once the radio has settled.",
+                    checked = startAfterRestart,
+                    onCheckedChange = {
+                        startAfterRestart = it
+                        store.edit().putBoolean(AutoReconnectService.PREF_START_AFTER_REBOOT, it).apply()
+                    },
+                )
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        HubReveal(3) {
+            val ready = shizuku == ShizukuHealth.READY
+            HubGlassCard(accent = if (ready) MaterialTheme.hubAccents.success else MaterialTheme.colorScheme.tertiary) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Privileged access", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                        Text(
+                            shizuku.describe(),
+                            color = if (ready) MaterialTheme.hubAccents.success else MaterialTheme.colorScheme.tertiary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    HubStatusDot(
+                        color = if (ready) MaterialTheme.hubAccents.success else MaterialTheme.colorScheme.tertiary,
+                        pulsing = !ready,
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    HubQuietButton("Recheck", icon = Icons.Rounded.Refresh, modifier = Modifier.weight(1f)) {
+                        ShizukuHealthMonitor.refresh()
+                    }
+                    HubQuietButton("Open Shizuku", icon = Icons.Rounded.OpenInNew, modifier = Modifier.weight(1f)) {
+                        context.openShizuku()
+                    }
+                }
+                if (!ready) {
+                    Spacer(Modifier.height(10.dp))
+                    HubPrimaryButton(text = "Grant Shizuku permission", icon = Icons.Rounded.CheckCircle) {
+                        context.requestShizuku()
+                    }
+                }
+            }
+        }
+
+        if (sims.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            HubReveal(4) {
+                HubGlassCard {
+                    Text("SIM & eligibility", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                    Text(
+                        "Pick the SIM whose 5G state is monitored. Failover only runs after 45 seconds with no service.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text("Monitor this SIM", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(7.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        sims.forEach { sim ->
+                            SimChip(
+                                label = sim.label,
+                                selected = sim.id == selectedSim,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    selectedSim = sim.id
+                                    store.edit().putInt(AutoReconnectService.PREF_SELECTED_SUBSCRIPTION, sim.id).apply()
+                                    refreshWatcher()
+                                },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    HubToggleRow(
+                        title = "Switch to a backup SIM when service disappears",
+                        subtitle = "A 15-minute cooldown prevents SIM flapping.",
+                        checked = failover,
+                        onCheckedChange = {
+                            failover = it
+                            store.edit().putBoolean(AutoReconnectService.PREF_FAILOVER_ENABLED, it).apply()
+                        },
+                    )
+                    if (failover) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("Backup data SIM", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(7.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                            sims.filter { it.id != selectedSim }.forEach { sim ->
+                                SimChip(
+                                    label = sim.label,
+                                    selected = sim.id == backupSim,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
+                                        backupSim = sim.id
+                                        store.edit().putInt(AutoReconnectService.PREF_FAILOVER_TARGET, sim.id).apply()
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    HubHairline()
+                    Spacer(Modifier.height(12.dp))
+                    Text("Diagnostics", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Spacer(Modifier.height(6.dp))
+                    val state = radio ?: RadioState("Unknown", 0, false, false, false)
+                    context.diagnostics(state).forEach { row ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(row.first, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                            Text(row.second, color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        HubReveal(5) {
+            HubGlassCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Battery optimisation", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(
+                            "For phones that aggressively stop background services.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                        )
+                    }
+                    HubQuietButton("Open") { context.openBatteryOptimization() }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Rounded.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(15.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "5G detection follows Android's TelephonyDisplayInfo, so non-standalone 5G is only " +
+                    "distinguishable on Android 11 and newer.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 10.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SimChip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = {
+            Text(
+                label,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            selectedContainerColor = MaterialTheme.colorScheme.primary,
+            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+        ),
+    )
+}
+
+// ── shared helpers ───────────────────────────────────────────────────────────────────────────────
+
+private fun readNetworkHistory(context: Context): List<HistoryEntry> {
+    val values = MainActivity.store(context)
         .getStringSet(AutoReconnectService.PREF_HISTORY, emptySet()).orEmpty()
     val format = SimpleDateFormat("dd MMM · HH:mm:ss", Locale.getDefault())
     return values.mapNotNull { raw ->
         runCatching {
             val json = org.json.JSONObject(raw)
             val timestamp = json.getLong("time")
-            HistoryEntry(timestamp, format.format(Date(timestamp)), json.optString("network", "Unknown"), json.optString("detail", ""), json.optString("type", "system"))
+            HistoryEntry(
+                timestamp = timestamp,
+                time = format.format(Date(timestamp)),
+                network = json.optString("network", "Unknown"),
+                detail = json.optString("detail", ""),
+                type = json.optString("type", "system"),
+            )
         }.getOrNull()
     }.sortedByDescending { it.timestamp }
 }
 
-private fun saveNetworkHistory(context: android.content.Context, network: String, detail: String) {
-    val prefs = context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
-    val entry = org.json.JSONObject().put("time", System.currentTimeMillis()).put("network", network).put("detail", detail).toString()
-    val values = prefs.getStringSet(AutoReconnectService.PREF_HISTORY, emptySet()).orEmpty().toMutableSet()
-    values.add(entry); prefs.edit().putStringSet(AutoReconnectService.PREF_HISTORY, values).apply()
-}
-
-private fun buildNetworkReport(context: android.content.Context, entries: List<HistoryEntry>): String {
-    val prefs = context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
+private fun buildNetworkReport(context: Context, entries: List<HistoryEntry>): String {
+    val store = MainActivity.store(context)
     return org.json.JSONObject().apply {
         put("generatedAt", System.currentTimeMillis())
-        put("lteFallbackBytes", prefs.getLong(NetworkUsageTracker.KEY_LTE_BYTES, 0L))
-        put("fiveGBytes", prefs.getLong(NetworkUsageTracker.KEY_5G_BYTES, 0L))
-        put("fallbackMinutes", prefs.getLong(AutoReconnectService.PREF_LTE_FALLBACK_MS, 0L) / 60_000L)
+        put("lteFallbackBytes", store.getLong(NetworkUsageTracker.KEY_LTE_BYTES, 0L))
+        put("fiveGBytes", store.getLong(NetworkUsageTracker.KEY_5G_BYTES, 0L))
+        put("fallbackMinutes", store.getLong(AutoReconnectService.PREF_LTE_FALLBACK_MS, 0L) / 60_000L)
         put("averageTriggerTo5GSeconds", run {
-            val count = prefs.getInt(AutoReconnectService.PREF_TRIGGER_RECOVERY_COUNT, 0)
-            if (count == 0) 0L else prefs.getLong(AutoReconnectService.PREF_TRIGGER_RECOVERY_TOTAL_MS, 0L) / count / 1_000L
+            val count = store.getInt(AutoReconnectService.PREF_TRIGGER_RECOVERY_COUNT, 0)
+            if (count == 0) 0L else store.getLong(AutoReconnectService.PREF_TRIGGER_RECOVERY_TOTAL_MS, 0L) / count / 1_000L
         })
-        put("events", org.json.JSONArray().apply { entries.forEach { put(org.json.JSONObject().put("time", it.timestamp).put("network", it.network).put("type", it.type).put("detail", it.detail)) } })
+        put("events", org.json.JSONArray().apply {
+            entries.forEach { entry ->
+                put(
+                    org.json.JSONObject()
+                        .put("time", entry.timestamp)
+                        .put("network", entry.network)
+                        .put("type", entry.type)
+                        .put("detail", entry.detail)
+                )
+            }
+        })
     }.toString(2)
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1_073_741_824L -> String.format(Locale.getDefault(), "%.1f GB", bytes / 1_073_741_824f)
+    bytes >= 1_048_576L -> String.format(Locale.getDefault(), "%.1f MB", bytes / 1_048_576f)
+    bytes >= 1_024L -> String.format(Locale.getDefault(), "%.1f KB", bytes / 1_024f)
+    else -> bytes.toString() + " B"
+}
+
+private fun formatSpeed(bytesPerSecond: Long): String = when {
+    bytesPerSecond >= 1_000_000L -> String.format(Locale.getDefault(), "%.1f MB/s", bytesPerSecond / 1_000_000f)
+    bytesPerSecond >= 1_000L -> String.format(Locale.getDefault(), "%.0f KB/s", bytesPerSecond / 1_000f)
+    else -> bytesPerSecond.toString() + " B/s"
+}
+
+private fun formatTimestamp(timestamp: Long): String =
+    if (timestamp <= 0L) "—" else SimpleDateFormat("dd MMM · HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
+
+private fun formatDuration(ms: Long): String {
+    val seconds = ms / 1000L
+    return when {
+        seconds >= 3600L -> (seconds / 3600).toString() + "h " + ((seconds % 3600) / 60).toString() + "m"
+        seconds >= 60L -> (seconds / 60).toString() + "m " + (seconds % 60).toString() + "s"
+        else -> seconds.toString() + "s"
+    }
 }
