@@ -41,7 +41,7 @@ class AutoReconnectService : Service() {
         const val PREF_AUTO_ENABLED = "auto_reconnect_enabled"
         const val PREF_START_AFTER_REBOOT = "start_after_reboot"
         const val PREF_HISTORY = "network_history"
-        const val PREF_NEXT_ATTEMPT = "next_attempt_at"
+        const val PREF_NEXT_ATTEMPT = "next_attempt_at_elapsed"
         const val PREF_FAILURE_STREAK = "failure_streak"
         const val PREF_CIRCUIT_OPEN = "circuit_open"
         const val PREF_SELECTED_SUBSCRIPTION = "selected_subscription"
@@ -128,7 +128,9 @@ class AutoReconnectService : Service() {
             .coerceIn(MIN_MAX_ATTEMPTS, MAX_MAX_ATTEMPTS)
         recoveryCooldownMs = prefs.getLong(PREF_RECOVERY_COOLDOWN_MS, DEFAULT_RECOVERY_COOLDOWN_MS)
             .coerceIn(MIN_RECOVERY_COOLDOWN_MS, MAX_RECOVERY_COOLDOWN_MS)
-        nextAttemptAt = prefs.getLong(PREF_NEXT_ATTEMPT, 0L)
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val persistedNext = prefs.getLong(PREF_NEXT_ATTEMPT, 0L)
+        nextAttemptAt = if (persistedNext > nowElapsed) persistedNext else 0L
         consecutiveFailures = prefs.getInt(PREF_FAILURE_STREAK, 0)
         circuitOpen = prefs.getBoolean(PREF_CIRCUIT_OPEN, false)
         val selectedSub = prefs.getInt(PREF_SELECTED_SUBSCRIPTION, SubscriptionManager.INVALID_SUBSCRIPTION_ID)
@@ -355,13 +357,13 @@ class AutoReconnectService : Service() {
             while (isActive) {
                 observeNetwork()
                 observeShizukuHealth()
-                if (circuitOpen && System.currentTimeMillis() >= nextAttemptAt) {
+                if (circuitOpen && SystemClock.elapsedRealtime() >= nextAttemptAt) {
                     circuitOpen = false
                     consecutiveFailures = 0
                     persistRetryState()
                 }
                 if (!paused && !operationRunning && isLteFallback() &&
-                    System.currentTimeMillis() >= nextAttemptAt
+                    SystemClock.elapsedRealtime() >= nextAttemptAt
                 ) {
                     attemptReconnect()
                 }
@@ -385,7 +387,7 @@ class AutoReconnectService : Service() {
     }
 
     private suspend fun attemptReconnect() {
-        val now = System.currentTimeMillis()
+        val now = SystemClock.elapsedRealtime()
         while (attemptTimes.isNotEmpty() && now - attemptTimes.first() >= BURST_WINDOW_MS) {
             attemptTimes.removeFirst()
         }
@@ -430,7 +432,7 @@ class AutoReconnectService : Service() {
                 // Respect the user's configured base interval, then progressively back off.
                 val delay = maxOf(triggerIntervalMs, when (consecutiveFailures) { 1 -> 30_000L; 2 -> 60_000L; 3 -> 300_000L; else -> 900_000L })
                 circuitOpen = false
-                nextAttemptAt = System.currentTimeMillis() + delay
+                nextAttemptAt = SystemClock.elapsedRealtime() + delay
                 persistRetryState()
                 val detail = if (result.startsWith("5G re-selection triggered")) "5G not detected after trigger" else result.take(100)
                 recordHistory("4G / LTE", if (circuitOpen) "Reconnect paused after $consecutiveFailures failures: $detail" else "Reconnect failed: $detail", "failed")
@@ -443,8 +445,8 @@ class AutoReconnectService : Service() {
     }
 
     private suspend fun waitFor5G(timeoutMs: Long): Boolean {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        while (SystemClock.elapsedRealtime() < deadline) {
             if (isActually5G()) return true
             delay(500)
         }
