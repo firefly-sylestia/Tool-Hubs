@@ -125,9 +125,9 @@ class AutoReconnectService : Service() {
     @Volatile private var currentLabel: String = "Unknown"
 
     /**
-     * Retry state is only ever mutated on the watcher thread. Anything arriving from the main
-     * thread (start/resume, a recovered Shizuku) raises this flag instead of writing the fields
-     * directly, which keeps the loop free of locking.
+     * Retry state is only ever mutated on the watcher thread. Explicit lifecycle actions from
+     * the main thread (start/resume) raise this flag instead of writing the fields directly, which
+     * keeps the loop free of locking. Environment recovery does not reset retry state.
      */
     @Volatile private var resetRequested = false
     @Volatile private var resetReason = "Recovery armed"
