@@ -362,7 +362,11 @@ class AutoReconnectService : Service() {
         lastShizukuHealth = health
         if (health == ShizukuHealth.SERVICE_DIED || health == ShizukuHealth.UNAVAILABLE) {
             recordHistory("Shizuku", "Background service unavailable; open Shizuku then tap Retry", "system")
+            publishState(currentNetworkLabel(), "Shizuku unavailable · open it, then tap Retry")
             updateNotification("Shizuku unavailable · open it, then tap Retry")
+        } else if (health == ShizukuHealth.READY && lastShizukuHealth != ShizukuHealth.READY) {
+            publishState(currentNetworkLabel(), "Shizuku ready · monitoring continues")
+            updateNotification("Shizuku ready · monitoring continues")
         }
     }
 
@@ -374,6 +378,7 @@ class AutoReconnectService : Service() {
 
         if (attemptTimes.size >= maxAttempts) {
             nextAttemptAt = now + recoveryCooldownMs
+            persistRetryState()
             if (now - lastLimiterNotificationAt >= 5_000L) {
                 updateNotification("Recovery paused · " + maxAttempts + " attempts used. Retry in " + formatInterval(recoveryCooldownMs))
                 lastLimiterNotificationAt = now
