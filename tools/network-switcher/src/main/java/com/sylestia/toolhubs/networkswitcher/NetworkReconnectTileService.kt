@@ -16,7 +16,9 @@ class NetworkReconnectTileService : TileService() {
         val tile = qsTile ?: return
         val running = getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)
         if (running) {
-            stopService(Intent(this, AutoReconnectService::class.java).apply {
+            // Deliver ACTION_STOP through onStartCommand so the service clears its
+            // persisted enabled state before shutting down.
+            startService(Intent(this, AutoReconnectService::class.java).apply {
                 action = AutoReconnectService.ACTION_STOP
             })
         } else {
