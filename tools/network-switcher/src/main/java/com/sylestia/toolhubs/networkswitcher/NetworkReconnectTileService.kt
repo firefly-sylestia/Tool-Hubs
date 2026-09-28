@@ -14,7 +14,7 @@ class NetworkReconnectTileService : TileService() {
     override fun onClick() {
         super.onClick()
         val tile = qsTile ?: return
-        val running = tile.state == Tile.STATE_ACTIVE
+        val running = getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)
         if (running) {
             stopService(Intent(this, AutoReconnectService::class.java).apply {
                 action = AutoReconnectService.ACTION_STOP
@@ -33,7 +33,7 @@ class NetworkReconnectTileService : TileService() {
 
     private fun updateTile() {
         qsTile?.apply {
-            state = if (AutoReconnectService.isRunning) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+            state = if (getSharedPreferences(AutoReconnectService.PREFS_NAME, MODE_PRIVATE).getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
             label = "5G Reconnect"
             subtitle = if (state == Tile.STATE_ACTIVE) "On" else "Off"
             updateTile()
