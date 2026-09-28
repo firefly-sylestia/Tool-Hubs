@@ -238,12 +238,7 @@ fun HubIconChip(icon: ImageVector, modifier: Modifier = Modifier, accent: Color 
             .size(48.dp)
             .shadow(10.dp, RoundedCornerShape(17.dp), clip = false, ambientColor = accents.shadow, spotColor = accents.shadow)
             .clip(RoundedCornerShape(17.dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(accent.copy(alpha = 0.24f), accents.glassTop.copy(alpha = 0.85f))
-                )
-            )
-            .border(1.dp, accents.hairline, RoundedCornerShape(17.dp)),
+            .background(accent.copy(alpha = 0.22f))
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(23.dp))
@@ -274,8 +269,7 @@ fun HubGlassCard(
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .shadow(elevation, shape, clip = false, ambientColor = accents.shadow, spotColor = accents.shadow)
             .clip(shape)
-            .background(Brush.verticalGradient(listOf(accents.glassTop, accents.glassBottom)))
-            .border(1.dp, accents.hairline.copy(alpha = 0.75f), shape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .then(
                 if (onClick != null) {
                     Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick)
@@ -329,8 +323,7 @@ fun HubStatTile(label: String, value: String, accent: Color, modifier: Modifier 
     Column(
         modifier
             .clip(RoundedCornerShape(20.dp))
-            .background(accent.copy(alpha = 0.10f))
-            .border(1.dp, accent.copy(alpha = 0.22f), RoundedCornerShape(20.dp))
+            .background(accent.copy(alpha = 0.18f))
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Text(value, color = accent, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
@@ -352,8 +345,7 @@ fun HubPill(label: String, active: Boolean, accent: Color = MaterialTheme.colorS
     Row(
         modifier
             .clip(RoundedCornerShape(11.dp))
-            .background(tint.copy(alpha = if (active) 0.16f else 0.08f))
-            .border(1.dp, tint.copy(alpha = if (active) 0.36f else 0.18f), RoundedCornerShape(11.dp))
+            .background(tint.copy(alpha = if (active) 0.22f else 0.14f))
             .padding(horizontal = 10.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -419,8 +411,7 @@ fun HubPrimaryButton(
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .shadow(14.dp, RoundedCornerShape(20.dp), clip = false, ambientColor = accents.shadow, spotColor = accents.shadow)
             .clip(RoundedCornerShape(20.dp))
-            .background(Brush.horizontalGradient(listOf(start, end)))
-            .border(1.dp, Color.White.copy(alpha = if (enabled) 0.30f else 0.12f), RoundedCornerShape(20.dp))
+            .background(if (enabled) start else MaterialTheme.colorScheme.surfaceVariant)
             .clickable(interactionSource = interaction, indication = null, enabled = enabled && !loading, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -471,8 +462,7 @@ fun HubQuietButton(
         modifier
             .clip(RoundedCornerShape(16.dp))
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .background(MaterialTheme.colorScheme.surfaceContainer)
-            .border(1.dp, accents.hairline.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .clickable(interactionSource = interaction, indication = null, enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
