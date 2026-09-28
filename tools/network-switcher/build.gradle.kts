@@ -13,7 +13,7 @@ android {
         versionCode = 2
         versionName = "0.2.0"
     }
-    buildFeatures { compose = true; aidl = true }
+    buildFeatures { compose = true; aidl = true; buildConfig = true }
     signingConfigs {
         getByName("debug")
         create("debugRelease") {
