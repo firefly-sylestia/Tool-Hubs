@@ -346,7 +346,7 @@ class MainActivity : ComponentActivity() {
             val w = size.width
             val h = size.height
 
-            val dark = androidx.compose.foundation.isSystemInDarkTheme()
+            val dark = when (themeMode) {\n                "dark" -> true\n                "light" -> false\n                else -> androidx.compose.foundation.isSystemInDarkTheme()\n            }
             val base = MaterialTheme.colorScheme.background
             val surface = MaterialTheme.colorScheme.surface
             val edge = MaterialTheme.colorScheme.outline
