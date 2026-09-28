@@ -713,12 +713,7 @@ class MainActivity : ComponentActivity() {
         val shizuku = ShizukuHealthMonitor.refresh() == ShizukuHealth.READY
         if (phone && notifications && shizuku) return
 
-        Card(
-            Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White.copy(.72f))
-        ) {
-            Column(Modifier.padding(18.dp)) {
+        MetalPanel(Modifier.fillMaxWidth()) {
                 Text("Required access", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Text("The checker disappears automatically once everything is ready.", fontSize = 11.sp, color = CurioInk.copy(.55f))
                 Spacer(Modifier.height(12.dp))
@@ -907,10 +902,86 @@ class MainActivity : ComponentActivity() {
 
             val buttonScale by animateFloatAsState(
                 if (pressed) 0.965f else 1f,
-                spring(dampingRatio = 0.56f, stiffness = 520f),
+                spring(dampingRatio = 0.48f, stiffness = 700f),
                 label = "manual_button_scale"
             )
 
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(60.dp)
+                    .scale(buttonScale)
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable(enabled = !running) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                        pressed = true
+                        if (ShizukuHealthMonitor.refresh() != ShizukuHealth.READY) {
+                            requestMissingPermission("shizuku")
+                            pressed = false
+                        } else {
+                            running = true
+                            status = "Re-triggering 5G…"
+                            Thread {
+                                val result = NetworkSwitcherBridge(context).reconnect5G()
+                                val success = waitFor5GBlocking(12_000L)
+                                runOnUiThread {
+                                    status = when {
+                                        success -> "5G switch confirmed."
+                                        result.startsWith("5G re-selection triggered") ->
+                                            "Trigger sent · waiting for confirmed 5G."
+                                        else -> result
+                                    }
+                                    running = false
+                                    pressed = false
+                                }
+                            }.start()
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(MetalLight, Color(0xFFD0D3D5), Color(0xFF8F9498))
+                            ),
+                            RoundedCornerShape(20.dp)
+                        )
+                        .border(
+                            BorderStroke(1.dp, Color.White.copy(.80f)),
+                            RoundedCornerShape(20.dp)
+                        )
+                )
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = 14.dp)
+                        .background(MetalDark.copy(.38f), RoundedCornerShape(50))
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Bolt, null, tint = MetalDeep)
+                    Spacer(Modifier.width(9.dp))
+                    Text(
+                        if (running) "Checking for 5G…" else "RE-TRIGGER 5G",
+                        color = MetalDeep,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = .6.sp
+                    )
+                }
+            }
+            LaunchedEffect(pressed) {
+                if (pressed) {
+                    delay(100)
+                    pressed = false
+                }
+            }
+
+            /* old tactile Button removed */ 
+            /*
             Button(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -956,6 +1027,7 @@ class MainActivity : ComponentActivity() {
                     fontWeight = FontWeight.SemiBold
                 )
             }
+            */
 
             Spacer(Modifier.height(12.dp))
 
