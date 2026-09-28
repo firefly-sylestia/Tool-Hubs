@@ -66,35 +66,35 @@ import java.util.Locale
 import rikka.shizuku.Shizuku
 
 private val NetworkLightColors = lightColorScheme(
-    primary = Color(0xFF8A543D),
+    primary = Color(0xFF7A402B),
     onPrimary = Color.White,
-    secondary = Color(0xFF626A70),
+    secondary = Color(0xFF4F5961),
     onSecondary = Color.White,
-    tertiary = Color(0xFF6D745F),
+    tertiary = Color(0xFF56634D),
     onTertiary = Color.White,
-    background = Color(0xFFE3E5E6),
-    onBackground = Color(0xFF202428),
-    surface = Color(0xFFECEEEF),
-    onSurface = Color(0xFF202428),
-    surfaceVariant = Color(0xFFD5D9DC),
-    onSurfaceVariant = Color(0xFF4F565B),
-    outline = Color(0xFF727A80)
+    background = Color(0xFFDDE1E4),
+    onBackground = Color(0xFF171A1D),
+    surface = Color(0xFFF2F4F5),
+    onSurface = Color(0xFF171A1D),
+    surfaceVariant = Color(0xFFC9CED2),
+    onSurfaceVariant = Color(0xFF343B40),
+    outline = Color(0xFF697278)
 )
 
 private val NetworkDarkColors = darkColorScheme(
-    primary = Color(0xFFD08B67),
-    onPrimary = Color(0xFF291B14),
-    secondary = Color(0xFF9EA7AD),
-    onSecondary = Color(0xFF202428),
-    tertiary = Color(0xFF9DAC8D),
-    onTertiary = Color(0xFF20281F),
-    background = Color(0xFF171B1F),
-    onBackground = Color(0xFFE8EAEB),
-    surface = Color(0xFF24292D),
-    onSurface = Color(0xFFE8EAEB),
-    surfaceVariant = Color(0xFF343A3F),
-    onSurfaceVariant = Color(0xFFC0C5C9),
-    outline = Color(0xFF737A80)
+    primary = Color(0xFFD99570),
+    onPrimary = Color(0xFF24140D),
+    secondary = Color(0xFFB4BDC3),
+    onSecondary = Color(0xFF171A1D),
+    tertiary = Color(0xFFB2C19F),
+    onTertiary = Color(0xFF172016),
+    background = Color(0xFF101417),
+    onBackground = Color(0xFFF1F3F4),
+    surface = Color(0xFF1D2327),
+    onSurface = Color(0xFFF1F3F4),
+    surfaceVariant = Color(0xFF30383E),
+    onSurfaceVariant = Color(0xFFD1D7DB),
+    outline = Color(0xFF7E898F)
 )
 
 class MainActivity : ComponentActivity() {
@@ -450,11 +450,11 @@ class MainActivity : ComponentActivity() {
                     .height(76.dp)
                     .shadow(24.dp, RoundedCornerShape(22.dp), clip = false)
                     .border(
-                        BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(.45f)),
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(.65f)),
                         RoundedCornerShape(22.dp)
                     ),
                 shape = RoundedCornerShape(22.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = .96f),
+                color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 20.dp,
                 tonalElevation = 0.dp
             ) {
@@ -576,11 +576,11 @@ class MainActivity : ComponentActivity() {
             modifier = modifier
                 .shadow(14.dp, RoundedCornerShape(24.dp), clip = false)
                 .border(
-                    BorderStroke(1.dp, Color.White.copy(.66f)),
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(.55f)),
                     RoundedCornerShape(24.dp)
                 ),
             shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface.copy(.94f),
+            color = MaterialTheme.colorScheme.surface,
             shadowElevation = 12.dp,
             tonalElevation = 0.dp
         ) {
@@ -774,7 +774,7 @@ class MainActivity : ComponentActivity() {
 
         MetalPanel(Modifier.fillMaxWidth()) {
                 Text("Required access", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("The checker disappears automatically once everything is ready.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
+                Text("The checker disappears automatically once everything is ready.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.74f))
                 Spacer(Modifier.height(12.dp))
                 PermissionRow("Phone state", phone, "phone")
                 PermissionRow("Notifications", notifications, "notifications")
@@ -790,7 +790,7 @@ class MainActivity : ComponentActivity() {
                 Text(label, fontWeight = FontWeight.Medium)
                 Text(if (allowed) "Allowed" else "Required", fontSize = 11.sp, color = if (allowed) Color(0xFF207561) else MaterialTheme.colorScheme.primary)
             }
-            if (!allowed) TextButton(onClick = { requestMissingPermission(kind) }) { Text("Allow") }
+            if (!allowed) Button(onClick = { requestMissingPermission(kind) }, shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)) { Text("Allow", fontWeight = FontWeight.Bold) }
         }
     }
 
@@ -1219,7 +1219,7 @@ class MainActivity : ComponentActivity() {
                     CompactHistoryRow(entry)
                     Spacer(Modifier.height(6.dp))
                 }
-                if (history.isEmpty()) Text("Waiting for network events…", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.52f))
+                if (history.isEmpty()) Text("Waiting for network events…", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.72f))
             }
             MetalPanel(Modifier.weight(1f)) {
                 Text("DATA OBSERVED", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
@@ -1314,7 +1314,7 @@ class MainActivity : ComponentActivity() {
                             Text(entry.network, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
                             Text(formatTimestamp(entry.timestamp), fontSize = 9.sp, color = MaterialTheme.colorScheme.primary)
                         }
-                        Text(entry.detail.ifBlank { "Network state observed" }, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.58f))
+                        Text(entry.detail.ifBlank { "Network state observed" }, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.74f))
                         if (duration != null && duration > 0L) Text("Stayed on " + entry.network + " · " + formatDuration(duration), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.45f), modifier = Modifier.padding(top = 3.dp))
                     }
                 }
@@ -1344,7 +1344,7 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.height(10.dp))
                 DataBranch("4G / LTE", lte, lteTime, MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(10.dp))
-                Text("Device-wide mobile traffic sampled by radio state. This is not a carrier billing counter.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.48f))
+                Text("Device-wide mobile traffic sampled by radio state. This is not a carrier billing counter.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.72f))
             }
             MetalPanel(Modifier.fillMaxWidth()) {
                 Text("PEAK SPEED RECORDER", fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.primary)
@@ -1433,7 +1433,7 @@ class MainActivity : ComponentActivity() {
                                         Brush.verticalGradient(
                                             listOf(
                                                 MaterialTheme.colorScheme.surface.copy(.98f),
-                                                MaterialTheme.colorScheme.surfaceVariant.copy(.82f)
+                                                MaterialTheme.colorScheme.surfaceVariant
                                             )
                                         )
                                     },
@@ -1461,7 +1461,7 @@ class MainActivity : ComponentActivity() {
             Spacer(Modifier.height(12.dp))
             MetalPanel(Modifier.fillMaxWidth()) {
                 Text("Recovery", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Text("Retry delay: ${intervalSeconds}s", color = MaterialTheme.colorScheme.onSurface.copy(.65f))
+                    Text("Retry delay: ${intervalSeconds}s", color = MaterialTheme.colorScheme.onSurface.copy(.78f))
                     Slider(value = intervalSeconds.toFloat(), onValueChange = { intervalSeconds = it.toInt() }, onValueChangeFinished = { prefs().edit().putLong(AutoReconnectService.PREF_INTERVAL_MS, intervalSeconds * 1000L).apply(); refreshWatcherSettings() }, valueRange = 30f..600f, steps = 18)
                     Text("Attempts per recovery: $maxAttempts", color = MaterialTheme.colorScheme.onSurface.copy(.65f))
                     Slider(value = maxAttempts.toFloat(), onValueChange = { maxAttempts = it.toInt() }, onValueChangeFinished = { prefs().edit().putInt(AutoReconnectService.PREF_MAX_ATTEMPTS, maxAttempts).apply(); refreshWatcherSettings() }, valueRange = 1f..8f, steps = 6)
@@ -1495,7 +1495,7 @@ class MainActivity : ComponentActivity() {
                         Text("Battery optimization", fontWeight = FontWeight.Medium)
                         Text("For phones that aggressively stop background services.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
                     }
-                    TextButton(onClick = { openBatteryOptimization() }) { Text("Open") }
+                    Button(onClick = { openBatteryOptimization() }, shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)) { Text("Open", fontWeight = FontWeight.Bold) }
                 }
             }
         }
@@ -1550,7 +1550,7 @@ private fun SimPicker(sims: List<MainActivity.SimChoice>, selected: Int, onSelec
     var expanded by remember { mutableStateOf(false) }
     val current = sims.firstOrNull { it.id == selected } ?: sims.first()
     Box {
-        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+        Button(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurface)) {
             Icon(Icons.Rounded.Settings, contentDescription = null)
             Spacer(Modifier.width(8.dp))
             Text(current.label, modifier = Modifier.weight(1f))
@@ -1584,10 +1584,10 @@ private fun SimAndDiagnosticsCard(
             }
             if (failover) {
                 Text("Backup data SIM", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { sims.filter { it.id != selected }.forEach { sim -> FilterChip(selected = backup == sim.id, onClick = { onBackup(sim.id) }, label = { Text(sim.label) }) } }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { sims.filter { it.id != selected }.forEach { sim -> FilterChip(selected = backup == sim.id, onClick = { onBackup(sim.id) }, label = { Text(sim.label, fontWeight = FontWeight.Bold) }, colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, labelColor = MaterialTheme.colorScheme.onSurface, selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary)) } }
             }
             Spacer(Modifier.height(10.dp))
-            diagnostics.forEach { (label, value) -> Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) { Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(.62f)); Text(value, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface) } }
+            diagnostics.forEach { (label, value) -> Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) { Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(.76f)); Text(value, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface) } }
         }
     }
 }
@@ -1608,13 +1608,13 @@ private fun HistoryView(context: android.content.Context) {
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Reconnect activity")
-                    Text("A quick read on the watcher", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f))
+                    Text("A quick read on the watcher", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .74f))
                 }
-                TextButton(onClick = { showAll = true }) { Text("View all") }
+                Button(onClick = { showAll = true }, shape = RoundedCornerShape(11.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurface)) { Text("View all", fontWeight = FontWeight.Bold) }
             }
             Spacer(Modifier.height(10.dp))
             if (entries.isEmpty()) {
-                Text("No network changes recorded yet.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f))
+                Text("No network changes recorded yet.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
             } else {
                 val successes = entries.count { it.type == "success" || it.detail.contains("confirmed", true) }
                 val failures = entries.count { it.type == "failed" || it.detail.contains("failed", true) || it.detail.contains("error", true) }
@@ -1638,13 +1638,13 @@ private fun HistoryView(context: android.content.Context) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.History, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp)); Text("Full activity", fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
-                TextButton(onClick = { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_TEXT, buildNetworkReport(context, entries)), "Export reconnect report")) }) { Text("Export") }
-                TextButton(onClick = { context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE).edit().remove(AutoReconnectService.PREF_HISTORY).apply(); entries = emptyList() }) { Text("Clear") }
+                Button(onClick = { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_TEXT, buildNetworkReport(context, entries)), "Export reconnect report")) }, shape = RoundedCornerShape(11.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurface)) { Text("Export", fontWeight = FontWeight.Bold) }
+                Button(onClick = { context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE).edit().remove(AutoReconnectService.PREF_HISTORY).apply(); entries = emptyList() }, shape = RoundedCornerShape(11.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) { Text("Clear", fontWeight = FontWeight.Bold) }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("All", "Success", "Failed", "Network", "System").forEach { label -> FilterChip(selected = filter == label, onClick = { filter = label }, label = { Text(label) }) } }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("All", "Success", "Failed", "Network", "System").forEach { label -> FilterChip(selected = filter == label, onClick = { filter = label }, label = { Text(label, fontWeight = FontWeight.Bold) }, colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, labelColor = MaterialTheme.colorScheme.onSurface, selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary)) } }
             val shown = entries.filter { entry -> when (filter) { "Success" -> entry.type == "success"; "Failed" -> entry.type == "failed"; "Network" -> entry.type == "network"; "System" -> entry.type == "system"; else -> true } }
             shown.take(80).forEachIndexed { index, entry ->
-                Row(Modifier.fillMaxWidth().background(if (index == 0) MaterialTheme.colorScheme.primary.copy(.10f) else Color.Transparent, RoundedCornerShape(14.dp)).clickable { expandedTime = if (expandedTime == entry.timestamp) -1L else entry.timestamp }.padding(12.dp), verticalAlignment = Alignment.Top) {
+                Row(Modifier.fillMaxWidth().background(if (index == 0) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp)).clickable { expandedTime = if (expandedTime == entry.timestamp) -1L else entry.timestamp }.padding(12.dp), verticalAlignment = Alignment.Top) {
                     Column(Modifier.weight(1f)) { Text(entry.network, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Text(entry.detail, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(.62f)); if (expandedTime == entry.timestamp) Text("Type: ${entry.type} · Recorded network: ${entry.network}\nTap to collapse. Additional radio and carrier details are shown in SIM & eligibility.", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 6.dp)) }
                     Text(entry.time, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
                 }
@@ -1654,7 +1654,7 @@ private fun HistoryView(context: android.content.Context) {
 }
 
 @Composable private fun ActivityMetric(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
-    Column(modifier.background(color.copy(.10f), RoundedCornerShape(16.dp)).padding(12.dp)) { Text(value, fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = color); Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.60f)) }
+    Column(modifier.background(color.copy(.10f), RoundedCornerShape(16.dp)).padding(12.dp)) { Text(value, fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = color); Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.74f)) }
 }
 
 @Composable private fun DataTrackerView(context: android.content.Context) {
@@ -1680,7 +1680,7 @@ private fun HistoryView(context: android.content.Context) {
             Spacer(Modifier.height(12.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("observed on LTE", formatBytes(lte), MaterialTheme.colorScheme.primary, Modifier.weight(1f)); ActivityMetric("observed on 5G", formatBytes(fiveG), Color(0xFF207561), Modifier.weight(1f)) }
             Spacer(Modifier.height(8.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("LTE fallback minutes", fallbackMinutes.toString(), MaterialTheme.colorScheme.primary, Modifier.weight(1f)); ActivityMetric("avg. trigger → 5G", if (averageRecovery == 0L) "—" else "${averageRecovery}s", Color(0xFF207561), Modifier.weight(1f)) }
             Text("Last 7 days · LTE ${formatBytes(weeklyLte)} · 5G ${formatBytes(weekly5G)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.62f), modifier = Modifier.padding(top = 9.dp))
-            Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text("Billing cycle starts on day $billingDay", fontSize = 11.sp, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface.copy(.62f)); TextButton(onClick = { billingDay = if (billingDay == 28) 1 else billingDay + 1; prefs.edit().putInt(AutoReconnectService.PREF_BILLING_DAY, billingDay).apply() }) { Text("Change") } }
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text("Billing cycle starts on day $billingDay", fontSize = 11.sp, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface.copy(.62f)); Button(onClick = { billingDay = if (billingDay == 28) 1 else billingDay + 1; prefs.edit().putInt(AutoReconnectService.PREF_BILLING_DAY, billingDay).apply() }, shape = RoundedCornerShape(11.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurface)) { Text("Change", fontWeight = FontWeight.Bold) } }
             Text("Observed mobile traffic attributed to the sampled radio state; this is not a carrier billing counter.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.48f), modifier = Modifier.padding(top = 10.dp))
         }
     }
