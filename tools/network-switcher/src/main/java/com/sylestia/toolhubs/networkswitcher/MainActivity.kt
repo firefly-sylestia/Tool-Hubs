@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
@@ -154,18 +155,20 @@ class MainActivity : ComponentActivity() {
         return dataType == TelephonyManager.NETWORK_TYPE_NR || display5GSignal
     }
 
-    private fun currentNetwork(): String = when {
-        isActually5G() -> "5G"
-        telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_LTE -> "4G / LTE"
-        telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_HSPAP ||
-            telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_HSPA ||
-            telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_HSDPA ||
-            telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_HSUPA ||
-            telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_UMTS -> "3G"
-        telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_EDGE ||
-            telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_GPRS -> "2G"
-        else -> "Unknown"
-    }
+    private fun currentNetwork(): String = runCatching {
+        when {
+            isActually5G() -> "5G"
+            telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_LTE -> "4G / LTE"
+            telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_HSPAP ||
+                telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_HSPA ||
+                telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_HSDPA ||
+                telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_HSUPA ||
+                telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_UMTS -> "3G"
+            telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_EDGE ||
+                telephony.dataNetworkType == TelephonyManager.NETWORK_TYPE_GPRS -> "2G"
+            else -> "Unknown"
+        }
+    }.getOrDefault("Permission required")
 
     data class SimChoice(val id: Int, val label: String)
 
@@ -255,8 +258,10 @@ class MainActivity : ComponentActivity() {
 
         LaunchedEffect(Unit) {
             while (true) {
-                shizukuGranted = Shizuku.pingBinder() &&
-                    Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+                shizukuGranted = runCatching {
+                    Shizuku.pingBinder() &&
+                        Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+                }.getOrDefault(false)
                 delay(1000)
             }
         }
@@ -284,33 +289,8 @@ class MainActivity : ComponentActivity() {
                         .fillMaxSize()
                         .padding(padding)
                 ) {
-                    AnimatedContent(
-                        targetState = page,
-                        modifier = Modifier.fillMaxSize(),
-                        label = "page_transition",
-                        transitionSpec = {
-                            if (targetState > initialState) {
-                                (slideInHorizontally(
-                                    animationSpec = tween(360),
-                                    initialOffsetX = { it / 12 }
-                                ) + fadeIn(tween(260))) togetherWith
-                                    (slideOutHorizontally(
-                                        animationSpec = tween(260),
-                                        targetOffsetX = { -it / 16 }
-                                    ) + fadeOut(tween(180)))
-                            } else {
-                                (slideInHorizontally(
-                                    animationSpec = tween(360),
-                                    initialOffsetX = { -it / 12 }
-                                ) + fadeIn(tween(260))) togetherWith
-                                    (slideOutHorizontally(
-                                        animationSpec = tween(260),
-                                        targetOffsetX = { it / 16 }
-                                    ) + fadeOut(tween(180)))
-                            }
-                        }
-                    ) { currentPage ->
-                        when (currentPage) {
+                    key(page) {
+                        when (page) {
                             0 -> ControlPage()
                             1 -> HistoryPage()
                             2 -> UsagePage()
@@ -431,6 +411,7 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(76.dp)
+                    .shadow(24.dp, RoundedCornerShape(22.dp), clip = false)
                     .border(
                         BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(.45f)),
                         RoundedCornerShape(22.dp)
@@ -481,6 +462,7 @@ class MainActivity : ComponentActivity() {
                 .fillMaxHeight()
                 .padding(top = lift)
                 .scale(scale)
+                .shadow(if (selected) 10.dp else 3.dp, RoundedCornerShape(17.dp), clip = false)
                 .clip(RoundedCornerShape(17.dp))
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center
@@ -546,6 +528,7 @@ class MainActivity : ComponentActivity() {
     ) {
         Surface(
             modifier = modifier
+                .shadow(14.dp, RoundedCornerShape(24.dp), clip = false)
                 .border(
                     BorderStroke(1.dp, Color.White.copy(.66f)),
                     RoundedCornerShape(24.dp)
@@ -592,6 +575,7 @@ class MainActivity : ComponentActivity() {
                 .fillMaxWidth()
                 .height(60.dp)
                 .scale(scale)
+                .shadow(12.dp, RoundedCornerShape(18.dp), clip = false)
                 .clip(RoundedCornerShape(18.dp))
                 .clickable(enabled = enabled) {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -937,6 +921,7 @@ class MainActivity : ComponentActivity() {
                     .fillMaxWidth()
                     .height(60.dp)
                     .scale(buttonScale)
+                    .shadow(14.dp, RoundedCornerShape(20.dp), clip = false)
                     .clip(RoundedCornerShape(20.dp))
                     .clickable(enabled = !running) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -1208,16 +1193,38 @@ class MainActivity : ComponentActivity() {
                             Modifier
                                 .weight(1f)
                                 .height(42.dp)
+                                .shadow(if (selected) 8.dp else 2.dp, RoundedCornerShape(12.dp), clip = false)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-                                .border(1.dp, MaterialTheme.colorScheme.outline.copy(.35f), RoundedCornerShape(12.dp))
+                                .background(
+                                    if (selected) {
+                                        Brush.verticalGradient(
+                                            listOf(MetalAccent.copy(.92f), Color(0xFF98583C))
+                                        )
+                                    } else {
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                MaterialTheme.colorScheme.surface.copy(.98f),
+                                                MaterialTheme.colorScheme.surfaceVariant.copy(.82f)
+                                            )
+                                        )
+                                    },
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .border(
+                                    BorderStroke(
+                                        1.dp,
+                                        if (selected) Color.White.copy(.36f)
+                                        else MaterialTheme.colorScheme.outline.copy(.35f)
+                                    ),
+                                    RoundedCornerShape(12.dp)
+                                )
                                 .clickable {
                                     themeMode = mode
                                     prefs().edit().putString("theme_mode", mode).apply()
                                 },
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+                            Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface)
                         }
                     }
                 }
@@ -1273,10 +1280,12 @@ private fun MetalPanel(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Surface(
-        modifier = modifier.border(
-            BorderStroke(1.dp, Color.White.copy(.66f)),
-            RoundedCornerShape(24.dp)
-        ),
+        modifier = modifier
+            .shadow(14.dp, RoundedCornerShape(24.dp), clip = false)
+            .border(
+                BorderStroke(1.dp, Color.White.copy(.66f)),
+                RoundedCornerShape(24.dp)
+            ),
         shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.surface.copy(.94f),
         shadowElevation = 12.dp,
