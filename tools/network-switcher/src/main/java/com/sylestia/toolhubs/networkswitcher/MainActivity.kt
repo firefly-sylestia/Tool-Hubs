@@ -297,6 +297,7 @@ class MainActivity : ComponentActivity() {
 
         LaunchedEffect(Unit) {
             while (true) {
+                auto = prefs().getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)
                 network = prefs().getString(AutoReconnectService.PREF_CURRENT_NETWORK, null) ?: currentNetwork()
                 status = prefs().getString(AutoReconnectService.PREF_STATUS, null) ?: when {
                     network == "5G" -> if (auto) "5G active · monitoring for LTE fallback" else "5G active"
@@ -616,7 +617,8 @@ private fun HistoryView(context: android.content.Context) {
     }
     val fallbackMinutes = prefs.getLong(AutoReconnectService.PREF_LTE_FALLBACK_MS, 0L) / 60_000L + liveFallbackSeconds / 60L
     val recoveries = prefs.getInt(AutoReconnectService.PREF_RECOVERY_COUNT, 0)
-    val averageRecovery = if (recoveries == 0) 0L else prefs.getLong(AutoReconnectService.PREF_RECOVERY_TOTAL_MS, 0L) / recoveries / 1_000L
+    val triggerCount = prefs.getInt(AutoReconnectService.PREF_TRIGGER_RECOVERY_COUNT, 0)
+    val averageRecovery = if (triggerCount == 0) 0L else prefs.getLong(AutoReconnectService.PREF_TRIGGER_RECOVERY_TOTAL_MS, 0L) / triggerCount / 1_000L
     val weeklyLte = NetworkUsageTracker.totalForLastDays(context, NetworkUsageTracker.KEY_LTE_BYTES, 7)
     val weekly5G = NetworkUsageTracker.totalForLastDays(context, NetworkUsageTracker.KEY_5G_BYTES, 7)
     var billingDay by rememberSaveable { mutableIntStateOf(prefs.getInt(AutoReconnectService.PREF_BILLING_DAY, 1)) }
