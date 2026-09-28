@@ -373,14 +373,15 @@ class AutoReconnectService : Service() {
     }
 
     private fun observeShizukuHealth() {
+        val previousHealth = lastShizukuHealth
         val health = ShizukuHealthMonitor.refresh()
-        if (health == lastShizukuHealth) return
+        if (health == previousHealth) return
         lastShizukuHealth = health
         if (health == ShizukuHealth.SERVICE_DIED || health == ShizukuHealth.UNAVAILABLE) {
             recordHistory("Shizuku", "Background service unavailable; open Shizuku then tap Retry", "system")
             publishState(currentNetworkLabel(), "Shizuku unavailable · open it, then tap Retry")
             updateNotification("Shizuku unavailable · open it, then tap Retry")
-        } else if (health == ShizukuHealth.READY && lastShizukuHealth != ShizukuHealth.READY) {
+        } else if (health == ShizukuHealth.READY && previousHealth != ShizukuHealth.READY) {
             publishState(currentNetworkLabel(), "Shizuku ready · monitoring continues")
             updateNotification("Shizuku ready · monitoring continues")
         }
