@@ -183,6 +183,12 @@ class MainActivity : ComponentActivity() {
         startService(Intent(this, AutoReconnectService::class.java).setAction(AutoReconnectService.ACTION_STOP))
     }
 
+    private fun refreshWatcherSettings() {
+        if (prefs().getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)) {
+            startBackgroundWatcher()
+        }
+    }
+
     private fun openBatteryOptimization() {
         runCatching {
             startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
@@ -439,11 +445,11 @@ class MainActivity : ComponentActivity() {
                 Column(Modifier.padding(18.dp)) {
                     Text("Recovery", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Text("Retry delay: ${intervalSeconds}s", color = CurioInk.copy(.65f))
-                    Slider(value = intervalSeconds.toFloat(), onValueChange = { intervalSeconds = it.toInt() }, onValueChangeFinished = { prefs().edit().putLong(AutoReconnectService.PREF_INTERVAL_MS, intervalSeconds * 1000L).apply() }, valueRange = 30f..600f, steps = 18)
+                    Slider(value = intervalSeconds.toFloat(), onValueChange = { intervalSeconds = it.toInt() }, onValueChangeFinished = { prefs().edit().putLong(AutoReconnectService.PREF_INTERVAL_MS, intervalSeconds * 1000L).apply(); refreshWatcherSettings() }, valueRange = 30f..600f, steps = 18)
                     Text("Attempts per recovery: $maxAttempts", color = CurioInk.copy(.65f))
-                    Slider(value = maxAttempts.toFloat(), onValueChange = { maxAttempts = it.toInt() }, onValueChangeFinished = { prefs().edit().putInt(AutoReconnectService.PREF_MAX_ATTEMPTS, maxAttempts).apply() }, valueRange = 1f..8f, steps = 6)
+                    Slider(value = maxAttempts.toFloat(), onValueChange = { maxAttempts = it.toInt() }, onValueChangeFinished = { prefs().edit().putInt(AutoReconnectService.PREF_MAX_ATTEMPTS, maxAttempts).apply(); refreshWatcherSettings() }, valueRange = 1f..8f, steps = 6)
                     Text("Cooldown: $recoveryCooldownMinutes min", color = CurioInk.copy(.65f))
-                    Slider(value = recoveryCooldownMinutes.toFloat(), onValueChange = { recoveryCooldownMinutes = it.toInt() }, onValueChangeFinished = { prefs().edit().putLong(AutoReconnectService.PREF_RECOVERY_COOLDOWN_MS, recoveryCooldownMinutes * 60_000L).apply() }, valueRange = 1f..30f, steps = 28)
+                    Slider(value = recoveryCooldownMinutes.toFloat(), onValueChange = { recoveryCooldownMinutes = it.toInt() }, onValueChangeFinished = { prefs().edit().putLong(AutoReconnectService.PREF_RECOVERY_COOLDOWN_MS, recoveryCooldownMinutes * 60_000L).apply(); refreshWatcherSettings() }, valueRange = 1f..30f, steps = 28)
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -461,7 +467,7 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.height(12.dp))
                 SimAndDiagnosticsCard(
                     sims, selectedSim, backupSim, simFailover, diagnostics(),
-                    onSelected = { id -> selectedSim = id; prefs().edit().putInt(AutoReconnectService.PREF_SELECTED_SUBSCRIPTION, id).apply() },
+                    onSelected = { id -> selectedSim = id; prefs().edit().putInt(AutoReconnectService.PREF_SELECTED_SUBSCRIPTION, id).apply(); refreshWatcherSettings() },
                     onBackup = { id -> backupSim = id; prefs().edit().putInt(AutoReconnectService.PREF_FAILOVER_TARGET, id).apply() },
                     onFailover = { enabled -> simFailover = enabled; prefs().edit().putBoolean(AutoReconnectService.PREF_FAILOVER_ENABLED, enabled).apply() }
                 )
@@ -582,7 +588,7 @@ private fun HistoryView(context: android.content.Context) {
     if (showAll) ModalBottomSheet(onDismissRequest = { showAll = false }, containerColor = CurioCream) {
         var filter by rememberSaveable { mutableStateOf("All") }
         var expandedTime by rememberSaveable { mutableLongStateOf(-1L) }
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(20.dp)) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.History, null, tint = CurioRoseDark)
                 Spacer(Modifier.width(8.dp)); Text("Full activity", fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -665,6 +671,10 @@ private fun buildNetworkReport(context: android.content.Context, entries: List<H
         put("lteFallbackBytes", prefs.getLong(NetworkUsageTracker.KEY_LTE_BYTES, 0L))
         put("fiveGBytes", prefs.getLong(NetworkUsageTracker.KEY_5G_BYTES, 0L))
         put("fallbackMinutes", prefs.getLong(AutoReconnectService.PREF_LTE_FALLBACK_MS, 0L) / 60_000L)
+        put("averageTriggerTo5GSeconds", run {
+            val count = prefs.getInt(AutoReconnectService.PREF_TRIGGER_RECOVERY_COUNT, 0)
+            if (count == 0) 0L else prefs.getLong(AutoReconnectService.PREF_TRIGGER_RECOVERY_TOTAL_MS, 0L) / count / 1_000L
+        })
         put("events", org.json.JSONArray().apply { entries.forEach { put(org.json.JSONObject().put("time", it.timestamp).put("network", it.network).put("type", it.type).put("detail", it.detail)) } })
     }.toString(2)
 }
