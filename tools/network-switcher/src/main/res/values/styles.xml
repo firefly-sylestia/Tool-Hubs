@@ -1,3 +1,13 @@
 <resources>
-    <style name="ToolHubsTheme" parent="android:style/Theme.Material.Light.NoActionBar" />
+    <!--
+        Aurora light shell. The Compose surface paints its own animated backdrop, but the window
+        background still shows for the frame before the first composition, so it is pinned to the
+        canvas colour to avoid a bright flash.
+    -->
+    <style name="ToolHubsTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#F4F6F9</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
 </resources>

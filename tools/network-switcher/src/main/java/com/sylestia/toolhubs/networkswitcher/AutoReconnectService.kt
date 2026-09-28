@@ -6,24 +6,37 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
-import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
-import android.telephony.PhoneStateListener
-import android.telephony.TelephonyDisplayInfo
-import android.telephony.TelephonyManager
 import android.telephony.SubscriptionManager
-import androidx.annotation.RequiresApi
+import android.telephony.TelephonyManager
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * Foreground watcher that nudges the modem back onto 5G after an LTE fallback.
+ *
+ * Design notes for the retry machinery, because the previous revision was subtly broken:
+ *
+ *  * **Attempts are gated on Shizuku being READY.** A missing tool used to consume the retry
+ *    budget and extend the back-off, so the watcher stayed parked for up to 15 minutes after the
+ *    user fixed Shizuku. That is the "toggle it off and on again" symptom.
+ *  * **The circuit breaker actually opens now.** The old code assigned `circuitOpen = false` in the
+ *    failure branch, so the "paused after repeated failures" state was unreachable dead code.
+ *  * **Back-off survives a reboot correctly.** It is stored against wall-clock time as well as
+ *    `elapsedRealtime`, because `elapsedRealtime` restarts at zero on boot and the stale value made
+ *    recovery wait for hours.
+ *  * **The loop cannot die.** Every tick runs inside `runCatching`, so one platform exception can no
+ *    longer cancel monitoring until the service is restarted.
+ */
 class AutoReconnectService : Service() {
     companion object {
         const val ACTION_START = "com.sylestia.toolhubs.networkswitcher.START"
@@ -42,6 +55,7 @@ class AutoReconnectService : Service() {
         const val PREF_START_AFTER_REBOOT = "start_after_reboot"
         const val PREF_HISTORY = "network_history"
         const val PREF_NEXT_ATTEMPT = "next_attempt_at_elapsed"
+        const val PREF_NEXT_ATTEMPT_WALL = "next_attempt_at_wall"
         const val PREF_FAILURE_STREAK = "failure_streak"
         const val PREF_CIRCUIT_OPEN = "circuit_open"
         const val PREF_SELECTED_SUBSCRIPTION = "selected_subscription"
@@ -57,11 +71,13 @@ class AutoReconnectService : Service() {
         const val PREF_TRIGGER_RECOVERY_COUNT = "trigger_recovery_count"
         const val PREF_ATTEMPT_STARTED_ELAPSED = "attempt_started_elapsed"
         const val PREF_SERVICE_ACTIVE = "service_active"
+        const val PREF_PAUSED = "service_paused"
         const val PREF_CURRENT_NETWORK = "current_network"
         const val PREF_STATUS = "service_status"
         const val PREF_LAST_EVENT_DETAIL = "last_event_detail"
         const val PREF_LAST_EVENT_AT = "last_event_at"
         const val PREF_BILLING_DAY = "billing_cycle_day"
+        const val PREF_THEME_MODE = "theme_mode"
         const val MAX_HISTORY = 200
         const val DEFAULT_INTERVAL_MS = 30_000L
         const val MIN_INTERVAL_MS = 30_000L
@@ -74,77 +90,506 @@ class AutoReconnectService : Service() {
         const val MAX_RECOVERY_COOLDOWN_MS = 30 * 60_000L
         const val NO_SERVICE_FAILOVER_DELAY_MS = 45_000L
         const val SIM_FAILOVER_COOLDOWN_MS = 15 * 60_000L
+
+        /** How long we wait for a triggered re-selection to actually land on 5G. */
+        const val SWITCH_CONFIRM_TIMEOUT_MS = 12_000L
+
+        /** Longest single back-off, and the ceiling applied to a value restored after a reboot. */
+        const val MAX_BACKOFF_MS = 900_000L
+
+        /** Environment (Shizuku) problems must never cost the user minutes. */
+        const val ENVIRONMENT_RETRY_DELAY_MS = 15_000L
+        const val ENVIRONMENT_NOTICE_INTERVAL_MS = 30_000L
+
+        private const val TICK_MS = 1_000L
+        private const val HEALTH_REFRESH_INTERVAL_MS = 2_000L
+        private const val LOOP_ERROR_LOG_INTERVAL_MS = 60_000L
+        private const val RESULT_TRIGGERED = "5G re-selection triggered"
+
         @Volatile var isRunning = false
             private set
     }
 
-    private val scope = CoroutineScope(Dispatchers.Default + Job())
+    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+
     private lateinit var telephony: TelephonyManager
     private lateinit var baseTelephony: TelephonyManager
     private lateinit var bridge: NetworkSwitcherBridge
     private lateinit var usageTracker: NetworkUsageTracker
-    private var operationRunning = false
-    private var paused = false
-    private var display5G = false
-    private val attemptTimes = ArrayDeque<Long>()
+
+    @Volatile private var radioWatcher: RadioWatcher? = null
+
+    @Volatile private var operationRunning = false
+    @Volatile private var paused = false
+    @Volatile private var lastObservedNetwork: String? = null
+    @Volatile private var currentLabel: String = "Unknown"
+
+    /**
+     * Retry state is only ever mutated on the watcher thread. Anything arriving from the main
+     * thread (start/resume, a recovered Shizuku) raises this flag instead of writing the fields
+     * directly, which keeps the loop free of locking.
+     */
+    @Volatile private var resetRequested = false
+    @Volatile private var resetReason = "Recovery armed"
+
+    private val historyLock = Any()
+
+    private var attemptTimes = ArrayDeque<Long>()
     private var triggerIntervalMs = DEFAULT_INTERVAL_MS
     private var maxAttempts = DEFAULT_MAX_ATTEMPTS
     private var recoveryCooldownMs = DEFAULT_RECOVERY_COOLDOWN_MS
     private var nextAttemptAt = 0L
     private var consecutiveFailures = 0
     private var circuitOpen = false
-    private var lastLimiterNotificationAt = 0L
-    private var lastObservedNetwork: String? = null
+    private var lastEnvironmentNoticeAt = 0L
+    private var lastHealthRefreshAt = 0L
+    private var lastLoopErrorAt = 0L
     private var noServiceSince = 0L
     private var lastShizukuHealth: ShizukuHealth? = null
 
-    private val phoneStateListener = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        object : PhoneStateListener() {
-            override fun onDisplayInfoChanged(info: TelephonyDisplayInfo) {
-                display5G = info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA ||
-                    info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE
+    private val healthListener: (ShizukuHealth) -> Unit = { health ->
+        if (health == ShizukuHealth.READY) requestReset("Shizuku ready · recovery armed")
+    }
+
+    private fun prefs() = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+
+    // ── lifecycle ────────────────────────────────────────────────────────────────────────────────
+
+    override fun onCreate() {
+        super.onCreate()
+        isRunning = true
+        baseTelephony = getSystemService(TelephonyManager::class.java)
+        telephony = baseTelephony
+        bridge = NetworkSwitcherBridge(this)
+        usageTracker = NetworkUsageTracker(this)
+
+        ShizukuHealthMonitor.install()
+        ShizukuHealthMonitor.addListener(healthListener)
+
+        reloadSettings()
+        // A START_STICKY recreation must come back in the same paused state the user left it in.
+        paused = prefs().getBoolean(PREF_PAUSED, false)
+        createRadioWatcher()
+        createChannel()
+        publishState(currentNetworkLabel(), "Starting background watcher…")
+        startForeground(NOTIFICATION_ID, buildNotification("Starting background watcher…"))
+        startWatcher()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent == null && !prefs().getBoolean(PREF_AUTO_ENABLED, false)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        when (intent?.action) {
+            ACTION_START -> {
+                prefs().edit().putBoolean(PREF_AUTO_ENABLED, true).apply()
+                reloadSettings()
+                createRadioWatcher()
+                paused = false
+                prefs().edit().putBoolean(PREF_PAUSED, false).apply()
+                requestReset("Background watcher started")
+                publishState(currentNetworkLabel(), "Background watcher started")
+            }
+
+            ACTION_BOOT_START -> {
+                reloadSettings()
+                createRadioWatcher()
+            }
+
+            ACTION_STOP -> {
+                prefs().edit()
+                    .putBoolean(PREF_AUTO_ENABLED, false)
+                    .putBoolean(PREF_SERVICE_ACTIVE, false)
+                    .apply()
+                stopSelf()
+                return START_NOT_STICKY
+            }
+
+            ACTION_PAUSE -> {
+                paused = true
+                prefs().edit().putBoolean(PREF_PAUSED, true).apply()
+                publishState(currentNetworkLabel(), "Paused · tap Resume to continue")
+                updateNotification("Paused · tap Resume to continue")
+            }
+
+            ACTION_RESUME -> {
+                paused = false
+                prefs().edit().putBoolean(PREF_PAUSED, false).apply()
+                requestReset("Manual retry requested")
+                ShizukuHealthMonitor.refresh()
+                publishState(currentNetworkLabel(), statusForCurrent())
+                updateNotification(statusForCurrent())
             }
         }
-    } else {
-        null
+        return START_STICKY
     }
 
-    private val telephonyCallback by lazy { createTelephonyCallback() }
-
-    @RequiresApi(Build.VERSION_CODES.S)
-    private fun createTelephonyCallback(): android.telephony.TelephonyCallback = object : android.telephony.TelephonyCallback(),
-        android.telephony.TelephonyCallback.DisplayInfoListener {
-        override fun onDisplayInfoChanged(info: TelephonyDisplayInfo) {
-            display5G = info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA ||
-                info.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE
-        }
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        if (prefs().getBoolean(PREF_AUTO_ENABLED, false)) updateNotification(statusForCurrent())
+        super.onTaskRemoved(rootIntent)
     }
+
+    override fun onDestroy() {
+        isRunning = false
+        runCatching { usageTracker.flush() }
+        runCatching { radioWatcher?.stop() }
+        runCatching { ShizukuHealthMonitor.removeListener(healthListener) }
+        prefs().edit().putBoolean(PREF_SERVICE_ACTIVE, false).apply()
+        scope.cancel()
+        super.onDestroy()
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    // ── settings ─────────────────────────────────────────────────────────────────────────────────
 
     private fun reloadSettings() {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val prefs = prefs()
         triggerIntervalMs = prefs.getLong(PREF_INTERVAL_MS, DEFAULT_INTERVAL_MS)
             .coerceIn(MIN_INTERVAL_MS, MAX_INTERVAL_MS)
         maxAttempts = prefs.getInt(PREF_MAX_ATTEMPTS, DEFAULT_MAX_ATTEMPTS)
             .coerceIn(MIN_MAX_ATTEMPTS, MAX_MAX_ATTEMPTS)
         recoveryCooldownMs = prefs.getLong(PREF_RECOVERY_COOLDOWN_MS, DEFAULT_RECOVERY_COOLDOWN_MS)
             .coerceIn(MIN_RECOVERY_COOLDOWN_MS, MAX_RECOVERY_COOLDOWN_MS)
+
         val nowElapsed = SystemClock.elapsedRealtime()
-        val persistedNext = prefs.getLong(PREF_NEXT_ATTEMPT, 0L)
-        nextAttemptAt = if (persistedNext > nowElapsed) persistedNext else 0L
+        val nowWall = System.currentTimeMillis()
+        val persistedWall = prefs.getLong(PREF_NEXT_ATTEMPT_WALL, 0L)
+        val remaining = if (persistedWall > nowWall) persistedWall - nowWall else 0L
+        nextAttemptAt = if (remaining <= 0L) 0L else nowElapsed + remaining.coerceAtMost(MAX_BACKOFF_MS)
+
         consecutiveFailures = prefs.getInt(PREF_FAILURE_STREAK, 0)
         circuitOpen = prefs.getBoolean(PREF_CIRCUIT_OPEN, false)
+
         val selectedSub = prefs.getInt(PREF_SELECTED_SUBSCRIPTION, SubscriptionManager.INVALID_SUBSCRIPTION_ID)
-        telephony = if (selectedSub != SubscriptionManager.INVALID_SUBSCRIPTION_ID) baseTelephony.createForSubscriptionId(selectedSub) else baseTelephony
+        telephony = if (selectedSub != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+            runCatching { baseTelephony.createForSubscriptionId(selectedSub) }.getOrDefault(baseTelephony)
+        } else {
+            baseTelephony
+        }
     }
 
-    private fun persistRetryState() = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
-        .putLong(PREF_NEXT_ATTEMPT, nextAttemptAt)
-        .putInt(PREF_FAILURE_STREAK, consecutiveFailures)
-        .putBoolean(PREF_CIRCUIT_OPEN, circuitOpen)
-        .apply()
+    private fun persistRetryState() {
+        val remaining = nextAttemptAt - SystemClock.elapsedRealtime()
+        prefs().edit()
+            .putLong(PREF_NEXT_ATTEMPT, nextAttemptAt)
+            .putLong(PREF_NEXT_ATTEMPT_WALL, if (remaining > 0L) System.currentTimeMillis() + remaining else 0L)
+            .putInt(PREF_FAILURE_STREAK, consecutiveFailures)
+            .putBoolean(PREF_CIRCUIT_OPEN, circuitOpen)
+            .apply()
+    }
+
+    /** Safe to call from any thread. Consumed by the watcher on its next tick. */
+    private fun requestReset(reason: String) {
+        resetReason = reason
+        resetRequested = true
+    }
+
+    /** Watcher thread only. Clears every retry gate. */
+    private fun applyReset() {
+        consecutiveFailures = 0
+        circuitOpen = false
+        nextAttemptAt = 0L
+        attemptTimes = ArrayDeque()
+        persistRetryState()
+        recordHistory(currentLabel, resetReason, "system")
+    }
+
+    private fun createRadioWatcher() {
+        runCatching { radioWatcher?.stop() }
+        radioWatcher = RadioWatcher(telephony, ContextCompat.getMainExecutor(this)).also { it.start() }
+    }
+
+    // ── watcher loop ─────────────────────────────────────────────────────────────────────────────
+
+    private fun startWatcher() {
+        scope.launch {
+            while (isActive) {
+                runCatching { tick() }.onFailure { noteLoopError(it) }
+                delay(TICK_MS)
+            }
+        }
+    }
+
+    private fun noteLoopError(error: Throwable) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastLoopErrorAt < LOOP_ERROR_LOG_INTERVAL_MS) return
+        lastLoopErrorAt = now
+        recordHistory(currentLabel, "Watcher absorbed ${error.javaClass.simpleName}: ${error.message ?: "no detail"}", "system")
+    }
+
+    private suspend fun tick() {
+        val now = SystemClock.elapsedRealtime()
+        refreshHealth(now)
+        if (resetRequested) {
+            resetRequested = false
+            applyReset()
+        }
+        val radio = radioWatcher?.snapshot() ?: return
+        observeNetwork(radio)
+        maybeRecover(radio, now)
+    }
+
+    private fun refreshHealth(now: Long) {
+        if (now - lastHealthRefreshAt < HEALTH_REFRESH_INTERVAL_MS) return
+        lastHealthRefreshAt = now
+
+        val health = ShizukuHealthMonitor.refresh()
+        if (health == lastShizukuHealth) return
+        val previous = lastShizukuHealth
+        lastShizukuHealth = health
+
+        if (health == ShizukuHealth.READY) {
+            if (previous != ShizukuHealth.READY) {
+                // Routed through the same request flag the binder listener uses, so the two paths
+                // cannot double-log the same recovery.
+                requestReset("Shizuku ready · recovery armed")
+                publishState(currentLabel, "Shizuku ready · monitoring continues")
+                updateNotification("Shizuku ready · monitoring continues")
+            }
+        } else {
+            val note = health.describe() + " · recovery paused"
+            recordHistory("Shizuku", note, "system")
+            publishState(currentLabel, note)
+            updateNotification(note)
+        }
+    }
+
+    private suspend fun maybeRecover(radio: RadioState, now: Long) {
+        // Probe once the cooldown elapses so a paused recovery is never permanent.
+        if (circuitOpen && now >= nextAttemptAt) {
+            circuitOpen = false
+            consecutiveFailures = 0
+            attemptTimes = ArrayDeque()
+            persistRetryState()
+            recordHistory(radio.label, "Recovery resumed after cooldown", "system")
+        }
+
+        if (paused || operationRunning) return
+        if (!radio.isLteFallback) return
+        if (now < nextAttemptAt) return
+
+        if (!ShizukuHealthMonitor.isReady) {
+            if (now - lastEnvironmentNoticeAt >= ENVIRONMENT_NOTICE_INTERVAL_MS) {
+                lastEnvironmentNoticeAt = now
+                val note = ShizukuHealthMonitor.state.describe() + " · recovery paused"
+                publishState(radio.label, note)
+                updateNotification(note)
+            }
+            return
+        }
+
+        attemptReconnect(now)
+    }
+
+    // ── recovery ─────────────────────────────────────────────────────────────────────────────────
+
+    private fun pruneBurstWindow(now: Long) {
+        while (attemptTimes.isNotEmpty() && now - attemptTimes.first() >= BURST_WINDOW_MS) {
+            attemptTimes.removeFirst()
+        }
+    }
+
+    private suspend fun attemptReconnect(now: Long) {
+        pruneBurstWindow(now)
+
+        if (attemptTimes.size >= maxAttempts) {
+            pauseRecovery(now, "Recovery paused · retrying shortly")
+            return
+        }
+
+        operationRunning = true
+        val startedAt = SystemClock.elapsedRealtime()
+        val attempt = attemptTimes.size + 1
+        try {
+            attemptTimes.addLast(startedAt)
+            prefs().edit().putLong(PREF_ATTEMPT_STARTED_ELAPSED, startedAt).apply()
+            recordHistory("4G / LTE", "Automatic 5G reconnect attempt started", "attempt")
+            updateNotification("Trying 5G · attempt $attempt/$maxAttempts")
+
+            val result = withContext(Dispatchers.IO) { bridge.reconnect5G() }
+            val confirmed = waitFor5G(SWITCH_CONFIRM_TIMEOUT_MS)
+
+            when {
+                confirmed -> onRecoveryConfirmed(startedAt, attempt)
+                NetworkSwitcherBridge.isEnvironmentFailure(result) -> onEnvironmentFailure(result)
+                else -> onRadioFailure(if (result.startsWith(RESULT_TRIGGERED)) "5G not detected after trigger" else result)
+            }
+        } catch (t: Throwable) {
+            onRadioFailure("${t.javaClass.simpleName}: ${t.message ?: "unknown error"}")
+        } finally {
+            operationRunning = false
+        }
+    }
+
+    private fun onRecoveryConfirmed(startedAt: Long, attempt: Int) {
+        val store = prefs()
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val latency = (nowElapsed - startedAt).coerceAtLeast(0L)
+        store.edit()
+            .remove(PREF_ATTEMPT_STARTED_ELAPSED)
+            .putLong(PREF_TRIGGER_RECOVERY_TOTAL_MS, store.getLong(PREF_TRIGGER_RECOVERY_TOTAL_MS, 0L) + latency)
+            .putInt(PREF_TRIGGER_RECOVERY_COUNT, store.getInt(PREF_TRIGGER_RECOVERY_COUNT, 0) + 1)
+            .putInt(PREF_RECOVERY_COUNT, store.getInt(PREF_RECOVERY_COUNT, 0) + 1)
+            .apply()
+        attemptTimes = ArrayDeque()
+        consecutiveFailures = 0
+        circuitOpen = false
+        nextAttemptAt = 0L
+        persistRetryState()
+        recordHistory("5G", "Automatic reconnect confirmed", "success")
+        publishState("5G", "5G switch confirmed · attempt $attempt/$maxAttempts", "Automatic reconnect confirmed")
+        updateNotification("5G switch confirmed · attempt $attempt/$maxAttempts")
+    }
+
+    /**
+     * The call never reached the modem (Shizuku down, binder error, rejected bind). Not a radio
+     * failure, so the attempt budget and the long back-off are left untouched.
+     */
+    private fun onEnvironmentFailure(result: String) {
+        nextAttemptAt = SystemClock.elapsedRealtime() + ENVIRONMENT_RETRY_DELAY_MS
+        persistRetryState()
+        recordHistory("4G / LTE", "Reconnect skipped: $result", "failed")
+        publishState("4G / LTE", "Waiting for Shizuku · retrying shortly", result)
+        updateNotification("Recovery waiting for Shizuku · tap Retry · $result")
+    }
+
+    private fun onRadioFailure(detail: String) {
+        consecutiveFailures++
+        val now = SystemClock.elapsedRealtime()
+
+        if (consecutiveFailures >= maxAttempts) {
+            pauseRecovery(now, detail)
+            return
+        }
+
+        val wait = maxOf(triggerIntervalMs, backoffFor(consecutiveFailures))
+        nextAttemptAt = now + wait
+        persistRetryState()
+        recordHistory("4G / LTE", detail, "failed")
+        publishState("4G / LTE", "4G / LTE detected · retry in ${formatInterval(wait)}", detail)
+        updateNotification("5G switch failed · retry in ${formatInterval(wait)} · $detail")
+    }
+
+    private fun pauseRecovery(now: Long, detail: String) {
+        circuitOpen = true
+        nextAttemptAt = now + recoveryCooldownMs
+        persistRetryState()
+        val attempts = maxOf(consecutiveFailures, attemptTimes.size)
+        val summary = "Recovery paused after $attempts failed attempts"
+        recordHistory("4G / LTE", "$summary · $detail", "failed")
+        publishState("4G / LTE", "$summary · retrying in ${formatInterval(recoveryCooldownMs)}", "$summary · $detail")
+        updateNotification("$summary · retrying in ${formatInterval(recoveryCooldownMs)}")
+    }
+
+    private fun backoffFor(failures: Int): Long = when {
+        failures <= 1 -> 30_000L
+        failures == 2 -> 60_000L
+        failures == 3 -> 300_000L
+        else -> MAX_BACKOFF_MS
+    }
+
+    private suspend fun waitFor5G(timeoutMs: Long): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (radioWatcher?.snapshot()?.is5G == true) return true
+            delay(400)
+        }
+        return radioWatcher?.snapshot()?.is5G == true
+    }
+
+    // ── network observation ──────────────────────────────────────────────────────────────────────
+
+    private fun observeNetwork(radio: RadioState) {
+        currentLabel = radio.label
+
+        if (radio.is5G && (consecutiveFailures != 0 || circuitOpen || nextAttemptAt != 0L || attemptTimes.isNotEmpty())) {
+            attemptTimes = ArrayDeque()
+            consecutiveFailures = 0
+            circuitOpen = false
+            nextAttemptAt = 0L
+            persistRetryState()
+        }
+
+        if (radio.label != lastObservedNetwork) {
+            val detail = if (lastObservedNetwork == null) "Monitoring started" else "Network changed from $lastObservedNetwork"
+            recordHistory(radio.label, detail, if (lastObservedNetwork == null) "system" else "network")
+            lastObservedNetwork = radio.label
+            publishState(radio.label, statusFor(radio), detail)
+        }
+
+        usageTracker.sample(radio.label)
+        trackFallbackImpact(radio.label)
+
+        val now = System.currentTimeMillis()
+        if (radio.label == "Unknown") {
+            if (noServiceSince == 0L) noServiceSince = now
+            maybeFailOverSim(now)
+        } else {
+            noServiceSince = 0L
+        }
+    }
+
+    private fun statusFor(radio: RadioState): String {
+        val auto = prefs().getBoolean(PREF_AUTO_ENABLED, false)
+        return when {
+            paused -> "Paused · tap Resume to continue"
+            !auto -> if (radio.is5G) "5G active" else radio.label
+            radio.is5G -> "5G active · watching for LTE fallback"
+            radio.isLteFallback -> "4G / LTE detected · recovery active"
+            radio.label == "4G / LTE" && !radio.detectionReliable ->
+                "LTE · 5G state not detectable on this Android version"
+            else -> "Monitoring ${radio.label}"
+        }
+    }
+
+    private fun statusForCurrent(): String = runCatching {
+        radioWatcher?.snapshot()?.let { statusFor(it) }
+    }.getOrNull() ?: "Monitoring cellular state"
+
+    private fun currentNetworkLabel(): String =
+        runCatching { radioWatcher?.snapshot()?.label }.getOrNull() ?: "Unknown"
+
+    private fun trackFallbackImpact(current: String) {
+        val store = prefs()
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val stored = store.getLong(PREF_FALLBACK_STARTED, 0L)
+        val validStarted = if (stored > 0L && stored <= nowElapsed) stored else 0L
+        if (stored > 0L && validStarted == 0L) store.edit().remove(PREF_FALLBACK_STARTED).apply()
+
+        if (current == "4G / LTE" && validStarted == 0L) {
+            store.edit().putLong(PREF_FALLBACK_STARTED, nowElapsed).apply()
+        } else if (current == "5G" && validStarted > 0L) {
+            val duration = (nowElapsed - validStarted).coerceAtLeast(0L)
+            store.edit()
+                .remove(PREF_FALLBACK_STARTED)
+                .putLong(PREF_LTE_FALLBACK_MS, store.getLong(PREF_LTE_FALLBACK_MS, 0L) + duration)
+                .putInt(PREF_LTE_FALLBACK_COUNT, store.getInt(PREF_LTE_FALLBACK_COUNT, 0) + 1)
+                .apply()
+        }
+    }
+
+    private fun maybeFailOverSim(now: Long) {
+        val store = prefs()
+        if (!store.getBoolean(PREF_FAILOVER_ENABLED, false)) return
+        if (noServiceSince == 0L || now - noServiceSince < NO_SERVICE_FAILOVER_DELAY_MS) return
+        if (now - store.getLong(PREF_LAST_FAILOVER, 0L) < SIM_FAILOVER_COOLDOWN_MS) return
+        val target = store.getInt(PREF_FAILOVER_TARGET, SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+        if (target == SubscriptionManager.INVALID_SUBSCRIPTION_ID) return
+        store.edit().putLong(PREF_LAST_FAILOVER, now).apply()
+        recordHistory("No service", "Switching mobile data to the selected backup SIM", "sim_failover")
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { bridge.switchDefaultDataSubscription(target) }
+            recordHistory("SIM", result, if (result.startsWith("Data SIM switched")) "success" else "failed")
+            updateNotification(result)
+        }
+    }
+
+    // ── persistence ──────────────────────────────────────────────────────────────────────────────
 
     private fun publishState(network: String, status: String, event: String? = null) {
-        val editor = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+        val editor = prefs().edit()
             .putBoolean(PREF_SERVICE_ACTIVE, isRunning)
             .putString(PREF_CURRENT_NETWORK, network)
             .putString(PREF_STATUS, status)
@@ -155,310 +600,38 @@ class AutoReconnectService : Service() {
         editor.apply()
     }
 
-    override fun onCreate() {
-        super.onCreate()
-        isRunning = true
-        baseTelephony = getSystemService(TelephonyManager::class.java)
-        telephony = baseTelephony
-        bridge = NetworkSwitcherBridge(this)
-        ShizukuHealthMonitor.install()
-        usageTracker = NetworkUsageTracker(this)
+    /** Serialised because the watcher loop and the SIM-failover coroutine can both append. */
+    private fun recordHistory(network: String, detail: String = "", type: String = "system") =
+        synchronized(historyLock) { appendHistory(network, detail, type) }
 
-        reloadSettings()
-        registerNetworkObserver()
-        createChannel()
-        publishState(currentNetworkLabel(), "Starting background watcher…")
-        startForeground(NOTIFICATION_ID, buildNotification("Starting background watcher…"))
-        startWatcher()
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent == null && !getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                .getBoolean(PREF_AUTO_ENABLED, false)) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
-        when (intent?.action) {
-            ACTION_START -> {
-                getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                    .edit().putBoolean(PREF_AUTO_ENABLED, true).apply()
-                unregisterNetworkObserver()
-                reloadSettings()
-                registerNetworkObserver()
-                paused = false
-                circuitOpen = false
-                consecutiveFailures = 0
-                nextAttemptAt = 0L
-                persistRetryState()
-                publishState(currentNetworkLabel(), "Background watcher started")
-            }
-            ACTION_BOOT_START -> {
-                unregisterNetworkObserver()
-                reloadSettings()
-                registerNetworkObserver()
-            }
-            ACTION_STOP -> {
-                getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                    .edit().putBoolean(PREF_AUTO_ENABLED, false)
-                    .putBoolean(PREF_SERVICE_ACTIVE, false).apply()
-                stopSelf()
-                return START_NOT_STICKY
-            }
-            ACTION_PAUSE -> {
-                paused = true
-                publishState(currentNetworkLabel(), "Paused · tap Resume to continue")
-                updateNotification("Paused · tap Resume to continue")
-            }
-            ACTION_RESUME -> {
-                paused = false
-                circuitOpen = false
-                consecutiveFailures = 0
-                nextAttemptAt = 0L
-                persistRetryState()
-                val status = when {
-                    isActually5G() -> "5G active · monitoring for LTE fallback"
-                    isLteFallback() -> "4G / LTE detected · recovery active"
-                    else -> "Monitoring cellular state"
-                }
-                publishState(currentNetworkLabel(), status)
-                updateNotification(status)
-            }
-        }
-        return START_STICKY
-    }
-
-    private fun registerNetworkObserver() {
-        runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                telephony.registerTelephonyCallback(mainExecutor, telephonyCallback)
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                @Suppress("DEPRECATION")
-                telephony.listen(phoneStateListener, PhoneStateListener.LISTEN_DISPLAY_INFO_CHANGED)
-            }
-        }
-    }
-
-    private fun unregisterNetworkObserver() {
-        runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                telephony.unregisterTelephonyCallback(telephonyCallback)
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                @Suppress("DEPRECATION")
-                telephony.listen(phoneStateListener, PhoneStateListener.LISTEN_NONE)
-            }
-        }
-    }
-
-    private fun currentNetworkLabel(): String = when {
-        isActually5G() -> "5G"
-        currentDataType() == TelephonyManager.NETWORK_TYPE_LTE -> "4G / LTE"
-        currentDataType() == TelephonyManager.NETWORK_TYPE_HSPAP ||
-            currentDataType() == TelephonyManager.NETWORK_TYPE_HSPA ||
-            currentDataType() == TelephonyManager.NETWORK_TYPE_HSDPA ||
-            currentDataType() == TelephonyManager.NETWORK_TYPE_HSUPA ||
-            currentDataType() == TelephonyManager.NETWORK_TYPE_UMTS -> "3G"
-        currentDataType() == TelephonyManager.NETWORK_TYPE_EDGE ||
-            currentDataType() == TelephonyManager.NETWORK_TYPE_GPRS -> "2G"
-        else -> "Unknown"
-    }
-
-    private fun currentDataType(): Int =
-        runCatching { telephony.dataNetworkType }
-            .getOrDefault(TelephonyManager.NETWORK_TYPE_UNKNOWN)
-
-    private fun isActually5G(): Boolean {
-        return currentDataType() == TelephonyManager.NETWORK_TYPE_NR || display5G
-    }
-
-    private fun isLteFallback(): Boolean {
-        return currentDataType() == TelephonyManager.NETWORK_TYPE_LTE && !isActually5G()
-    }
-
-    private fun recordHistory(network: String, detail: String = "", type: String = "system") {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+    private fun appendHistory(network: String, detail: String, type: String) {
+        val store = prefs()
         val entry = org.json.JSONObject().apply {
             put("time", System.currentTimeMillis())
             put("network", network)
             put("detail", detail)
             put("type", type)
         }.toString()
-        val history = prefs.getStringSet(PREF_HISTORY, emptySet()).orEmpty().toMutableSet()
-        // Set is only used as compact persistence; the timestamp makes every entry unique.
+        val history = store.getStringSet(PREF_HISTORY, emptySet()).orEmpty().toMutableSet()
         history.add(entry)
-        while (history.size > MAX_HISTORY) history.remove(history.minByOrNull { runCatching { org.json.JSONObject(it).optLong("time") }.getOrDefault(Long.MAX_VALUE) } ?: break)
-        val editor = prefs.edit().putStringSet(PREF_HISTORY, history)
-        if (type == "success") editor.putInt("successful_attempts", prefs.getInt("successful_attempts", 0) + 1)
-        if (type == "failed") editor.putInt("failed_attempts", prefs.getInt("failed_attempts", 0) + 1)
+        while (history.size > MAX_HISTORY) {
+            val oldest = history.minByOrNull {
+                runCatching { org.json.JSONObject(it).optLong("time") }.getOrDefault(Long.MAX_VALUE)
+            } ?: break
+            history.remove(oldest)
+        }
+        val editor = store.edit().putStringSet(PREF_HISTORY, history)
+        if (type == "success") editor.putInt("successful_attempts", store.getInt("successful_attempts", 0) + 1)
+        if (type == "failed") editor.putInt("failed_attempts", store.getInt("failed_attempts", 0) + 1)
         editor.apply()
-    }
-
-    private fun observeNetwork() {
-        val current = currentNetworkLabel()
-        if (current == "5G") {
-            consecutiveFailures = 0
-            circuitOpen = false
-            nextAttemptAt = 0L
-            persistRetryState()
-        }
-        if (current != lastObservedNetwork) {
-            val detail = if (lastObservedNetwork == null) "Monitoring started" else "Network changed from $lastObservedNetwork"
-            recordHistory(current, detail, if (lastObservedNetwork == null) "system" else "network")
-            lastObservedNetwork = current
-            publishState(current, when {
-                current == "5G" -> "5G active · monitoring for LTE fallback"
-                current == "4G / LTE" -> "4G / LTE detected · recovery watcher active"
-                else -> "Monitoring $current"
-            }, detail)
-        }
-        usageTracker.sample(current)
-        trackFallbackImpact(current)
-        val now = System.currentTimeMillis()
-        if (current == "Unknown") {
-            if (noServiceSince == 0L) noServiceSince = now
-            maybeFailOverSim(now)
-        } else noServiceSince = 0L
-    }
-
-    private fun trackFallbackImpact(current: String) {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val nowElapsed = SystemClock.elapsedRealtime()
-        val started = prefs.getLong(PREF_FALLBACK_STARTED, 0L)
-        if (started > nowElapsed) {
-            prefs.edit().remove(PREF_FALLBACK_STARTED).apply()
-        }
-        val validStarted = if (started > 0L && started <= nowElapsed) started else 0L
-        if (current == "4G / LTE" && validStarted == 0L) {
-            prefs.edit().putLong(PREF_FALLBACK_STARTED, nowElapsed).apply()
-        } else if (current == "5G" && validStarted > 0L) {
-            val duration = (nowElapsed - validStarted).coerceAtLeast(0L)
-            prefs.edit().remove(PREF_FALLBACK_STARTED)
-                .putLong(PREF_LTE_FALLBACK_MS, prefs.getLong(PREF_LTE_FALLBACK_MS, 0L) + duration)
-                .putInt(PREF_LTE_FALLBACK_COUNT, prefs.getInt(PREF_LTE_FALLBACK_COUNT, 0) + 1).apply()
-        }
-    }
-
-    private fun maybeFailOverSim(now: Long) {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        if (!prefs.getBoolean(PREF_FAILOVER_ENABLED, false) || now - noServiceSince < NO_SERVICE_FAILOVER_DELAY_MS) return
-        if (now - prefs.getLong(PREF_LAST_FAILOVER, 0L) < SIM_FAILOVER_COOLDOWN_MS) return
-        val target = prefs.getInt(PREF_FAILOVER_TARGET, SubscriptionManager.INVALID_SUBSCRIPTION_ID)
-        if (target == SubscriptionManager.INVALID_SUBSCRIPTION_ID) return
-        prefs.edit().putLong(PREF_LAST_FAILOVER, now).apply()
-        recordHistory("No service", "Switching mobile data to selected backup SIM", "sim_failover")
-        scope.launch {
-            val result = withContext(Dispatchers.IO) { bridge.switchDefaultDataSubscription(target) }
-            recordHistory("SIM", result, if (result.startsWith("Data SIM switched")) "success" else "failed")
-            updateNotification(result)
-        }
-    }
-
-    private fun startWatcher() {
-        scope.launch {
-            while (isActive) {
-                observeNetwork()
-                observeShizukuHealth()
-                if (circuitOpen && SystemClock.elapsedRealtime() >= nextAttemptAt) {
-                    circuitOpen = false
-                    consecutiveFailures = 0
-                    persistRetryState()
-                }
-                if (!paused && !operationRunning && isLteFallback() &&
-                    SystemClock.elapsedRealtime() >= nextAttemptAt
-                ) {
-                    attemptReconnect()
-                }
-                delay(1_000)
-            }
-        }
-    }
-
-    private fun observeShizukuHealth() {
-        val previousHealth = lastShizukuHealth
-        val health = ShizukuHealthMonitor.refresh()
-        if (health == previousHealth) return
-        lastShizukuHealth = health
-        if (health == ShizukuHealth.SERVICE_DIED || health == ShizukuHealth.UNAVAILABLE) {
-            recordHistory("Shizuku", "Background service unavailable; open Shizuku then tap Retry", "system")
-            publishState(currentNetworkLabel(), "Shizuku unavailable · open it, then tap Retry")
-            updateNotification("Shizuku unavailable · open it, then tap Retry")
-        } else if (health == ShizukuHealth.READY && previousHealth != ShizukuHealth.READY) {
-            publishState(currentNetworkLabel(), "Shizuku ready · monitoring continues")
-            updateNotification("Shizuku ready · monitoring continues")
-        }
-    }
-
-    private suspend fun attemptReconnect() {
-        val now = SystemClock.elapsedRealtime()
-        while (attemptTimes.isNotEmpty() && now - attemptTimes.first() >= BURST_WINDOW_MS) {
-            attemptTimes.removeFirst()
-        }
-
-        if (attemptTimes.size >= maxAttempts) {
-            nextAttemptAt = now + recoveryCooldownMs
-            persistRetryState()
-            if (now - lastLimiterNotificationAt >= 5_000L) {
-                updateNotification("Recovery paused · " + maxAttempts + " attempts used. Retry in " + formatInterval(recoveryCooldownMs))
-                lastLimiterNotificationAt = now
-            }
-            return
-        }
-
-        operationRunning = true
-        try {
-            attemptTimes.addLast(now)
-        recordHistory("4G / LTE", "Automatic 5G reconnect attempt started", "attempt")
-            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
-                .putLong(PREF_ATTEMPT_STARTED_ELAPSED, SystemClock.elapsedRealtime())
-                .apply()
-            val attempt = attemptTimes.size
-            updateNotification("Trying 5G · attempt " + attempt + "/" + maxAttempts)
-            val result = withContext(Dispatchers.IO) { bridge.reconnect5G() }
-            val switchedTo5G = waitFor5G(12_000L)
-            if (switchedTo5G) {
-                val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                val nowElapsed = SystemClock.elapsedRealtime()
-                val started = prefs.getLong(PREF_ATTEMPT_STARTED_ELAPSED, 0L)
-                val latency = if (started > 0L && started <= nowElapsed) (nowElapsed - started).coerceAtLeast(0L) else 0L
-                val count = prefs.getInt(PREF_TRIGGER_RECOVERY_COUNT, 0)
-                val total = prefs.getLong(PREF_TRIGGER_RECOVERY_TOTAL_MS, 0L)
-                recordHistory("5G", "Automatic reconnect confirmed", "success")
-                prefs.edit().remove(PREF_ATTEMPT_STARTED_ELAPSED)
-                    .putLong(PREF_TRIGGER_RECOVERY_TOTAL_MS, total + latency)
-                    .putInt(PREF_TRIGGER_RECOVERY_COUNT, count + 1).apply()
-                nextAttemptAt = 0L; consecutiveFailures = 0; circuitOpen = false; persistRetryState()
-                publishState("5G", "5G switch confirmed · attempt " + attempt + "/" + maxAttempts, "Automatic reconnect confirmed")
-                updateNotification("5G switch confirmed · attempt " + attempt + "/" + maxAttempts)
-            } else {
-                consecutiveFailures++
-                // Respect the user's configured base interval, then progressively back off.
-                val delay = maxOf(triggerIntervalMs, when (consecutiveFailures) { 1 -> 30_000L; 2 -> 60_000L; 3 -> 300_000L; else -> 900_000L })
-                circuitOpen = false
-                nextAttemptAt = SystemClock.elapsedRealtime() + delay
-                persistRetryState()
-                val detail = if (result.startsWith("5G re-selection triggered")) "5G not detected after trigger" else result.take(100)
-                recordHistory("4G / LTE", if (circuitOpen) "Reconnect paused after $consecutiveFailures failures: $detail" else "Reconnect failed: $detail", "failed")
-                publishState("4G / LTE", if (circuitOpen) "Reconnect paused after repeated failures" else "4G / LTE detected · retry in " + formatInterval(delay), detail)
-                updateNotification(if (circuitOpen) "Reconnect paused after repeated failures · tap Resume" else "5G switch failed · retry in " + formatInterval(delay) + " · " + detail)
-            }
-        } finally {
-            operationRunning = false
-        }
-    }
-
-    private suspend fun waitFor5G(timeoutMs: Long): Boolean {
-        val deadline = SystemClock.elapsedRealtime() + timeoutMs
-        while (SystemClock.elapsedRealtime() < deadline) {
-            if (isActually5G()) return true
-            delay(500)
-        }
-        return isActually5G()
     }
 
     private fun formatInterval(ms: Long): String {
         val seconds = (ms / 1_000L).toInt()
-        return if (seconds % 60 == 0) (seconds / 60).toString() + " min"
-        else seconds.toString() + "s"
+        return if (seconds >= 60) "${seconds / 60} min" else "${seconds}s"
     }
+
+    // ── notification ─────────────────────────────────────────────────────────────────────────────
 
     private fun createChannel() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(
@@ -469,63 +642,50 @@ class AutoReconnectService : Service() {
     }
 
     private fun buildNotification(text: String): Notification {
+        val health = ShizukuHealthMonitor.state
+
         val pauseIntent = PendingIntent.getService(
             this, 701,
-            Intent(this, AutoReconnectService::class.java).setAction(
-                if (paused) ACTION_RESUME else ACTION_PAUSE
-            ),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            Intent(this, AutoReconnectService::class.java).setAction(if (paused) ACTION_RESUME else ACTION_PAUSE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val stopIntent = PendingIntent.getService(
             this, 702,
             Intent(this, AutoReconnectService::class.java).setAction(ACTION_STOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val openIntent = PendingIntent.getActivity(
+            this, 700,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val openIntent = PendingIntent.getActivity(this, 700, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_network)
             .setContentIntent(openIntent)
             .setOnlyAlertOnce(true)
             .setContentTitle("5G Reconnect")
             .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(android.R.drawable.ic_media_pause, if (paused) "Resume" else "Pause", pauseIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopIntent)
-        if (ShizukuHealthMonitor.state == ShizukuHealth.UNAVAILABLE || ShizukuHealthMonitor.state == ShizukuHealth.SERVICE_DIED) {
-            val shizukuIntent = packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
-            if (shizukuIntent != null) builder.addAction(android.R.drawable.ic_menu_manage, "Open Shizuku", PendingIntent.getActivity(this, 703, shizukuIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-            builder.addAction(android.R.drawable.ic_popup_sync, "Retry", PendingIntent.getService(this, 704, Intent(this, AutoReconnectService::class.java).setAction(ACTION_RESUME), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+
+        if (health == ShizukuHealth.UNAVAILABLE || health == ShizukuHealth.SERVICE_DIED) {
+            packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")?.let { launch ->
+                builder.addAction(
+                    android.R.drawable.ic_menu_manage,
+                    "Open Shizuku",
+                    PendingIntent.getActivity(this, 703, launch, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE),
+                )
+            }
         }
         return builder.build()
     }
 
     private fun updateNotification(text: String) {
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(text))
+        runCatching { getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(text)) }
     }
-
-    override fun onTaskRemoved(rootIntent: Intent?) {
-        if (getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(PREF_AUTO_ENABLED, false)) {
-            updateNotification(when {
-                isActually5G() -> "5G active · monitoring for LTE fallback"
-                isLteFallback() -> "4G / LTE detected · recovery active"
-                else -> "Monitoring cellular state"
-            })
-        }
-        super.onTaskRemoved(rootIntent)
-    }
-
-    override fun onDestroy() {
-        isRunning = false
-        runCatching { usageTracker.flush() }
-        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
-            .putBoolean(PREF_SERVICE_ACTIVE, false).apply()
-        unregisterNetworkObserver()
-        scope.cancel()
-        super.onDestroy()
-    }
-
-    override fun onBind(intent: Intent?): IBinder? = null
 }
