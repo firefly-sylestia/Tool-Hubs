@@ -1122,6 +1122,8 @@ class MainActivity : ComponentActivity() {
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.44f),
                 modifier = Modifier.padding(horizontal = 2.dp)
             )
+            Spacer(Modifier.height(18.dp))
+            HomeTelemetryDashboard(this@MainActivity)
         }
     }
 
@@ -1187,11 +1189,192 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
+    private fun HomeTelemetryDashboard(context: android.content.Context) {
+        val prefs = context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
+        var tick by remember { mutableIntStateOf(0) }
+        LaunchedEffect(Unit) { while (true) { delay(2000); tick++ } }
+        val history = tick.let { readNetworkHistory(context) }
+        val lte = tick.let { prefs.getLong(NetworkUsageTracker.KEY_LTE_BYTES, 0L) }
+        val fiveG = tick.let { prefs.getLong(NetworkUsageTracker.KEY_5G_BYTES, 0L) }
+        val peak = tick.let { prefs.getLong(NetworkUsageTracker.KEY_PEAK_BPS, 0L) }
+        val peakAt = prefs.getLong(NetworkUsageTracker.KEY_PEAK_AT, 0L)
+        val peakNetwork = prefs.getString(NetworkUsageTracker.KEY_PEAK_NETWORK, "Mobile") ?: "Mobile"
+
+        Text("TELEMETRY", fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.7.sp, color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            MetalPanel(Modifier.weight(1f)) {
+                Text("RECENT HISTORY", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Spacer(Modifier.height(8.dp))
+                history.take(3).forEach { entry ->
+                    CompactHistoryRow(entry)
+                    Spacer(Modifier.height(6.dp))
+                }
+                if (history.isEmpty()) Text("Waiting for network events…", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.52f))
+            }
+            MetalPanel(Modifier.weight(1f)) {
+                Text("DATA OBSERVED", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Spacer(Modifier.height(8.dp))
+                TelemetryStat("5G", formatBytes(fiveG))
+                TelemetryStat("LTE", formatBytes(lte))
+                Spacer(Modifier.height(7.dp))
+                Text("Full breakdown → DATA", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        MetalPanel(Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("PEAK NETWORK SPEED", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+                    Text(if (peak > 0L) formatSpeed(peak) else "Waiting for measurement…", fontSize = 28.sp, fontWeight = FontWeight.Black)
+                    if (peak > 0L) Text(peakNetwork + " · " + formatTimestamp(peakAt), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
+                }
+                Box(Modifier.size(48.dp).background(MaterialTheme.colorScheme.primary.copy(.12f), CircleShape), contentAlignment = Alignment.Center) {
+                    Text("MAX", fontSize = 10.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun CompactHistoryRow(entry: HistoryEntry) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            StatusBadge(entry.type, entry.network)
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(entry.network, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text(entry.detail.ifBlank { "Network observed" }, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
+            }
+            Text(entry.time.substringAfter("·").trim(), fontSize = 9.sp, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+
+    @Composable
+    private fun StatusBadge(type: String, network: String) {
+        val label = when (type) {
+            "success" -> "OK"
+            "failed" -> "FAIL"
+            "attempt" -> "TRY"
+            "network" -> "CHANGE"
+            "sim_failover" -> "SIM"
+            else -> network.replace(" / LTE", "")
+        }
+        val accent = when (type) {
+            "success" -> Color(0xFF5F8B72)
+            "failed" -> Color(0xFFB35D4B)
+            else -> MaterialTheme.colorScheme.primary
+        }
+        Text(label, fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = .5.sp, color = accent, modifier = Modifier.background(accent.copy(.12f), RoundedCornerShape(7.dp)).border(1.dp, accent.copy(.24f), RoundedCornerShape(7.dp)).padding(horizontal = 6.dp, vertical = 4.dp))
+    }
+
+    @Composable
+    private fun TelemetryStat(label: String, value: String) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text(value, fontSize = 13.sp, fontWeight = FontWeight.Black)
+        }
+    }
+
+    private fun formatSpeed(bytesPerSecond: Long): String = when {
+        bytesPerSecond >= 1_000_000L -> String.format(Locale.getDefault(), "%.1f MB/s", bytesPerSecond / 1_000_000f)
+        bytesPerSecond >= 1_000L -> String.format(Locale.getDefault(), "%.0f KB/s", bytesPerSecond / 1_000f)
+        else -> "$" + "bytesPerSecond B/s"
+    }
+
+    private fun formatTimestamp(timestamp: Long): String =
+        if (timestamp <= 0L) "—" else SimpleDateFormat("dd MMM · HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
+
+    @Composable
+    private fun DetailedHistoryView(context: android.content.Context) {
+        val entries = readNetworkHistory(context)
+        MetalPanel(Modifier.fillMaxWidth()) {
+            Text("NETWORK TIMELINE", fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+            if (entries.isEmpty()) Text("No network changes recorded yet.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
+            else entries.take(60).forEachIndexed { index, entry ->
+                val next = entries.getOrNull(index + 1)
+                val duration = next?.let { (entry.timestamp - it.timestamp).coerceAtLeast(0L) }
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        StatusBadge(entry.type, entry.network)
+                        if (index < entries.lastIndex) Box(Modifier.width(1.dp).height(28.dp).background(MaterialTheme.colorScheme.outline.copy(.25f)))
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(entry.network, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+                            Text(formatTimestamp(entry.timestamp), fontSize = 9.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Text(entry.detail.ifBlank { "Network state observed" }, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.58f))
+                        if (duration != null && duration > 0L) Text("Stayed on " + entry.network + " · " + formatDuration(duration), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.45f), modifier = Modifier.padding(top = 3.dp))
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun DetailedDataUsageView(context: android.content.Context) {
+        val prefs = context.getSharedPreferences(AutoReconnectService.PREFS_NAME, android.content.Context.MODE_PRIVATE)
+        var tick by remember { mutableIntStateOf(0) }
+        LaunchedEffect(Unit) { while (true) { delay(2000); tick++ } }
+        val lte = tick.let { prefs.getLong(NetworkUsageTracker.KEY_LTE_BYTES, 0L) }
+        val fiveG = tick.let { prefs.getLong(NetworkUsageTracker.KEY_5G_BYTES, 0L) }
+        val peak = tick.let { prefs.getLong(NetworkUsageTracker.KEY_PEAK_BPS, 0L) }
+        val peakAt = prefs.getLong(NetworkUsageTracker.KEY_PEAK_AT, 0L)
+        val peakNetwork = prefs.getString(NetworkUsageTracker.KEY_PEAK_NETWORK, "Mobile") ?: "Mobile"
+        val history = readNetworkHistory(context)
+        val sessions = history.sortedBy { it.timestamp }.zipWithNext().map { (a,b) -> a.network to (b.timestamp - a.timestamp).coerceAtLeast(0L) }
+        val lteTime = sessions.filter { it.first == "4G / LTE" }.sumOf { it.second }
+        val fiveGTime = sessions.filter { it.first == "5G" }.sumOf { it.second }
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            MetalPanel(Modifier.fillMaxWidth()) {
+                Text("OBSERVED DATA", fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(12.dp))
+                DataBranch("5G", fiveG, fiveGTime, Color(0xFF5F8B72))
+                Spacer(Modifier.height(10.dp))
+                DataBranch("4G / LTE", lte, lteTime, MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(10.dp))
+                Text("Device-wide mobile traffic sampled by radio state. This is not a carrier billing counter.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.48f))
+            }
+            MetalPanel(Modifier.fillMaxWidth()) {
+                Text("PEAK SPEED RECORDER", fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(6.dp))
+                Text(if (peak > 0L) formatSpeed(peak) else "No peak recorded yet", fontSize = 36.sp, fontWeight = FontWeight.Black)
+                if (peak > 0L) Text(peakNetwork + " · " + formatTimestamp(peakAt), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(.55f))
+                Text("Peak is calculated from successive mobile-traffic samples while the watcher is running.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.48f), modifier = Modifier.padding(top = 8.dp))
+            }
+        }
+    }
+
+    @Composable
+    private fun DataBranch(network: String, bytes: Long, durationMs: Long, accent: Color) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.width(4.dp).height(44.dp).background(accent, RoundedCornerShape(3.dp)))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(network, fontWeight = FontWeight.Black)
+                Text(formatDuration(durationMs), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(.5f))
+            }
+            Text(formatBytes(bytes), fontSize = 18.sp, fontWeight = FontWeight.Black, color = accent)
+        }
+    }
+
+    private fun formatDuration(ms: Long): String {
+        val seconds = ms / 1000L
+        return when {
+            seconds >= 3600L -> (seconds / 3600).toString() + "h " + ((seconds % 3600) / 60).toString() + "m"
+            seconds >= 60L -> (seconds / 60).toString() + "m " + (seconds % 60).toString() + "s"
+            else -> seconds.toString() + "s"
+        }
+    }
+
+    @Composable
     private fun HistoryPage() {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
             ExpressivePageHeader("History", "Every observed network and recovery event.", Icons.Rounded.History)
             Spacer(Modifier.height(14.dp))
-            HistoryView(this@MainActivity)
+            DetailedHistoryView(this@MainActivity)
         }
     }
 
@@ -1200,7 +1383,7 @@ class MainActivity : ComponentActivity() {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
             ExpressivePageHeader("Usage", "Observed traffic, fallback time and recovery timing.", Icons.Rounded.Analytics)
             Spacer(Modifier.height(14.dp))
-            DataTrackerView(this@MainActivity)
+            DetailedDataUsageView(this@MainActivity)
         }
     }
 
