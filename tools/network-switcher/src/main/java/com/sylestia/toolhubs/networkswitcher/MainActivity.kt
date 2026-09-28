@@ -84,6 +84,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.center
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -138,7 +139,7 @@ private data class WatcherSnapshot(
     val nextAttemptRemainingMs: Long,
 )
 
-private data class SimChoice(val id: Int, val label: String)
+internal data class SimChoice(val id: Int, val label: String)
 
 private data class HistoryEntry(
     val timestamp: Long,
@@ -271,7 +272,7 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    fun currentSims(): List<SimChoice> = runCatching {
+    internal fun currentSims(): List<SimChoice> = runCatching {
         getSystemService(SubscriptionManager::class.java).activeSubscriptionInfoList.orEmpty().map {
             SimChoice(it.subscriptionId, "SIM " + (it.simSlotIndex + 1) + " / " + it.carrierName)
         }
