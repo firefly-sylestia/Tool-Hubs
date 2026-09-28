@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:icon="@drawable/ic_network_switcher"
@@ -27,6 +28,7 @@
         </activity>
         <service
             android:name=".AutoReconnectService"
+            android:stopWithTask="false"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
