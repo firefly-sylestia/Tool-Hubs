@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.content.PermissionChecker
 import com.sylestia.toolhubs.designsystem.CurioCream
 import com.sylestia.toolhubs.designsystem.CurioInk
 import com.sylestia.toolhubs.ui.HubScreenHeader
@@ -349,7 +350,11 @@ class MainActivity : ComponentActivity() {
             val w = size.width
             val h = size.height
 
-            val dark = when (themeMode) {\n                "dark" -> true\n                "light" -> false\n                else -> androidx.compose.foundation.isSystemInDarkTheme()\n            }
+            val dark = when (themeMode) {
+                "dark" -> true
+                "light" -> false
+                else -> androidx.compose.foundation.isSystemInDarkTheme()
+            }
             val base = MaterialTheme.colorScheme.background
             val surface = MaterialTheme.colorScheme.surface
             val edge = MaterialTheme.colorScheme.outline
