@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.telephony.PhoneStateListener
 import android.telephony.TelephonyDisplayInfo
 import android.telephony.TelephonyManager
@@ -178,7 +179,11 @@ class AutoReconnectService : Service() {
                 consecutiveFailures = 0
                 nextAttemptAt = 0L
                 persistRetryState()
-                updateNotification("Watching for 5G drops")
+                updateNotification(when {
+                isActually5G() -> "5G active · monitoring for LTE fallback"
+                isLteFallback() -> "4G / LTE detected · recovery active"
+                else -> "Monitoring cellular state"
+            })
             }
         }
         return START_STICKY
@@ -244,6 +249,12 @@ class AutoReconnectService : Service() {
             currentDataType() == TelephonyManager.NETWORK_TYPE_EDGE || currentDataType() == TelephonyManager.NETWORK_TYPE_GPRS -> "2G"
             else -> "Unknown"
         }
+        if (current == "5G") {
+            consecutiveFailures = 0
+            circuitOpen = false
+            nextAttemptAt = 0L
+            persistRetryState()
+        }
         if (current != lastObservedNetwork) {
             if (lastObservedNetwork == null) recordHistory(current, "Monitoring started")
             else recordHistory(current, "Network changed from $lastObservedNetwork", "network")
@@ -292,7 +303,12 @@ class AutoReconnectService : Service() {
             while (isActive) {
                 observeNetwork()
                 observeShizukuHealth()
-                if (!paused && !circuitOpen && !operationRunning && isLteFallback() &&
+                if (circuitOpen && System.currentTimeMillis() >= nextAttemptAt) {
+                    circuitOpen = false
+                    consecutiveFailures = 0
+                    persistRetryState()
+                }
+                if (!paused && !operationRunning && isLteFallback() &&
                     System.currentTimeMillis() >= nextAttemptAt
                 ) {
                     attemptReconnect()
@@ -343,7 +359,7 @@ class AutoReconnectService : Service() {
                 consecutiveFailures++
                 // Respect the user's configured base interval, then progressively back off.
                 val delay = maxOf(triggerIntervalMs, when (consecutiveFailures) { 1 -> 30_000L; 2 -> 60_000L; 3 -> 300_000L; else -> 900_000L })
-                circuitOpen = consecutiveFailures >= 4
+                circuitOpen = false
                 nextAttemptAt = System.currentTimeMillis() + delay
                 persistRetryState()
                 val detail = if (result.startsWith("5G re-selection triggered")) "5G not detected after trigger" else result.take(100)
