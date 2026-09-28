@@ -22,6 +22,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -505,7 +507,7 @@ fun HubSegmented(
         options.forEachIndexed { index, label ->
             val selected = index == selectedIndex
             val fill by animateColorAsState(
-                if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+        if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
                 tween(260, easing = FastOutSlowInEasing),
                 label = "seg_fill",
             )
@@ -641,8 +643,8 @@ fun HubBottomNav(
                 .height(74.dp)
                 .shadow(20.dp, shape, clip = false, ambientColor = accents.shadow, spotColor = accents.shadow)
                 .clip(shape)
-                .background(Brush.verticalGradient(listOf(accents.glassTop, accents.glassBottom)))
-                .border(1.dp, accents.hairline.copy(alpha = 0.8f), shape)
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
                 .padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -660,6 +662,7 @@ fun HubBottomNav(
 
 @Composable
 private fun RowScope.HubNavButton(item: HubNavItem, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val haptic = LocalHapticFeedback.current
     val scale by animateFloatAsState(if (selected) 1f else 0.93f, spring(dampingRatio = 0.6f, stiffness = 620f), label = "nav_scale")
     val lift by animateDpAsState(if (selected) 0.dp else 2.dp, spring(dampingRatio = 0.65f, stiffness = 650f), label = "nav_lift")
     val fill by animateColorAsState(
@@ -680,7 +683,10 @@ private fun RowScope.HubNavButton(item: HubNavItem, selected: Boolean, onClick: 
             .padding(top = lift)
             .clip(RoundedCornerShape(18.dp))
             .background(fill)
-            .clickable(onClick = onClick),
+            .clickable {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            },
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
