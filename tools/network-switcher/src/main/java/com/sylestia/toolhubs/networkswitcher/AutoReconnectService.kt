@@ -48,7 +48,7 @@ class AutoReconnectService : Service() {
         const val PREF_FAILOVER_ENABLED = "sim_failover_enabled"
         const val PREF_FAILOVER_TARGET = "sim_failover_target"
         const val PREF_LAST_FAILOVER = "last_sim_failover"
-        const val PREF_FALLBACK_STARTED = "fallback_started"
+        const val PREF_FALLBACK_STARTED = "fallback_started_elapsed"
         const val PREF_LTE_FALLBACK_MS = "lte_fallback_ms"
         const val PREF_RECOVERY_TOTAL_MS = "recovery_total_ms"
         const val PREF_RECOVERY_COUNT = "recovery_count"
@@ -273,9 +273,9 @@ class AutoReconnectService : Service() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val started = prefs.getLong(PREF_FALLBACK_STARTED, 0L)
         if (current == "4G / LTE" && started == 0L) {
-            prefs.edit().putLong(PREF_FALLBACK_STARTED, System.currentTimeMillis()).apply()
+            prefs.edit().putLong(PREF_FALLBACK_STARTED, SystemClock.elapsedRealtime()).apply()
         } else if (current == "5G" && started > 0L) {
-            val duration = (System.currentTimeMillis() - started).coerceAtLeast(0L)
+            val duration = (SystemClock.elapsedRealtime() - started).coerceAtLeast(0L)
             prefs.edit().remove(PREF_FALLBACK_STARTED)
                 .putLong(PREF_LTE_FALLBACK_MS, prefs.getLong(PREF_LTE_FALLBACK_MS, 0L) + duration)
                 .putLong(PREF_RECOVERY_TOTAL_MS, prefs.getLong(PREF_RECOVERY_TOTAL_MS, 0L) + duration)
@@ -440,6 +440,7 @@ class AutoReconnectService : Service() {
 
     override fun onDestroy() {
         isRunning = false
+        runCatching { usageTracker.flush() }
         unregisterNetworkObserver()
         scope.cancel()
         super.onDestroy()
