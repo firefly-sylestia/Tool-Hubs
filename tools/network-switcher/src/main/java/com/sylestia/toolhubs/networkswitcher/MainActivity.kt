@@ -55,7 +55,6 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.sylestia.toolhubs.designsystem.CurioCream
 import com.sylestia.toolhubs.designsystem.CurioInk
-import com.sylestia.toolhubs.designsystem.MaterialTheme.colorScheme.primary
 import com.sylestia.toolhubs.ui.HubScreenHeader
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -347,7 +346,7 @@ class MainActivity : ComponentActivity() {
             val w = size.width
             val h = size.height
 
-            val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+            val dark = androidx.compose.foundation.isSystemInDarkTheme()
             val base = MaterialTheme.colorScheme.background
             val surface = MaterialTheme.colorScheme.surface
             val edge = MaterialTheme.colorScheme.outline
