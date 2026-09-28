@@ -54,16 +54,21 @@ class RadioWatcher(
         override fun onDisplayInfoChanged(info: TelephonyDisplayInfo) = applyOverride(info)
     }
 
+    // Only ever constructed inside a `SDK_INT == R` branch, hence the annotation.
+    @RequiresApi(Build.VERSION_CODES.R)
     @Suppress("DEPRECATION")
     private fun newLegacyListener(): PhoneStateListener = object : PhoneStateListener() {
         override fun onDisplayInfoChanged(info: TelephonyDisplayInfo) = applyOverride(info)
     }
 
+    // `TelephonyDisplayInfo` and its constants only exist on Android 11+, so every reference to
+    // them lives behind a @RequiresApi boundary; lintVitalRelease treats NewApi as fatal.
+    @RequiresApi(Build.VERSION_CODES.R)
     private fun applyOverride(info: TelephonyDisplayInfo) {
         val type = info.overrideNetworkType
         overrideNr = type == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA ||
             type == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE ||
-            type == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_ADVANCED
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && type == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_ADVANCED)
     }
 
     fun start() {
