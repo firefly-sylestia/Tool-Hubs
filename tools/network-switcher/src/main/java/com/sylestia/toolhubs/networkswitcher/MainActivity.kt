@@ -978,9 +978,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            /* old tactile Button removed */ 
-            /*
-            Button(
+            /* Legacy Material button retained only as historical reference. */
+            /* Button(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
@@ -1128,99 +1127,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @Composable
-    private fun NetworkPulseOrb(network: String) {
-        val infinite = rememberInfiniteTransition(label = "network_orb")
-        val pulse by infinite.animateFloat(
-            0.92f,
-            1.08f,
-            infiniteRepeatable(tween(1500), RepeatMode.Reverse),
-            label = "orb_pulse"
-        )
-        val halo by infinite.animateFloat(
-            0.18f,
-            0.34f,
-            infiniteRepeatable(tween(1500), RepeatMode.Reverse),
-            label = "orb_halo"
-        )
-        val tint = when {
-            network == "5G" -> Color(0xFF5D806D)
-            network == "4G / LTE" -> CurioRoseDark
-            else -> CurioInk.copy(alpha = 0.45f)
-        }
-
-        Box(
-            Modifier.size(108.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                Modifier
-                    .size(96.dp)
-                    .scale(pulse)
-                    .border(
-                        BorderStroke(1.dp, tint.copy(alpha = halo)),
-                        CircleShape
-                    )
-            )
-            Box(
-                Modifier
-                    .size(76.dp)
-                    .background(tint.copy(alpha = 0.10f), CircleShape)
-                    .border(
-                        BorderStroke(1.dp, tint.copy(alpha = 0.22f)),
-                        CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        if (network == "5G") "NR" else if (network == "4G / LTE") "LTE" else "—",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = tint
-                    )
-                    Text(
-                        "SIGNAL",
-                        fontSize = 8.sp,
-                        color = CurioInk.copy(alpha = 0.48f),
-                        letterSpacing = 1.sp
-                    )
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun StatePill(label: String, active: Boolean) {
-        Row(
-            Modifier
-                .background(
-                    if (active) CurioRoseDark.copy(alpha = 0.12f)
-                    else Color.Black.copy(alpha = 0.045f),
-                    RoundedCornerShape(50)
-                )
-                .padding(horizontal = 10.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                Modifier
-                    .size(6.dp)
-                    .background(
-                        if (active) Color(0xFF5D806D) else CurioInk.copy(alpha = 0.28f),
-                        CircleShape
-                    )
-            )
-            Spacer(Modifier.width(7.dp))
-            Text(
-                label,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = CurioInk.copy(alpha = if (active) 0.76f else 0.50f),
-                letterSpacing = 0.8.sp
-            )
-        }
-    }
-
     private fun waitFor5GBlocking(timeoutMs: Long): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
@@ -1263,9 +1169,8 @@ class MainActivity : ComponentActivity() {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
             ExpressivePageHeader("Settings", "Watcher, SIM and recovery behaviour.", Icons.Rounded.Settings)
             Spacer(Modifier.height(14.dp))
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(.62f))) {
-                Column(Modifier.padding(18.dp)) {
-                    Text("Recovery", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            MetalPanel(Modifier.fillMaxWidth()) {
+                Text("Recovery", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Text("Retry delay: ${intervalSeconds}s", color = CurioInk.copy(.65f))
                     Slider(value = intervalSeconds.toFloat(), onValueChange = { intervalSeconds = it.toInt() }, onValueChangeFinished = { prefs().edit().putLong(AutoReconnectService.PREF_INTERVAL_MS, intervalSeconds * 1000L).apply(); refreshWatcherSettings() }, valueRange = 30f..600f, steps = 18)
                     Text("Attempts per recovery: $maxAttempts", color = CurioInk.copy(.65f))
@@ -1295,8 +1200,8 @@ class MainActivity : ComponentActivity() {
                 )
             }
             Spacer(Modifier.height(12.dp))
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(.55f))) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            MetalPanel(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Battery optimization", fontWeight = FontWeight.Medium)
                         Text("For phones that aggressively stop background services.", fontSize = 11.sp, color = CurioInk.copy(.55f))
@@ -1342,8 +1247,8 @@ private fun SimAndDiagnosticsCard(
     diagnostics: List<Pair<String, String>>, onSelected: (Int) -> Unit,
     onBackup: (Int) -> Unit, onFailover: (Boolean) -> Unit
 ) {
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(.62f))) {
-        Column(Modifier.padding(18.dp)) {
+    MetalPanel(Modifier.fillMaxWidth()) {
+        Column {
             Text("SIM & eligibility", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
             Text("Choose the SIM monitored for 5G. Failover only runs after 45 seconds with no cellular service.", fontSize = 11.sp, color = CurioInk.copy(.55f))
             Spacer(Modifier.height(10.dp))
@@ -1373,12 +1278,8 @@ private fun HistoryView(context: android.content.Context) {
             delay(2_000)
         }
     }
-    Card(
-        Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .62f))
-    ) {
-        Column(Modifier.padding(18.dp)) {
+    MetalPanel(Modifier.fillMaxWidth()) {
+        Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.History, null, tint = CurioRoseDark)
                 Spacer(Modifier.width(8.dp))
@@ -1407,7 +1308,7 @@ private fun HistoryView(context: android.content.Context) {
             }
         }
     }
-    if (showAll) ModalBottomSheet(onDismissRequest = { showAll = false }, containerColor = CurioCream) {
+    if (showAll) ModalBottomSheet(onDismissRequest = { showAll = false }, containerColor = MetalBase) {
         var filter by rememberSaveable { mutableStateOf("All") }
         var expandedTime by rememberSaveable { mutableLongStateOf(-1L) }
         Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp)) {
@@ -1450,8 +1351,8 @@ private fun HistoryView(context: android.content.Context) {
     val weeklyLte = NetworkUsageTracker.totalForLastDays(context, NetworkUsageTracker.KEY_LTE_BYTES, 7)
     val weekly5G = NetworkUsageTracker.totalForLastDays(context, NetworkUsageTracker.KEY_5G_BYTES, 7)
     var billingDay by rememberSaveable { mutableIntStateOf(prefs.getInt(AutoReconnectService.PREF_BILLING_DAY, 1)) }
-    Card(Modifier.fillMaxWidth().padding(top = 14.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(.62f))) {
-        Column(Modifier.padding(18.dp)) {
+    MetalPanel(Modifier.fillMaxWidth().padding(top = 14.dp)) {
+        Column {
             Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Analytics, null, tint = CurioRoseDark); Spacer(Modifier.width(8.dp)); Column { Text("Mobile data tracker"); Text("Measured while the watcher is on", fontSize = 11.sp, color = CurioInk.copy(.55f)) } }
             Spacer(Modifier.height(12.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("observed on LTE", formatBytes(lte), CurioRoseDark, Modifier.weight(1f)); ActivityMetric("observed on 5G", formatBytes(fiveG), Color(0xFF207561), Modifier.weight(1f)) }
             Spacer(Modifier.height(8.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { ActivityMetric("LTE fallback minutes", fallbackMinutes.toString(), CurioRoseDark, Modifier.weight(1f)); ActivityMetric("avg. trigger → 5G", if (averageRecovery == 0L) "—" else "${averageRecovery}s", Color(0xFF207561), Modifier.weight(1f)) }
