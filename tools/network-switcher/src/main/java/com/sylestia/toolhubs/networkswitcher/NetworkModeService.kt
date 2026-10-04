@@ -87,7 +87,7 @@ class NetworkModeService(private val context: Context) : INetworkModeService.Stu
             process.waitFor()
 
             val componentPattern = Regex(
-                """com\\.samsung\\.android\\.app\\.telephonyui/(?:[A-Za-z0-9_$.]+)"""
+                """com\.samsung\.android\.app\.telephonyui/(?:[A-Za-z0-9_$.]+)"""
             )
 
             componentPattern.findAll(output)
