@@ -39,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -46,8 +47,12 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Waves
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,6 +80,7 @@ import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
+import kotlin.math.roundToInt
 
 private data class Song(
     val id: Long,
@@ -104,6 +110,9 @@ class MainActivity : ComponentActivity() {
     private var screen by mutableStateOf("library")
     private var scanning by mutableStateOf(false)
     private var message by mutableStateOf("Scan your device for local music.")
+    private var minMusicDurationMs by mutableLongStateOf(30_000L)
+    private var includeShortTracks by mutableStateOf(false)
+    private var activePlaylist: List<Song> = emptyList()
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -114,8 +123,10 @@ class MainActivity : ComponentActivity() {
         connectPlayer()
         setContent {
             ToolHubsTheme(darkTheme = true) {
+                val visibleSongs = songs.filter { includeShortTracks || it.duration >= minMusicDurationMs }
                 PulseApp(
-                    songs = songs,
+                    songs = visibleSongs,
+                    totalSongs = songs.size,
                     currentSong = currentSong,
                     playing = playing,
                     position = position,
@@ -124,8 +135,12 @@ class MainActivity : ComponentActivity() {
                     screen = screen,
                     scanning = scanning,
                     message = message,
+                    minMusicDurationMs = minMusicDurationMs,
+                    includeShortTracks = includeShortTracks,
+                    onMinMusicDurationChange = { minMusicDurationMs = it },
+                    onIncludeShortTracksChange = { includeShortTracks = it },
                     onScan = ::scanMusic,
-                    onSong = ::playSong,
+                    onSong = { playSong(it, visibleSongs) },
                     onBack = { screen = "library" },
                     onPlayPause = {
                         controller?.let { if (it.isPlaying) it.pause() else it.play() }
@@ -153,7 +168,7 @@ class MainActivity : ComponentActivity() {
 
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                         val index = controller?.currentMediaItemIndex ?: -1
-                        currentSong = songs.getOrNull(index)
+                        currentSong = activePlaylist.getOrNull(index)
                         duration = controller?.duration?.coerceAtLeast(0L) ?: 0L
                         attachVisualizer()
                     }
@@ -276,11 +291,12 @@ class MainActivity : ComponentActivity() {
         }.start()
     }
 
-    private fun playSong(song: Song) {
+    private fun playSong(song: Song, playlist: List<Song>) {
         val player = controller ?: return
-        val index = songs.indexOfFirst { it.id == song.id }
-        if (index < 0) return
-        player.setMediaItems(songs.map { MediaItem.fromUri(it.uri) }, index, 0L)
+        val index = playlist.indexOfFirst { it.id == song.id }
+        if (index < 0 || playlist.isEmpty()) return
+        activePlaylist = playlist
+        player.setMediaItems(playlist.map { MediaItem.fromUri(it.uri) }, index, 0L)
         player.prepare()
         player.play()
         currentSong = song
@@ -299,6 +315,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun PulseApp(
     songs: List<Song>,
+    totalSongs: Int,
     currentSong: Song?,
     playing: Boolean,
     position: Long,
@@ -307,6 +324,10 @@ private fun PulseApp(
     screen: String,
     scanning: Boolean,
     message: String,
+    minMusicDurationMs: Long,
+    includeShortTracks: Boolean,
+    onMinMusicDurationChange: (Long) -> Unit,
+    onIncludeShortTracksChange: (Boolean) -> Unit,
     onScan: () -> Unit,
     onSong: (Song) -> Unit,
     onBack: () -> Unit,
@@ -325,18 +346,35 @@ private fun PulseApp(
     if (screen == "player" && currentSong != null) {
         PlayerScreen(currentSong, playing, position, duration, frame, onBack, onPlayPause, onNext, onPrevious, onSeek)
     } else {
-        LibraryScreen(songs, scanning, message, onScan, onSong)
+        LibraryScreen(
+            songs = songs,
+            totalSongs = totalSongs,
+            scanning = scanning,
+            message = message,
+            minMusicDurationMs = minMusicDurationMs,
+            includeShortTracks = includeShortTracks,
+            onMinMusicDurationChange = onMinMusicDurationChange,
+            onIncludeShortTracksChange = onIncludeShortTracksChange,
+            onScan = onScan,
+            onSong = onSong,
+        )
     }
 }
 
 @Composable
 private fun LibraryScreen(
     songs: List<Song>,
+    totalSongs: Int,
     scanning: Boolean,
     message: String,
+    minMusicDurationMs: Long,
+    includeShortTracks: Boolean,
+    onMinMusicDurationChange: (Long) -> Unit,
+    onIncludeShortTracksChange: (Boolean) -> Unit,
     onScan: () -> Unit,
     onSong: (Song) -> Unit,
 ) {
+    var showFilter by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxSize().background(Color(0xFF080909)).statusBarsPadding().navigationBarsPadding()
     ) {
@@ -347,13 +385,25 @@ private fun LibraryScreen(
             Column(Modifier.weight(1f)) {
                 Text("PULSE", color = Color.White.copy(.55f), fontSize = 10.sp, letterSpacing = 4.sp)
                 Text("Your music", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black)
-                Text(message, color = Color.White.copy(.42f), fontSize = 11.sp)
+                Text(
+                    if (includeShortTracks) "${totalSongs} tracks" else "${songs.size} tracks • ≥ ${minMusicDurationMs / 1000}s",
+                    color = Color.White.copy(.42f),
+                    fontSize = 11.sp,
+                )
             }
-            Box(
-                Modifier.size(48.dp).clip(CircleShape).background(Color.White.copy(.09f)).clickable(onClick = onScan),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Rounded.Refresh, null, tint = Color.White)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    Modifier.size(46.dp).clip(CircleShape).background(Color.White.copy(.08f)).clickable { showFilter = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.Tune, null, tint = Color.White)
+                }
+                Box(
+                    Modifier.size(46.dp).clip(CircleShape).background(Color.White.copy(.09f)).clickable(onClick = onScan),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.Refresh, null, tint = Color.White)
+                }
             }
         }
 
@@ -380,6 +430,89 @@ private fun LibraryScreen(
             }
         }
     }
+
+    if (showFilter) {
+        MusicFilterDialog(
+            minMusicDurationMs = minMusicDurationMs,
+            includeShortTracks = includeShortTracks,
+            onMinMusicDurationChange = onMinMusicDurationChange,
+            onIncludeShortTracksChange = onIncludeShortTracksChange,
+            onDismiss = { showFilter = false },
+        )
+    }
+}
+
+
+@Composable
+private fun MusicFilterDialog(
+    minMusicDurationMs: Long,
+    includeShortTracks: Boolean,
+    onMinMusicDurationChange: (Long) -> Unit,
+    onIncludeShortTracksChange: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var localSeconds by remember { mutableFloatStateOf((minMusicDurationMs / 1000L).toFloat()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF111313),
+        title = {
+            Text("Music filter", color = Color.White, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(
+                    "Ignore clips shorter than \${localSeconds.toInt()} seconds.",
+                    color = Color.White.copy(.72f),
+                    fontSize = 13.sp,
+                )
+                Slider(
+                    value = localSeconds,
+                    onValueChange = { localSeconds = it },
+                    valueRange = 5f..120f,
+                    steps = 22,
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Include short tracks", color = Color.White, fontSize = 14.sp)
+                        Text(
+                            "Show everything, including alerts and clips.",
+                            color = Color.White.copy(.42f),
+                            fontSize = 11.sp,
+                        )
+                    }
+                    Switch(
+                        checked = includeShortTracks,
+                        onCheckedChange = onIncludeShortTracksChange,
+                    )
+                }
+                Text(
+                    "Default is 30 seconds. Raise it for samples and voice clips; lower it if your library contains short songs.",
+                    color = Color.White.copy(.38f),
+                    fontSize = 11.sp,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onMinMusicDurationChange((localSeconds.roundToInt() * 1000L).coerceIn(5_000L, 120_000L))
+                    onDismiss()
+                },
+            ) {
+                Text("Apply")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = Color.White.copy(.65f))
+            }
+        },
+    )
 }
 
 @Composable
@@ -472,52 +605,135 @@ private fun PulseCanvas(frame: PulseFrame, time: Float) {
     Canvas(Modifier.fillMaxSize()) {
         val cx = size.width / 2f
         val cy = size.height / 2f
-        val radius = min(size.width, size.height) * .055f
-        val reach = min(size.width, size.height) * .50f
-        val arms = 64
-        val points = 34
+        val shortest = min(size.width, size.height)
+        val inner = shortest * .035f
+        val outer = shortest * .66f
+        val sectors = 28
+        val rings = 9
+        val dots = 22
 
         drawRect(Color.Black)
-        for (arm in 0 until arms) {
-            val seed = arm * 1.713f
-            val baseAngle = arm.toFloat() / arms * 2f * PI.toFloat()
-            val band = frame.bands[(arm * 3) % 64]
-            val path = Path()
 
-            for (p in 0 until points) {
-                val t = p.toFloat() / (points - 1)
-                val local = frame.bands[((arm * 5 + p * 2) % 64)]
-                val drift = sin(time * (.19f + arm * .001f) + seed) * .07f
-                val ripple = sin(time * .61f + t * 12f + seed) * .035f
-                val beatStretch = frame.beat * (.20f + t * .85f)
-                val stretch = 1f +
-                    frame.bass * .72f * t +
-                    local * .35f * t +
-                    beatStretch
+        val rotation = time * 4.8f + frame.energy * 8f
+        val beatRetract = 1f - frame.beat * .16f
+        val breathing = 1f + sin(time * .72f) * .045f
+        val bassPush = frame.bass * .22f
+        val energyLift = frame.energy * .10f
 
-                val r = radius + (reach - radius) * t
-                val angle = baseAngle + drift + ripple + sin(t * 4.5f + seed) * .035f
-                val x = cx + cos(angle) * r * stretch
-                val y = cy + sin(angle) * r * stretch
+        drawCircle(
+            Color(0xFF020202),
+            radius = inner * (2.7f + frame.beat * 2.0f),
+            center = Offset(cx, cy),
+        )
 
-                if (p == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        for (sector in 0 until sectors) {
+            val sectorAngle = sector.toFloat() / sectors * 2f * PI.toFloat() + rotation
+            val sectorBand = frame.bands[(sector * 2) % frame.bands.size]
+
+            for (ring in 0 until rings) {
+                val ringT = ring.toFloat() / (rings - 1)
+                val baseR = inner + (outer - inner) * ringT
+                val band = frame.bands[(sector * 5 + ring * 7) % frame.bands.size]
+                val radialWave = sin(time * 1.25f + ring * .9f + sector * .31f)
+                val pulseWave = sin(time * 2.0f - ring * .55f + sector * .19f)
+                val radialScale = beatRetract *
+                    breathing *
+                    (1f + bassPush * ringT + energyLift * ringT) *
+                    (1f + radialWave * (.055f + band * .06f) + pulseWave * .025f)
+
+                val radius = baseR * radialScale
+                val points = dots - ring / 2
+
+                for (dot in 0 until points) {
+                    val dotT = dot.toFloat() / max(1, points - 1)
+                    val wave = sin(dotT * PI.toFloat() * 2.0f + time * 1.55f + ring * .7f + sector * .27f)
+                    val wave2 = cos(dotT * PI.toFloat() * 3.0f - time * 1.05f + sector * .41f)
+                    val angularWarp = wave * (.11f + band * .16f) + wave2 * .035f
+                    val angle = sectorAngle +
+                        (dotT - .5f) * (.18f + ringT * .42f) +
+                        angularWarp +
+                        sin(time * .45f + ring * .6f) * .025f
+
+                    val r = radius + wave2 * (6f + band * 13f) + dotT * 4f
+                    val x = cx + cos(angle) * r
+                    val y = cy + sin(angle) * r
+
+                    val dotSize = (0.65f + band * 1.7f) *
+                        (1f + frame.energy * .55f) *
+                        (1f + frame.beat * .9f) *
+                        (0.75f + dotT * .55f)
+
+                    val warm = Color(
+                        red = .79f + band * .18f,
+                        green = .68f + band * .15f,
+                        blue = .67f + band * .15f,
+                        alpha = .30f + frame.energy * .34f,
+                    )
+
+                    drawCircle(
+                        color = warm,
+                        radius = dotSize,
+                        center = Offset(x, y),
+                    )
+
+                    if (ring % 2 == 0 && dot % 2 == 0) {
+                        val echoR = r + 5f + band * 7f
+                        val echoA = angle + .018f
+                        drawCircle(
+                            color = warm.copy(alpha = .15f + frame.energy * .14f),
+                            radius = dotSize * .62f,
+                            center = Offset(
+                                cx + cos(echoA) * echoR,
+                                cy + sin(echoA) * echoR,
+                            ),
+                        )
+                    }
+                }
             }
 
-            val pink = Color(0xFFE7C0C5)
-            val green = Color(0xFF1E5D3B)
-            val mix = ((sin(seed * .9f + time * .11f) + 1f) / 2f)
-            val color = lerp(pink, green, mix * .8f).copy(alpha = .30f + frame.energy * .38f)
-
-            drawPath(path, color.copy(alpha = .05f + frame.beat * .12f), style = Stroke(9f + frame.beat * 10f, cap = StrokeCap.Round))
-            drawPath(path, color, style = Stroke(1.0f + band * 2.5f, cap = StrokeCap.Round))
+            val petal = Path()
+            val petalSamples = 18
+            for (i in 0 until petalSamples) {
+                val t = i.toFloat() / (petalSamples - 1)
+                val r = inner * 2.0f + (outer * .92f) * t * beatRetract
+                val petalWave = sin(t * PI.toFloat() * 3.0f + time * 1.35f + sector * .22f)
+                val a = sectorAngle +
+                    petalWave * (.10f + sectorBand * .10f) +
+                    sin(t * PI.toFloat() * 2f + time * .55f) * .025f
+                val x = cx + cos(a) * r
+                val y = cy + sin(a) * r
+                if (i == 0) petal.moveTo(x, y) else petal.lineTo(x, y)
+            }
+            drawPath(
+                petal,
+                Color(0xFFD7BFC0).copy(alpha = .07f + sectorBand * .12f),
+                style = Stroke(width = 1.1f + sectorBand * 1.3f, cap = StrokeCap.Round),
+            )
         }
 
-        val bloom = radius * (1f + frame.bass * 2f + frame.beat * 4f)
-        drawCircle(Color(0xFFE7C0C5).copy(alpha = .06f + frame.beat * .14f), bloom * 2f)
-        drawCircle(Color(0xFF09100C).copy(alpha = .94f), bloom * .72f)
-        drawCircle(Color.White.copy(alpha = .18f + frame.beat * .5f), bloom * .07f)
+        for (ring in 0 until 4) {
+            val r = inner * (3.0f + ring * 2.2f) * (1f - frame.beat * .07f)
+            drawCircle(
+                color = Color(0xFFE5CCCD).copy(alpha = .045f + frame.energy * .045f),
+                radius = r,
+                center = Offset(cx, cy),
+                style = Stroke(width = 1.2f),
+            )
+        }
+
+        drawCircle(
+            Color(0xFFE5C9CA).copy(alpha = .055f + frame.beat * .08f),
+            radius = inner * (2.0f + frame.bass * 2.2f),
+            center = Offset(cx, cy),
+        )
+        drawCircle(
+            Color.Black.copy(alpha = .92f),
+            radius = inner * (1.25f + frame.beat * .55f),
+            center = Offset(cx, cy),
+        )
     }
 }
+
 
 private fun formatTime(ms: Long): String {
     val total = max(0L, ms) / 1000L
