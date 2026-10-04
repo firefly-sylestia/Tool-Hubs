@@ -36,6 +36,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -69,6 +70,7 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Timeline
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Warning
+import androidx.compose.material.ripple.ripple
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -90,6 +92,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -98,6 +101,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -684,10 +689,11 @@ private fun WatchPage(
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    HubQuietButton(
+                    ThermalActionButton(
                         text = "Force status 0",
                         icon = Icons.Rounded.Warning,
                         modifier = Modifier.weight(1f),
+                        destructive = true,
                         onClick = {
                             scope.launch {
                                 message = withContext(Dispatchers.IO) {
@@ -697,10 +703,11 @@ private fun WatchPage(
                             }
                         },
                     )
-                    HubQuietButton(
+                    ThermalActionButton(
                         text = "Reset",
                         icon = Icons.Rounded.Refresh,
                         modifier = Modifier.weight(1f),
+                        destructive = false,
                         onClick = {
                             scope.launch {
                                 message = withContext(Dispatchers.IO) {
@@ -1982,6 +1989,53 @@ private fun TunePage(
 }
 
 @Composable
+
+@Composable
+private fun ThermalActionButton(
+    text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
+    destructive: Boolean,
+    onClick: () -> Unit,
+) {
+    val haptic = LocalHapticFeedback.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.965f else 1f,
+        animationSpec = spring(stiffness = 700f, dampingRatio = 0.72f),
+        label = "thermal_button_scale",
+    )
+    val container = if (destructive) MaterialTheme.colorScheme.errorContainer
+    else MaterialTheme.colorScheme.surfaceContainerHigh
+    val content = if (destructive) MaterialTheme.colorScheme.onErrorContainer
+    else MaterialTheme.colorScheme.onSurface
+    val borderColor = if (destructive) MaterialTheme.colorScheme.error.copy(alpha = 0.22f)
+    else MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
+
+    Row(
+        modifier
+            .scale(scale)
+            .clip(RoundedCornerShape(18.dp))
+            .background(container)
+            .border(1.dp, borderColor, RoundedCornerShape(18.dp))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = ripple(bounded = true),
+            ) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onClick()
+            }
+            .padding(horizontal = 16.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(19.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(text, color = content, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
 private fun SimChip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     FilterChip(
         selected = selected,
