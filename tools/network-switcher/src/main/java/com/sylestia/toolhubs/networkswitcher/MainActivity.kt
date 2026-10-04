@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.os.SystemClock
+import android.app.DatePickerDialog
 import android.provider.Settings as AndroidSettings
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
@@ -134,6 +135,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -522,7 +524,7 @@ private fun WatchPage(
                     Spacer(Modifier.height(12.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         HubProgressRing(
-                            progress = 1f - (snapshot.nextAttemptRemainingMs.toFloat() / AutoReconnectService.MAX_BACKOFF_MS),
+                            progress = (1f - (snapshot.nextAttemptRemainingMs.toFloat() / AutoReconnectService.MAX_BACKOFF_MS)).coerceIn(0f, 1f),
                             modifier = Modifier.size(38.dp),
                             accent = accent,
                         )
@@ -1341,9 +1343,20 @@ private fun DataPage(context: Context) {
                         fontSize = 11.sp,
                         modifier = Modifier.weight(1f),
                     )
-                    HubQuietButton(text = "Change") {
-                        billingDay = if (billingDay >= 28) 1 else billingDay + 1
-                        store.edit().putInt(AutoReconnectService.PREF_BILLING_DAY, billingDay).apply()
+                    HubQuietButton(text = "Choose date") {
+                        val today = Calendar.getInstance()
+                        DatePickerDialog(
+                            context,
+                            { _, _, _, dayOfMonth ->
+                                billingDay = dayOfMonth
+                                store.edit().putInt(AutoReconnectService.PREF_BILLING_DAY, billingDay).apply()
+                            },
+                            today.get(Calendar.YEAR),
+                            today.get(Calendar.MONTH),
+                            billingDay.coerceIn(1, today.getActualMaximum(Calendar.DAY_OF_MONTH)),
+                        ).apply {
+                            setTitle("Billing cycle start")
+                        }.show()
                     }
                 }
             }
