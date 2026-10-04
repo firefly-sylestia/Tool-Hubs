@@ -623,6 +623,44 @@ private fun WatchPage(
             )
         }
 
+        Spacer(Modifier.height(12.dp))
+        HubReveal(4) {
+            HubGlassCard(accent = MaterialTheme.colorScheme.tertiary) {
+                Text(
+                    "Experimental RF recovery",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Open Samsung's RF band selector. Restricting to a stable 5G band can reduce modem hunting and heat, but this is firmware-dependent.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
+                Spacer(Modifier.height(10.dp))
+                HubQuietButton(
+                    text = "Open Samsung Band Selection",
+                    icon = Icons.Rounded.SettingsInputAntenna,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        scope.launch {
+                            message = withContext(Dispatchers.IO) {
+                                runCatching { NetworkSwitcherBridge(context).openSamsungBandSelection() }
+                                    .getOrElse { "Band selection failed: " + it.javaClass.simpleName }
+                            }
+                        }
+                    },
+                )
+                Spacer(Modifier.height(7.dp))
+                Text(
+                    "This does not disable thermal protection. If the modem is thermally throttling 5G, the app will continue using its normal recovery path rather than bypassing the protection.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
+                )
+            }
+        }
+
         message?.let { text ->
             Spacer(Modifier.height(12.dp))
             HubReveal(0) {
