@@ -614,7 +614,7 @@ private fun PulseCanvas(frame: PulseFrame, time: Float) {
 
         drawRect(Color.Black)
 
-        val rotation = time * 4.8f + frame.energy * 8f
+        val rotation = time * (0.42f + frame.energy * 1.15f) + sin(time * .11f) * .28f
         val beatRetract = 1f - frame.beat * .16f
         val breathing = 1f + sin(time * .72f) * .045f
         val bassPush = frame.bass * .22f
@@ -636,10 +636,11 @@ private fun PulseCanvas(frame: PulseFrame, time: Float) {
                 val band = frame.bands[(sector * 5 + ring * 7) % frame.bands.size]
                 val radialWave = sin(time * 1.25f + ring * .9f + sector * .31f)
                 val pulseWave = sin(time * 2.0f - ring * .55f + sector * .19f)
+                val outwardFlow = sin(time * 2.35f - ringT * 10.5f + sector * .17f)
                 val radialScale = beatRetract *
                     breathing *
                     (1f + bassPush * ringT + energyLift * ringT) *
-                    (1f + radialWave * (.055f + band * .06f) + pulseWave * .025f)
+                    (1f + radialWave * (.055f + band * .06f) + pulseWave * .025f + outwardFlow * (.035f + band * .075f) * ringT)
 
                 val radius = baseR * radialScale
                 val points = dots - ring / 2
