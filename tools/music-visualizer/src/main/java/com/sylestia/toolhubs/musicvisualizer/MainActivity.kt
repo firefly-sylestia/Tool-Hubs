@@ -13,6 +13,8 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -270,7 +272,7 @@ class MainActivity : ComponentActivity() {
             override fun onStop() {
                 runOnUiThread { stopCapture("System audio capture ended.") }
             }
-        }, mainExecutor)
+        }, Handler(Looper.getMainLooper()))
         startRecorder(playback = activeProjection)
     }
 
@@ -373,8 +375,9 @@ class MainActivity : ComponentActivity() {
     private fun stopCapture(text: String = "Visualizer stopped.") {
         captureJob?.cancel()
         captureJob = null
-        projection?.let { runCatching { it.stop() } }
+        val activeProjection = projection
         projection = null
+        activeProjection?.let { runCatching { it.stop() } }
         running = false
         mode = "Idle"
         message = text
