@@ -131,6 +131,7 @@ class MainActivity : ComponentActivity() {
                     onNext = { controller?.seekToNextMediaItem() },
                     onPrevious = { controller?.seekToPreviousMediaItem() },
                     onSeek = { value -> controller?.seekTo(value) },
+                    onTick = { controller?.let { position = it.currentPosition.coerceAtLeast(0L); duration = it.duration.coerceAtLeast(0L) } },
                 )
             }
         }
@@ -311,7 +312,14 @@ private fun PulseApp(
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onSeek: (Long) -> Unit,
+    onTick: () -> Unit,
 ) {
+    LaunchedEffect(screen, playing) {
+        while (screen == "player") {
+            onTick()
+            delay(150)
+        }
+    }
     if (screen == "player" && currentSong != null) {
         PlayerScreen(currentSong, playing, position, duration, frame, onBack, onPlayPause, onNext, onPrevious, onSeek)
     } else {
@@ -431,12 +439,17 @@ private fun PlayerScreen(
             Text(song.artist, color = Color.White.copy(.48f), fontSize = 13.sp)
             Spacer(Modifier.height(17.dp))
             val progress = if (duration > 0) position.toFloat() / duration else 0f
-            Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(.10f)).clickable {
-                onSeek((progress.coerceIn(0f,1f) * duration).toLong())
-            }) {
-                Box(Modifier.fillMaxWidth(progress.coerceIn(0f,1f)).fillMaxHeight().background(Color(0xFFE7C0C5)))
-            }
-            Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            androidx.compose.material3.Slider(
+                value = progress.coerceIn(0f, 1f),
+                onValueChange = { onSeek((it * duration).toLong()) },
+                modifier = Modifier.fillMaxWidth(),
+                colors = androidx.compose.material3.SliderDefaults.colors(
+                    thumbColor = Color(0xFFE7C0C5),
+                    activeTrackColor = Color(0xFFE7C0C5),
+                    inactiveTrackColor = Color.White.copy(.10f),
+                ),
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(formatTime(position), color = Color.White.copy(.35f), fontSize = 10.sp)
                 Text(formatTime(duration), color = Color.White.copy(.35f), fontSize = 10.sp)
             }
