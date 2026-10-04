@@ -37,6 +37,12 @@ class NetworkSwitcherBridge(private val context: Context) {
     fun openSamsungBandSelection(): String =
         withService { it.openSamsungBandSelection() }
 
+    fun setThermalStatusOverride(status: Int): String =
+        withService { it.setThermalStatusOverride(status) }
+
+    fun resetThermalStatus(): String =
+        withService { it.resetThermalStatus() }
+
     private fun withService(operation: (INetworkModeService) -> String): String {
         ShizukuHealthMonitor.install()
         when (ShizukuHealthMonitor.refresh()) {
