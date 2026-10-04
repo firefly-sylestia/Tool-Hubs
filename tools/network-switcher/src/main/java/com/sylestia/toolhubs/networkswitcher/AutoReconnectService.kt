@@ -125,9 +125,9 @@ class AutoReconnectService : Service() {
     @Volatile private var currentLabel: String = "Unknown"
 
     /**
-     * Retry state is only ever mutated on the watcher thread. Anything arriving from the main
-     * thread (start/resume, a recovered Shizuku) raises this flag instead of writing the fields
-     * directly, which keeps the loop free of locking.
+     * Retry state is only ever mutated on the watcher thread. Explicit lifecycle actions from
+     * the main thread (start/resume) raise this flag instead of writing the fields directly, which
+     * keeps the loop free of locking. Environment recovery does not reset retry state.
      */
     @Volatile private var resetRequested = false
     @Volatile private var resetReason = "Recovery armed"
@@ -148,7 +148,12 @@ class AutoReconnectService : Service() {
     private var lastShizukuHealth: ShizukuHealth? = null
 
     private val healthListener: (ShizukuHealth) -> Unit = { health ->
-        if (health == ShizukuHealth.READY) requestReset("Shizuku ready · recovery armed")
+        // Becoming ready must never clear an existing retry/cooldown deadline. The
+        // watcher will continue from the persisted deadline on its next tick.
+        if (health == ShizukuHealth.READY) {
+            publishState(currentLabel, "Shizuku ready · monitoring continues")
+            updateNotification("Shizuku ready · monitoring continues")
+        }
     }
 
     private fun prefs() = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -183,12 +188,24 @@ class AutoReconnectService : Service() {
         }
         when (intent?.action) {
             ACTION_START -> {
+                val wasEnabled = prefs().getBoolean(PREF_AUTO_ENABLED, false)
+                val wasPaused = prefs().getBoolean(PREF_PAUSED, false)
+
                 prefs().edit().putBoolean(PREF_AUTO_ENABLED, true).apply()
                 reloadSettings()
                 createRadioWatcher()
                 paused = false
                 prefs().edit().putBoolean(PREF_PAUSED, false).apply()
-                requestReset("Background watcher started")
+
+                // Starting an already-enabled watcher is an idempotent lifecycle/settings
+                // refresh. It must not erase a retry deadline that is already cooling down.
+                // A genuinely new enable is still allowed to arm a fresh recovery cycle.
+                if (!wasEnabled) {
+                    requestReset("Background watcher started")
+                } else if (wasPaused) {
+                    recordHistory(currentLabel, "Background watcher resumed", "system")
+                }
+
                 publishState(currentNetworkLabel(), "Background watcher started")
             }
 
@@ -256,7 +273,18 @@ class AutoReconnectService : Service() {
         val nowElapsed = SystemClock.elapsedRealtime()
         val nowWall = System.currentTimeMillis()
         val persistedWall = prefs.getLong(PREF_NEXT_ATTEMPT_WALL, 0L)
-        val remaining = if (persistedWall > nowWall) persistedWall - nowWall else 0L
+
+        // Never shorten a live in-memory deadline during a settings/lifecycle refresh.
+        // This matters when ACTION_START is used to apply a setting while the watcher is
+        // already cooling down: the persisted value may still lag behind the watcher by a
+        // small amount because SharedPreferences.apply() is asynchronous.
+        val inMemoryWall = if (nextAttemptAt > nowElapsed) {
+            nowWall + (nextAttemptAt - nowElapsed)
+        } else {
+            0L
+        }
+        val effectiveWall = maxOf(persistedWall, inMemoryWall)
+        val remaining = if (effectiveWall > nowWall) effectiveWall - nowWall else 0L
         nextAttemptAt = if (remaining <= 0L) 0L else nowElapsed + remaining.coerceAtMost(MAX_BACKOFF_MS)
 
         consecutiveFailures = prefs.getInt(PREF_FAILURE_STREAK, 0)
@@ -342,9 +370,8 @@ class AutoReconnectService : Service() {
 
         if (health == ShizukuHealth.READY) {
             if (previous != ShizukuHealth.READY) {
-                // Routed through the same request flag the binder listener uses, so the two paths
-                // cannot double-log the same recovery.
-                requestReset("Shizuku ready · recovery armed")
+                // Shizuku recovery is an environment event, not a manual retry. Never clear
+                // an active retry/cooldown deadline just because the privileged bridge returned.
                 publishState(currentLabel, "Shizuku ready · monitoring continues")
                 updateNotification("Shizuku ready · monitoring continues")
             }

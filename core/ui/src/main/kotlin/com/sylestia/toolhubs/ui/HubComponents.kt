@@ -22,6 +22,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -236,12 +238,7 @@ fun HubIconChip(icon: ImageVector, modifier: Modifier = Modifier, accent: Color 
             .size(48.dp)
             .shadow(10.dp, RoundedCornerShape(17.dp), clip = false, ambientColor = accents.shadow, spotColor = accents.shadow)
             .clip(RoundedCornerShape(17.dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(accent.copy(alpha = 0.24f), accents.glassTop.copy(alpha = 0.85f))
-                )
-            )
-            .border(1.dp, accents.hairline, RoundedCornerShape(17.dp)),
+            .background(accent.copy(alpha = 0.22f)),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(23.dp))
@@ -272,8 +269,7 @@ fun HubGlassCard(
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .shadow(elevation, shape, clip = false, ambientColor = accents.shadow, spotColor = accents.shadow)
             .clip(shape)
-            .background(Brush.verticalGradient(listOf(accents.glassTop, accents.glassBottom)))
-            .border(1.dp, accents.hairline.copy(alpha = 0.75f), shape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .then(
                 if (onClick != null) {
                     Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick)
@@ -313,7 +309,7 @@ fun HubScreenHeader(kicker: String, title: String, modifier: Modifier = Modifier
 /** Original berry/cream metric tile. Unchanged so the other tools render exactly as before. */
 @Composable
 fun HubMetricTile(label: String, value: String, accent: Color, modifier: Modifier = Modifier) {
-    Surface(modifier, shape = RoundedCornerShape(20.dp), color = accent.copy(alpha = .10f)) {
+    Surface(modifier, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
         Column(Modifier.padding(14.dp)) {
             Text(value, color = accent, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
             Text(label.uppercase(), color = CurioInk.copy(alpha = .65f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
@@ -327,8 +323,7 @@ fun HubStatTile(label: String, value: String, accent: Color, modifier: Modifier 
     Column(
         modifier
             .clip(RoundedCornerShape(20.dp))
-            .background(accent.copy(alpha = 0.10f))
-            .border(1.dp, accent.copy(alpha = 0.22f), RoundedCornerShape(20.dp))
+            .background(accent.copy(alpha = 0.18f))
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Text(value, color = accent, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
@@ -350,8 +345,7 @@ fun HubPill(label: String, active: Boolean, accent: Color = MaterialTheme.colorS
     Row(
         modifier
             .clip(RoundedCornerShape(11.dp))
-            .background(tint.copy(alpha = if (active) 0.16f else 0.08f))
-            .border(1.dp, tint.copy(alpha = if (active) 0.36f else 0.18f), RoundedCornerShape(11.dp))
+            .background(tint.copy(alpha = if (active) 0.22f else 0.14f))
             .padding(horizontal = 10.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -417,8 +411,7 @@ fun HubPrimaryButton(
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .shadow(14.dp, RoundedCornerShape(20.dp), clip = false, ambientColor = accents.shadow, spotColor = accents.shadow)
             .clip(RoundedCornerShape(20.dp))
-            .background(Brush.horizontalGradient(listOf(start, end)))
-            .border(1.dp, Color.White.copy(alpha = if (enabled) 0.30f else 0.12f), RoundedCornerShape(20.dp))
+            .background(if (enabled) start else MaterialTheme.colorScheme.surfaceVariant)
             .clickable(interactionSource = interaction, indication = null, enabled = enabled && !loading, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -469,8 +462,7 @@ fun HubQuietButton(
         modifier
             .clip(RoundedCornerShape(16.dp))
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .background(MaterialTheme.colorScheme.surfaceContainer)
-            .border(1.dp, accents.hairline.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .clickable(interactionSource = interaction, indication = null, enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -505,7 +497,7 @@ fun HubSegmented(
         options.forEachIndexed { index, label ->
             val selected = index == selectedIndex
             val fill by animateColorAsState(
-                if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+        if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
                 tween(260, easing = FastOutSlowInEasing),
                 label = "seg_fill",
             )
@@ -641,8 +633,8 @@ fun HubBottomNav(
                 .height(74.dp)
                 .shadow(20.dp, shape, clip = false, ambientColor = accents.shadow, spotColor = accents.shadow)
                 .clip(shape)
-                .background(Brush.verticalGradient(listOf(accents.glassTop, accents.glassBottom)))
-                .border(1.dp, accents.hairline.copy(alpha = 0.8f), shape)
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
                 .padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -660,10 +652,12 @@ fun HubBottomNav(
 
 @Composable
 private fun RowScope.HubNavButton(item: HubNavItem, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val haptic = LocalHapticFeedback.current
     val scale by animateFloatAsState(if (selected) 1f else 0.93f, spring(dampingRatio = 0.6f, stiffness = 620f), label = "nav_scale")
     val lift by animateDpAsState(if (selected) 0.dp else 2.dp, spring(dampingRatio = 0.65f, stiffness = 650f), label = "nav_lift")
+    val safeLift = lift.coerceAtLeast(0.dp)
     val fill by animateColorAsState(
-        if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+        if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
         tween(280),
         label = "nav_fill",
     )
@@ -677,10 +671,13 @@ private fun RowScope.HubNavButton(item: HubNavItem, selected: Boolean, onClick: 
         modifier
             .fillMaxHeight()
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .padding(top = lift)
+            .padding(top = safeLift)
             .clip(RoundedCornerShape(18.dp))
             .background(fill)
-            .clickable(onClick = onClick),
+            .clickable {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onClick()
+            },
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
