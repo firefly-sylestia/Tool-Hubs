@@ -67,7 +67,23 @@ jobs:
       - name: Build release APK
         env:
           GRADLE_OPTS: -Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
-        run: gradle ${{ matrix.task }} --stacktrace --no-daemon
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            mkdir -p .ci
+            echo "$KEYSTORE_BASE64" | base64 -d > .ci/release.keystore
+            export RELEASE_KEYSTORE_PATH=.ci/release.keystore
+            export RELEASE_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD"
+            export RELEASE_KEY_ALIAS="$KEY_ALIAS"
+            export RELEASE_KEY_PASSWORD="$KEY_PASSWORD"
+            echo "Signing with the release keystore from repository secrets."
+          else
+            echo "KEYSTORE_BASE64 is not set; falling back to the debug signing key."
+          fi
+          gradle ${{ matrix.task }} --stacktrace --no-daemon
 
       - name: Upload downloadable release APK
         if: success()

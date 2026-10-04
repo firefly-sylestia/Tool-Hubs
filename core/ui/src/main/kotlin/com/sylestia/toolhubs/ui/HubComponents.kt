@@ -672,6 +672,7 @@ private fun RowScope.HubNavButton(item: HubNavItem, selected: Boolean, onClick: 
         tween(280),
         label = "nav_tint",
     )
+    val iconSize by animateDpAsState(if (selected) 24.dp else 20.dp, spring(dampingRatio = 0.55f, stiffness = 640f), label = "nav_icon")
 
     Box(
         modifier
@@ -684,7 +685,7 @@ private fun RowScope.HubNavButton(item: HubNavItem, selected: Boolean, onClick: 
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Icon(item.icon, contentDescription = item.label, tint = tint, modifier = Modifier.size(21.dp))
+            Icon(item.icon, contentDescription = item.label, tint = tint, modifier = Modifier.size(iconSize))
             AnimatedVisibility(
                 visible = selected,
                 enter = fadeIn(tween(140)) + expandVertically(tween(180)),
