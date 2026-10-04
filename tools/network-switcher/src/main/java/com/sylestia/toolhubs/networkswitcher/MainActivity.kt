@@ -696,8 +696,16 @@ private fun WatchPage(
                         onClick = {
                             scope.launch {
                                 message = withContext(Dispatchers.IO) {
-                                    runCatching { NetworkSwitcherBridge(context).setThermalStatusOverride(0) }
-                                        .getOrElse { "Thermal override failed: " + it.javaClass.simpleName }
+                                    runCatching {
+                                        val bridge = NetworkSwitcherBridge(context)
+                                        val thermal = bridge.setThermalStatusOverride(0)
+                                        if (thermal.startsWith("Thermal service rejected") || thermal.startsWith("Thermal service failed")) {
+                                            thermal
+                                        } else {
+                                            val recovery = bridge.reconnect5G()
+                                            "Thermal status forced to 0 · 5G re-selection: $recovery"
+                                        }
+                                    }.getOrElse { "Thermal override failed: " + it.javaClass.simpleName }
                                 }
                             }
                         },
