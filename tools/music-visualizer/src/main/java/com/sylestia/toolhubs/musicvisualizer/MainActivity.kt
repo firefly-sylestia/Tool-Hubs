@@ -462,7 +462,7 @@ private fun MusicFilterDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(
-                    "Ignore clips shorter than \${localSeconds.toInt()} seconds.",
+                    "Ignore clips shorter than ${localSeconds.toInt()} seconds.",
                     color = Color.White.copy(.72f),
                     fontSize = 13.sp,
                 )
