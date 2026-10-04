@@ -55,6 +55,32 @@ class NetworkModeService(private val context: Context) : INetworkModeService.Stu
             "Band selection launch failed: " + t.javaClass.simpleName + ": " + (t.message ?: "unknown error")
         }
     }
+    override fun setThermalStatusOverride(status: Int): String {
+        if (status < 0 || status > 6) return "Invalid thermal status: $status"
+        return runThermalCommand("override-status", status.toString())
+    }
+
+    override fun resetThermalStatus(): String =
+        runThermalCommand("reset")
+
+    private fun runThermalCommand(vararg args: String): String {
+        return try {
+            val command = mutableListOf("cmd", "thermalservice")
+            command.addAll(args)
+            val process = ProcessBuilder(command)
+                .redirectErrorStream(true)
+                .start()
+            val output = process.inputStream.bufferedReader().use { it.readText().trim() }
+            if (process.waitFor() == 0) {
+                if (output.isBlank()) "Thermal service command applied." else output
+            } else {
+                "Thermal service rejected command: " + (output.ifBlank { "unknown error" })
+            }
+        } catch (t: Throwable) {
+            "Thermal service failed: ${t.javaClass.simpleName}: ${t.message ?: "unknown error"}"
+        }
+    }
+
     override fun switchDefaultDataSubscription(subscriptionId: Int): String {
         if (subscriptionId < 0) return "No eligible SIM selected."
         return try {
