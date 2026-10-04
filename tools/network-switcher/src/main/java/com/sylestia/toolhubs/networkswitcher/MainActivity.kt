@@ -70,7 +70,6 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Timeline
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Warning
-import androidx.compose.material.ripple.ripple
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -1989,8 +1988,6 @@ private fun TunePage(
 }
 
 @Composable
-
-@Composable
 private fun ThermalActionButton(
     text: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -2021,7 +2018,7 @@ private fun ThermalActionButton(
             .border(1.dp, borderColor, RoundedCornerShape(18.dp))
             .clickable(
                 interactionSource = interactionSource,
-                indication = ripple(bounded = true),
+                indication = null,
             ) {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 onClick()
@@ -2036,6 +2033,7 @@ private fun ThermalActionButton(
     }
 }
 
+@Composable
 private fun SimChip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     FilterChip(
         selected = selected,
