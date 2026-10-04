@@ -29,6 +29,9 @@ jobs:
           - name: music-analyzer
             task: :tools:music-analyzer:assembleRelease
             apk: tools/music-analyzer/build/outputs/apk/release/*.apk
+          - name: music-visualizer
+            task: :tools:music-visualizer:assembleRelease
+            apk: tools/music-visualizer/build/outputs/apk/release/*.apk
           - name: network-switcher
             task: :tools:network-switcher:assembleRelease
             apk: tools/network-switcher/build/outputs/apk/release/*.apk
