@@ -606,134 +606,230 @@ private fun PulseCanvas(frame: PulseFrame, time: Float) {
         val cx = size.width / 2f
         val cy = size.height / 2f
         val shortest = min(size.width, size.height)
-        val inner = shortest * .035f
-        val outer = shortest * .66f
-        val sectors = 28
-        val rings = 9
-        val dots = 22
+
+        // The pattern is deliberately one continuous geometric system:
+        // fixed topology, continuously deformed by music, rotation and radial flow.
+        // It should feel closer to an animated rangoli/mandala than a particle spiral.
+        val symmetry = 16
+        val layers = 8
+        val inner = shortest * .045f
+        val outer = shortest * .69f
+        val step = 2f * PI.toFloat() / symmetry
 
         drawRect(Color.Black)
 
-        val rotation = time * (0.42f + frame.energy * 1.15f) + sin(time * .11f) * .28f
-        val beatRetract = 1f - frame.beat * .16f
-        val breathing = 1f + sin(time * .72f) * .045f
-        val bassPush = frame.bass * .22f
-        val energyLift = frame.energy * .10f
+        val audioLift = frame.energy * .12f + frame.bass * .10f
+        val beatScale = 1f - frame.beat * .075f
+        val breathing = 1f + sin(time * .58f) * .025f
+        val rotation = time * .075f +
+            sin(time * .17f) * .10f +
+            frame.energy * time * .055f
 
-        drawCircle(
-            Color(0xFF020202),
-            radius = inner * (2.7f + frame.beat * 2.0f),
-            center = Offset(cx, cy),
-        )
+        fun radius(t: Float, layer: Int, sector: Int): Float {
+            val band = frame.bands[(layer * 9 + sector * 3) % frame.bands.size]
+            val harmonic = sin(
+                sector * .82f +
+                    layer * .73f +
+                    time * .72f -
+                    t * 4.8f
+            )
+            val fine = cos(
+                sector * 1.71f -
+                    layer * .41f +
+                    time * .43f +
+                    t * 8.0f
+            )
+            val audioShape = band * (.035f + t * .055f)
+            return (inner + (outer - inner) * t) *
+                beatScale * breathing *
+                (1f + harmonic * (.018f + audioShape) + fine * (.010f + band * .018f) + audioLift * t)
+        }
 
-        for (sector in 0 until sectors) {
-            val sectorAngle = sector.toFloat() / sectors * 2f * PI.toFloat() + rotation
-            val sectorBand = frame.bands[(sector * 2) % frame.bands.size]
+        fun point(angle: Float, r: Float): Offset =
+            Offset(cx + cos(angle) * r, cy + sin(angle) * r)
 
-            for (ring in 0 until rings) {
-                val ringT = ring.toFloat() / (rings - 1)
-                val baseR = inner + (outer - inner) * ringT
-                val band = frame.bands[(sector * 5 + ring * 7) % frame.bands.size]
-                val radialWave = sin(time * 1.25f + ring * .9f + sector * .31f)
-                val pulseWave = sin(time * 2.0f - ring * .55f + sector * .19f)
-                val outwardFlow = sin(time * 2.35f - ringT * 10.5f + sector * .17f)
-                val radialScale = beatRetract *
-                    breathing *
-                    (1f + bassPush * ringT + energyLift * ringT) *
-                    (1f + radialWave * (.055f + band * .06f) + pulseWave * .025f + outwardFlow * (.035f + band * .075f) * ringT)
+        // Slow concentric geometric rings. Their topology never changes; only their
+        // vertices breathe, rotate and travel through the audio field.
+        for (layer in 0 until layers) {
+            val t = layer.toFloat() / (layers - 1)
+            val path = Path()
+            val samples = symmetry * 8
 
-                val radius = baseR * radialScale
-                val points = dots - ring / 2
+            for (i in 0..samples) {
+                val u = i.toFloat() / samples
+                val angle = rotation + u * 2f * PI.toFloat()
+                val ringWave = sin(
+                    u * symmetry * 2f * PI.toFloat() +
+                        time * (0.75f + layer * .035f)
+                )
+                val r = radius(t, layer, i % symmetry) *
+                    (1f + ringWave * (.012f + frame.energy * .022f) * (0.35f + t))
 
-                for (dot in 0 until points) {
-                    val dotT = dot.toFloat() / max(1, points - 1)
-                    val wave = sin(dotT * PI.toFloat() * 2.0f + time * 1.55f + ring * .7f + sector * .27f)
-                    val wave2 = cos(dotT * PI.toFloat() * 3.0f - time * 1.05f + sector * .41f)
-                    val angularWarp = wave * (.11f + band * .16f) + wave2 * .035f
-                    val angle = sectorAngle +
-                        (dotT - .5f) * (.18f + ringT * .42f) +
-                        angularWarp +
-                        sin(time * .45f + ring * .6f) * .025f
-
-                    val r = radius + wave2 * (6f + band * 13f) + dotT * 4f
-                    val x = cx + cos(angle) * r
-                    val y = cy + sin(angle) * r
-
-                    val dotSize = (0.65f + band * 1.7f) *
-                        (1f + frame.energy * .55f) *
-                        (1f + frame.beat * .9f) *
-                        (0.75f + dotT * .55f)
-
-                    val warm = Color(
-                        red = .79f + band * .18f,
-                        green = .68f + band * .15f,
-                        blue = .67f + band * .15f,
-                        alpha = .30f + frame.energy * .34f,
-                    )
-
-                    drawCircle(
-                        color = warm,
-                        radius = dotSize,
-                        center = Offset(x, y),
-                    )
-
-                    if (ring % 2 == 0 && dot % 2 == 0) {
-                        val echoR = r + 5f + band * 7f
-                        val echoA = angle + .018f
-                        drawCircle(
-                            color = warm.copy(alpha = .15f + frame.energy * .14f),
-                            radius = dotSize * .62f,
-                            center = Offset(
-                                cx + cos(echoA) * echoR,
-                                cy + sin(echoA) * echoR,
-                            ),
-                        )
-                    }
-                }
+                val p = point(angle, r)
+                if (i == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
             }
 
-            val petal = Path()
-            val petalSamples = 18
-            for (i in 0 until petalSamples) {
-                val t = i.toFloat() / (petalSamples - 1)
-                val r = inner * 2.0f + (outer * .92f) * t * beatRetract
-                val petalWave = sin(t * PI.toFloat() * 3.0f + time * 1.35f + sector * .22f)
-                val a = sectorAngle +
-                    petalWave * (.10f + sectorBand * .10f) +
-                    sin(t * PI.toFloat() * 2f + time * .55f) * .025f
-                val x = cx + cos(a) * r
-                val y = cy + sin(a) * r
-                if (i == 0) petal.moveTo(x, y) else petal.lineTo(x, y)
-            }
+            val alpha = .13f + frame.energy * .12f + (1f - t) * .035f
             drawPath(
-                petal,
-                Color(0xFFD7BFC0).copy(alpha = .07f + sectorBand * .12f),
-                style = Stroke(width = 1.1f + sectorBand * 1.3f, cap = StrokeCap.Round),
+                path,
+                Color(0xFFE4C8CA).copy(alpha = alpha),
+                style = Stroke(width = 1.0f + (1f - t) * .65f),
             )
         }
 
-        for (ring in 0 until 4) {
-            val r = inner * (3.0f + ring * 2.2f) * (1f - frame.beat * .07f)
-            drawCircle(
-                color = Color(0xFFE5CCCD).copy(alpha = .045f + frame.energy * .045f),
-                radius = r,
-                center = Offset(cx, cy),
-                style = Stroke(width = 1.2f),
+        // Rangoli-style petals: each petal is a closed, curved geometric unit.
+        // Adjacent units touch, so the eye reads one continuous ornamental pattern.
+        for (sector in 0 until symmetry) {
+            val centerAngle = rotation + sector * step
+            val band = frame.bands[(sector * 4) % frame.bands.size]
+            val audioWarp = band * (.025f + frame.bass * .035f)
+
+            for (layer in 0 until layers - 1) {
+                val a0 = centerAngle - step * .46f
+                val a1 = centerAngle - step * .08f
+                val a2 = centerAngle + step * .08f
+                val a3 = centerAngle + step * .46f
+                val r0 = radius(layer.toFloat() / (layers - 1), layer, sector)
+                val r1 = radius((layer + .52f) / (layers - 1), layer, sector)
+                    * (1f + audioWarp)
+                val r2 = radius((layer + 1f) / (layers - 1), layer + 1, sector)
+
+                val p0 = point(a0, r0)
+                val p1 = point(a1, r1)
+                val p2 = point(a2, r1)
+                val p3 = point(a3, r0)
+                val tip = point(centerAngle, r2)
+                val innerTip = point(centerAngle, max(inner * .72f, r1 * .56f))
+
+                val petal = Path().apply {
+                    moveTo(p0.x, p0.y)
+                    quadraticBezierTo(
+                        tip.x, tip.y,
+                        p3.x, p3.y,
+                    )
+                    quadraticBezierTo(
+                        innerTip.x, innerTip.y,
+                        p0.x, p0.y,
+                    )
+                    close()
+                }
+
+                drawPath(
+                    petal,
+                    Color(0xFFE6CCCE).copy(
+                        alpha = .075f + band * .085f + frame.energy * .025f
+                    ),
+                    style = Stroke(width = 1.0f + band * 1.05f),
+                )
+
+                // Inner split makes the petal read as ornamental geometry rather than
+                // a simple loop or spiral.
+                val spine = Path().apply {
+                    moveTo(p1.x, p1.y)
+                    quadraticBezierTo(innerTip.x, innerTip.y, p2.x, p2.y)
+                }
+                drawPath(
+                    spine,
+                    Color(0xFFEBD6D7).copy(alpha = .07f + band * .07f),
+                    style = Stroke(width = .75f),
+                )
+            }
+        }
+
+        // Interlocking diamond lattice between the petals.
+        for (layer in 1 until layers) {
+            val t = layer.toFloat() / layers
+            val r = inner + (outer - inner) * t
+            val offset = step * .5f
+            val lattice = Path()
+
+            for (sector in 0 until symmetry) {
+                val a = rotation + sector * step + offset
+                val band = frame.bands[(sector * 5 + layer * 11) % frame.bands.size]
+                val wobble = sin(
+                    time * .9f +
+                        sector * .55f +
+                        layer * .8f
+                ) * (2.5f + band * 7f)
+
+                val rIn = r * .91f + wobble
+                val rOut = r * 1.045f + wobble * .45f
+                val left = point(a - step * .30f, rIn)
+                val top = point(a, rOut)
+                val right = point(a + step * .30f, rIn)
+
+                if (sector == 0) lattice.moveTo(left.x, left.y) else lattice.lineTo(left.x, left.y)
+                lattice.lineTo(top.x, top.y)
+                lattice.lineTo(right.x, right.y)
+            }
+
+            drawPath(
+                lattice,
+                Color(0xFFDCC3C5).copy(alpha = .055f + frame.energy * .055f),
+                style = Stroke(width = .85f + frame.bass * .45f),
             )
         }
 
+        // Four slow "flower" layers in opposite directions give the pattern depth
+        // without turning the whole thing into a vortex.
+        for (flower in 0 until 4) {
+            val t = flower / 4f
+            val r = inner * (3.0f + flower * 2.65f)
+            val flowerRotation = rotation * (if (flower % 2 == 0) 1f else -0.72f) +
+                flower * step * .5f
+            val path = Path()
+            val petals = 8 + flower * 2
+            val samples = petals * 12
+
+            for (i in 0..samples) {
+                val u = i.toFloat() / samples
+                val a = flowerRotation + u * 2f * PI.toFloat()
+                val petalWave = abs(sin(a * petals * .5f)) .pow(.62f)
+                val rr = r * (0.76f + petalWave * .34f) *
+                    (1f + frame.bass * .045f + sin(time * .7f + flower) * .018f)
+                val p = point(a, rr)
+                if (i == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
+            }
+
+            drawPath(
+                path,
+                Color(0xFFE8D0D2).copy(alpha = .055f + (1f - t) * .025f),
+                style = Stroke(width = 1.0f),
+            )
+        }
+
+        // Central rangoli jewel and a tiny beat response. The center stays anchored.
+        val corePulse = 1f + frame.beat * .16f + frame.bass * .08f
         drawCircle(
-            Color(0xFFE5C9CA).copy(alpha = .055f + frame.beat * .08f),
-            radius = inner * (2.0f + frame.bass * 2.2f),
+            Color(0xFFE8CFD0).copy(alpha = .065f + frame.energy * .08f),
+            radius = inner * 2.8f * corePulse,
             center = Offset(cx, cy),
         )
         drawCircle(
-            Color.Black.copy(alpha = .92f),
-            radius = inner * (1.25f + frame.beat * .55f),
+            Color.Black.copy(alpha = .93f),
+            radius = inner * 1.42f * (1f - frame.beat * .04f),
             center = Offset(cx, cy),
+        )
+
+        val jewel = Path()
+        for (i in 0 until 8) {
+            val a = rotation * -.35f + i * PI.toFloat() / 4f
+            val r = inner * (1.1f + if (i % 2 == 0) .48f else 0f) * corePulse
+            val p = point(a, r)
+            if (i == 0) jewel.moveTo(p.x, p.y) else jewel.lineTo(p.x, p.y)
+        }
+        jewel.close()
+        drawPath(
+            jewel,
+            Color(0xFFE8D0D2).copy(alpha = .16f + frame.energy * .10f),
+            style = Stroke(width = 1.0f),
         )
     }
 }
+
+private fun Float.pow(value: Float): Float =
+    kotlin.math.exp(kotlin.math.ln(this.coerceAtLeast(.0001f)) * value)
+
 
 
 private fun formatTime(ms: Long): String {
