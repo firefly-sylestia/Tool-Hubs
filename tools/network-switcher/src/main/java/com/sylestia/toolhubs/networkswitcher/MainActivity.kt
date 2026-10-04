@@ -59,11 +59,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Analytics
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.DataUsage
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Timeline
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -76,6 +80,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -85,6 +90,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.center
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -94,6 +102,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -105,6 +114,7 @@ import com.sylestia.toolhubs.ui.HubBottomNav
 import com.sylestia.toolhubs.ui.HubEmptyState
 import com.sylestia.toolhubs.ui.HubGlassCard
 import com.sylestia.toolhubs.ui.HubHairline
+import com.sylestia.toolhubs.ui.HubMeter
 import com.sylestia.toolhubs.ui.HubNavItem
 import com.sylestia.toolhubs.ui.HubPill
 import com.sylestia.toolhubs.ui.HubPrimaryButton
@@ -354,10 +364,10 @@ private fun NetworkApp(
             bottomBar = {
                 HubBottomNav(
                     items = listOf(
-                        HubNavItem(Icons.Rounded.Bolt, "Watch"),
-                        HubNavItem(Icons.Rounded.History, "Events"),
-                        HubNavItem(Icons.Rounded.Analytics, "Data"),
-                        HubNavItem(Icons.Rounded.Settings, "Tune"),
+                        HubNavItem(Icons.Rounded.NetworkCheck, "Watch"),
+                        HubNavItem(Icons.Rounded.Timeline, "Events"),
+                        HubNavItem(Icons.Rounded.DataUsage, "Data"),
+                        HubNavItem(Icons.Rounded.Tune, "Tune"),
                     ),
                     selectedIndex = page,
                     onSelect = {
@@ -818,21 +828,64 @@ private fun RadioOrb(network: String, accent: Color) {
                     fontSize = 19.sp,
                     fontWeight = FontWeight.Black,
                 )
-                Text(
-                    "RADIO",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.3.sp,
-                )
+                Spacer(Modifier.height(5.dp))
+                SignalBars(active = activeBars(network), accent = tint)
             }
+        }
+    }
+}
+
+/** How many of the five signal bars light up for a given network label. */
+private fun activeBars(network: String): Int = when (network) {
+    "5G" -> 5
+    "4G / LTE" -> 3
+    "3G" -> 2
+    "2G" -> 1
+    else -> 0
+}
+
+/**
+ * Five animated signal bars that ramp with the radio generation.
+ *
+ * The active bars shimmer with a left-to-right falloff, so the orb reads as a live radio rather than
+ * a static badge: five bars for 5G, three for LTE, fewer for older radios.
+ */
+@Composable
+private fun SignalBars(active: Int, accent: Color, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "signal_bars")
+    val shimmer by transition.animateFloat(
+        0f,
+        1f,
+        infiniteRepeatable(tween(1_500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "bar_shimmer",
+    )
+    val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant
+    Canvas(modifier.width(40.dp).height(17.dp)) {
+        val bars = 5
+        val gap = size.width * 0.09f
+        val barWidth = (size.width - gap * (bars - 1)) / bars
+        for (index in 0 until bars) {
+            val isActive = index < active
+            val heightFraction = 0.32f + 0.17f * index
+            val barHeight = size.height * heightFraction
+            val intensity = if (isActive) {
+                val falloff = 1f - (index.toFloat() / (bars - 1)) * 0.45f
+                (0.5f + 0.5f * shimmer * falloff).coerceIn(0f, 1f)
+            } else {
+                0.16f
+            }
+            drawRoundRect(
+                color = if (isActive) accent.copy(alpha = intensity) else inactiveColor.copy(alpha = intensity),
+                topLeft = Offset(index * (barWidth + gap), size.height - barHeight),
+                size = Size(barWidth, barHeight),
+                cornerRadius = CornerRadius(barWidth / 2f),
+            )
         }
     }
 }
 
 @Composable
 private fun TelemetryGlance(context: Context) {
-    val store = remember { MainActivity.store(context) }
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -841,37 +894,47 @@ private fun TelemetryGlance(context: Context) {
         }
     }
     val history = tick.let { readNetworkHistory(context) }
-    val lte = tick.let { store.getLong(NetworkUsageTracker.KEY_LTE_BYTES, 0L) }
-    val fiveG = tick.let { store.getLong(NetworkUsageTracker.KEY_5G_BYTES, 0L) }
-    val peak = tick.let { store.getLong(NetworkUsageTracker.KEY_PEAK_BPS, 0L) }
+    val totals = tick.let { NetworkUsageTracker.readTotals(context) }
 
     Column {
         HubSectionTitle("Telemetry")
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            HubStatTile("Observed 5G", formatBytes(fiveG), MaterialTheme.hubAccents.success, Modifier.weight(1f))
-            HubStatTile("Observed LTE", formatBytes(lte), MaterialTheme.colorScheme.tertiary, Modifier.weight(1f))
+            HubStatTile("5G today", formatBytes(totals.todayFiveG), MaterialTheme.hubAccents.success, Modifier.weight(1f))
+            HubStatTile("LTE today", formatBytes(totals.todayLte), MaterialTheme.colorScheme.tertiary, Modifier.weight(1f))
         }
+        Text(
+            "Resets at midnight · " + formatBytes(totals.lifetimeFiveG + totals.lifetimeLte) + " observed all time",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 10.sp,
+            modifier = Modifier.padding(top = 6.dp, start = 2.dp),
+        )
         Spacer(Modifier.height(10.dp))
         HubGlassCard(contentPadding = 16.dp) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "PEAK SPEED",
+                        "LIVE SPEED",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.3.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        if (peak > 0L) formatSpeed(peak) else "Measuring…",
+                        if (totals.currentBps > 0L) formatSpeed(totals.currentBps) else "0 B/s",
                         fontSize = 26.sp,
                         fontWeight = FontWeight.Black,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
+                    Text(
+                        "Today's peak " + (if (totals.todayPeakBps > 0L) formatSpeed(totals.todayPeakBps) else "—"),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
                 HubProgressRing(
-                    progress = if (peak > 0L) (peak / 60_000_000f).coerceIn(0.05f, 1f) else 0.05f,
+                    progress = if (totals.todayPeakBps > 0L) (totals.todayPeakBps / 60_000_000f).coerceIn(0.05f, 1f) else 0.05f,
                     modifier = Modifier.size(46.dp),
                     accent = MaterialTheme.hubAccents.success,
                 )
@@ -1072,6 +1135,10 @@ private fun EventBadge(entry: HistoryEntry) {
             label = "SIM"
             tint = MaterialTheme.colorScheme.tertiary
         }
+        "warning" -> {
+            label = "WARN"
+            tint = MaterialTheme.hubAccents.warning
+        }
         else -> {
             label = entry.network.replace(" / LTE", "").take(4).uppercase(Locale.getDefault())
             tint = MaterialTheme.colorScheme.primary
@@ -1101,12 +1168,12 @@ private fun DataPage(context: Context) {
         }
     }
     val history = tick.let { readNetworkHistory(context) }
-    val lte = tick.let { store.getLong(NetworkUsageTracker.KEY_LTE_BYTES, 0L) }
-    val fiveG = tick.let { store.getLong(NetworkUsageTracker.KEY_5G_BYTES, 0L) }
-    val peak = tick.let { store.getLong(NetworkUsageTracker.KEY_PEAK_BPS, 0L) }
-    val peakAt = store.getLong(NetworkUsageTracker.KEY_PEAK_AT, 0L)
-    val peakNetwork = store.getString(NetworkUsageTracker.KEY_PEAK_NETWORK, "Mobile") ?: "Mobile"
+    val totals = tick.let { NetworkUsageTracker.readTotals(context) }
+    val daily = tick.let { NetworkUsageTracker.dailySeries(context, 7) }
     var billingDay by rememberSaveable { mutableIntStateOf(store.getInt(AutoReconnectService.PREF_BILLING_DAY, 1)) }
+
+    val warningEnabled = store.getBoolean(AutoReconnectService.PREF_LTE_WARNING_ENABLED, false)
+    val warningLimit = store.getLong(AutoReconnectService.PREF_LTE_WARNING_BYTES, 0L)
 
     val sessions = history.sortedBy { it.timestamp }.zipWithNext()
         .map { pair -> pair.first.network to (pair.second.timestamp - pair.first.timestamp).coerceAtLeast(0L) }
@@ -1120,9 +1187,9 @@ private fun DataPage(context: Context) {
     val triggerCount = store.getInt(AutoReconnectService.PREF_TRIGGER_RECOVERY_COUNT, 0)
     val avgRecovery = if (triggerCount == 0) 0L else
         store.getLong(AutoReconnectService.PREF_TRIGGER_RECOVERY_TOTAL_MS, 0L) / triggerCount / 1_000L
-    val weeklyLte = NetworkUsageTracker.totalForLastDays(context, NetworkUsageTracker.KEY_LTE_BYTES, 7)
-    val weekly5G = NetworkUsageTracker.totalForLastDays(context, NetworkUsageTracker.KEY_5G_BYTES, 7)
-    val total = lte + fiveG
+    val weeklyLte = daily.sumOf { it.lte }
+    val weekly5G = daily.sumOf { it.fiveG }
+    val todayTotal = totals.todayLte + totals.todayFiveG
 
     Column(
         Modifier
@@ -1136,7 +1203,7 @@ private fun DataPage(context: Context) {
             HubHeroHeader(
                 kicker = "Usage",
                 title = "Observed traffic",
-                subtitle = "Mobile traffic sampled by the radio state that carried it.",
+                subtitle = "Day-by-day mobile traffic, sampled by the radio that carried it.",
                 icon = Icons.Rounded.Analytics,
             )
         }
@@ -1144,25 +1211,25 @@ private fun DataPage(context: Context) {
         HubReveal(1) {
             HubGlassCard(accent = MaterialTheme.hubAccents.success) {
                 Text(
-                    "5G SHARE",
+                    "TODAY · RESETS AT MIDNIGHT",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.5.sp,
                     color = MaterialTheme.hubAccents.success,
                 )
                 Text(
-                    if (total > 0L) (fiveG * 100L / total).toString() + "%" else "—",
+                    formatBytes(todayTotal),
                     fontSize = 40.sp,
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    formatBytes(fiveG) + " on 5G · " + formatBytes(lte) + " on LTE",
+                    formatBytes(totals.todayFiveG) + " on 5G · " + formatBytes(totals.todayLte) + " on LTE",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                 )
                 Spacer(Modifier.height(14.dp))
-                NetworkSplitBar(lte = lte, fiveG = fiveG)
+                NetworkSplitBar(lte = totals.todayLte, fiveG = totals.todayFiveG)
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -1172,38 +1239,71 @@ private fun DataPage(context: Context) {
         }
         Spacer(Modifier.height(12.dp))
         HubReveal(3) {
-            HubGlassCard(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    "PEAK SPEED RECORDER",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.5.sp,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    if (peak > 0L) formatSpeed(peak) else "No peak recorded yet",
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Black,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                if (peak > 0L) {
-                    Text(
-                        peakNetwork + " · " + formatTimestamp(peakAt),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
+            HubGlassCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "LIVE SPEED",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.5.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            if (totals.currentBps > 0L) formatSpeed(totals.currentBps) else "0 B/s",
+                            fontSize = 30.sp,
+                            fontWeight = FontWeight.Black,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            "Today's peak " + (if (totals.todayPeakBps > 0L) formatSpeed(totals.todayPeakBps) else "—"),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    HubProgressRing(
+                        progress = if (totals.todayPeakBps > 0L) (totals.todayPeakBps / 60_000_000f).coerceIn(0.05f, 1f) else 0.05f,
+                        modifier = Modifier.size(54.dp),
+                        accent = MaterialTheme.hubAccents.success,
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
+                HubHairline()
+                Spacer(Modifier.height(10.dp))
                 Text(
-                    "Measured from successive mobile-traffic samples while the watcher runs.",
+                    if (totals.todayPeakBps > 0L) {
+                        (totals.todayPeakNetwork ?: "Mobile") + " · peak at " + formatTimestamp(totals.todayPeakAt)
+                    } else {
+                        "No peak recorded yet today."
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Measured from successive mobile-traffic samples while the watcher runs; resets each day.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 10.sp,
                 )
             }
         }
         Spacer(Modifier.height(12.dp))
-        HubReveal(4) {
+        HubReveal(4) { LteWarningCard(warningEnabled, warningLimit, totals.todayLte) }
+        Spacer(Modifier.height(12.dp))
+        HubSectionTitle("Last 7 days")
+        Spacer(Modifier.height(8.dp))
+        HubReveal(5) {
+            HubGlassCard(contentPadding = 6.dp) {
+                daily.forEachIndexed { index, day ->
+                    DailyUsageRow(day)
+                    if (index < daily.lastIndex) HubRowDivider(Modifier.padding(horizontal = 14.dp))
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        HubReveal(6) {
             HubGlassCard {
                 Text(
                     "RECOVERY TIMING",
@@ -1273,7 +1373,7 @@ private fun DataPage(context: Context) {
 }
 
 @Composable
-private fun NetworkSplitBar(lte: Long, fiveG: Long) {
+private fun NetworkSplitBar(lte: Long, fiveG: Long, height: Dp = 12.dp, showLegend: Boolean = true) {
     val accents = MaterialTheme.hubAccents
     val total = (lte + fiveG).coerceAtLeast(1L)
     val fraction by animateFloatAsState(
@@ -1285,7 +1385,7 @@ private fun NetworkSplitBar(lte: Long, fiveG: Long) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(12.dp)
+                .height(height)
                 .clip(RoundedCornerShape(50))
                 .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.30f)),
         ) {
@@ -1297,16 +1397,95 @@ private fun NetworkSplitBar(lte: Long, fiveG: Long) {
                     .background(Brush.horizontalGradient(listOf(accents.success, accents.auroraStart))),
             )
         }
-        Spacer(Modifier.height(7.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(8.dp).background(accents.success, CircleShape))
-            Spacer(Modifier.width(6.dp))
-            Text("5G", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(16.dp))
-            Box(Modifier.size(8.dp).background(MaterialTheme.colorScheme.tertiary, CircleShape))
-            Spacer(Modifier.width(6.dp))
-            Text("LTE", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        if (showLegend) {
+            Spacer(Modifier.height(7.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(8.dp).background(accents.success, CircleShape))
+                Spacer(Modifier.width(6.dp))
+                Text("5G", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(16.dp))
+                Box(Modifier.size(8.dp).background(MaterialTheme.colorScheme.tertiary, CircleShape))
+                Spacer(Modifier.width(6.dp))
+                Text("LTE", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
         }
+    }
+}
+
+@Composable
+private fun LteWarningCard(enabled: Boolean, limitBytes: Long, usedToday: Long) {
+    val reached = enabled && limitBytes > 0L && usedToday >= limitBytes
+    val accent = if (reached) MaterialTheme.hubAccents.warning else MaterialTheme.colorScheme.secondary
+    HubGlassCard(accent = accent) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "4G DATA WARNING",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.5.sp,
+                    color = accent,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    when {
+                        !enabled -> "Off"
+                        reached -> "Limit reached today"
+                        else -> "Watching today's LTE usage"
+                    },
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            Icon(Icons.Rounded.Warning, contentDescription = null, tint = accent, modifier = Modifier.size(22.dp))
+        }
+        if (enabled && limitBytes > 0L) {
+            Spacer(Modifier.height(12.dp))
+            HubMeter(fraction = (usedToday.toFloat() / limitBytes).coerceIn(0f, 1f), accent = accent)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                formatBytes(usedToday) + " of " + formatBytes(limitBytes) + " today",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp,
+            )
+        } else {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Set a daily LTE limit in Tune to get a heads-up before you run over.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DailyUsageRow(day: DailyUsage) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                day.label,
+                Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+            )
+            Text(
+                if (day.peakBps > 0L) "peak " + formatSpeed(day.peakBps) else "no peak",
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Spacer(Modifier.height(3.dp))
+        Text(
+            formatBytes(day.fiveG) + " on 5G · " + formatBytes(day.lte) + " on LTE",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp,
+        )
+        Spacer(Modifier.height(7.dp))
+        NetworkSplitBar(lte = day.lte, fiveG = day.fiveG, height = 8.dp, showLegend = false)
     }
 }
 
@@ -1322,6 +1501,7 @@ private fun TunePage(
 ) {
     val store = MainActivity.store(context)
     val sims = remember { context.currentSims() }
+    val watcherOn = store.getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)
 
     var startAfterRestart by rememberSaveable {
         mutableStateOf(store.getBoolean(AutoReconnectService.PREF_START_AFTER_REBOOT, false))
@@ -1343,6 +1523,21 @@ private fun TunePage(
     }
     var maxAttempts by rememberSaveable {
         mutableIntStateOf(store.getInt(AutoReconnectService.PREF_MAX_ATTEMPTS, AutoReconnectService.DEFAULT_MAX_ATTEMPTS).coerceIn(1, 8))
+    }
+    var warningEnabled by rememberSaveable {
+        mutableStateOf(store.getBoolean(AutoReconnectService.PREF_LTE_WARNING_ENABLED, false))
+    }
+    var warningGb by rememberSaveable {
+        mutableFloatStateOf(
+            (store.getLong(AutoReconnectService.PREF_LTE_WARNING_BYTES, AutoReconnectService.DEFAULT_LTE_WARNING_BYTES).toFloat() / 1_073_741_824f)
+                .coerceIn(0.5f, 20f)
+        )
+    }
+    var lteFailover by rememberSaveable {
+        mutableStateOf(store.getBoolean(AutoReconnectService.PREF_LTE_FAILOVER_ENABLED, false))
+    }
+    var lteFailoverSim by rememberSaveable {
+        mutableIntStateOf(store.getInt(AutoReconnectService.PREF_LTE_FAILOVER_TARGET, SubscriptionManager.INVALID_SUBSCRIPTION_ID))
     }
 
     fun refreshWatcher() {
@@ -1558,6 +1753,103 @@ private fun TunePage(
         Spacer(Modifier.height(12.dp))
 
         HubReveal(5) {
+            HubGlassCard {
+                Text("Data guard", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text(
+                    "Watch today's observed 4G traffic and act before you run over.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
+                Spacer(Modifier.height(10.dp))
+                HubToggleRow(
+                    title = "Warn when 4G reaches a daily limit",
+                    subtitle = "One notification a day, the first time today's LTE traffic crosses the limit.",
+                    checked = warningEnabled,
+                    onCheckedChange = { enabled ->
+                        warningEnabled = enabled
+                        val editor = store.edit().putBoolean(AutoReconnectService.PREF_LTE_WARNING_ENABLED, enabled)
+                        if (enabled && store.getLong(AutoReconnectService.PREF_LTE_WARNING_BYTES, 0L) <= 0L) {
+                            // Seed the default so the switch works even if the slider is never touched.
+                            editor.putLong(AutoReconnectService.PREF_LTE_WARNING_BYTES, (warningGb * 1_073_741_824f).toLong())
+                        }
+                        editor.apply()
+                        refreshWatcher()
+                    },
+                )
+                if (warningEnabled && !watcherOn) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Turn on “Automatic 5G reconnect” on the Watch tab so the limit can be checked while the app is closed.",
+                        color = MaterialTheme.hubAccents.warning,
+                        fontSize = 11.sp,
+                    )
+                }
+                if (warningEnabled) {
+                    HubSliderRow(
+                        title = "Daily 4G limit",
+                        valueLabel = String.format(Locale.getDefault(), "%.1f GB", warningGb),
+                        value = warningGb,
+                        range = 0.5f..20f,
+                        steps = 38,
+                        onValueChange = { warningGb = it },
+                        onValueChangeFinished = {
+                            store.edit().putLong(
+                                AutoReconnectService.PREF_LTE_WARNING_BYTES,
+                                (warningGb * 1_073_741_824f).toLong(),
+                            ).apply()
+                            refreshWatcher()
+                        },
+                    )
+                }
+                if (sims.size >= 2) {
+                    Spacer(Modifier.height(6.dp))
+                    HubHairline()
+                    Spacer(Modifier.height(10.dp))
+                    HubToggleRow(
+                        title = "Use a backup SIM while on 4G",
+                        subtitle = "Move mobile data to the backup SIM during an LTE fallback, then back once 5G returns.",
+                        checked = lteFailover,
+                        onCheckedChange = { enabled ->
+                            lteFailover = enabled
+                            store.edit().putBoolean(AutoReconnectService.PREF_LTE_FAILOVER_ENABLED, enabled).apply()
+                            refreshWatcher()
+                        },
+                    )
+                    if (lteFailover) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            if (selectedSim != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                                "Backup SIM"
+                            } else {
+                                "Pick a SIM to monitor above first"
+                            },
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(Modifier.height(7.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                            sims.filter { it.id != selectedSim }.forEach { sim ->
+                                SimChip(
+                                    label = sim.label,
+                                    selected = sim.id == lteFailoverSim,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
+                                        lteFailoverSim = sim.id
+                                        store.edit().putInt(AutoReconnectService.PREF_LTE_FAILOVER_TARGET, sim.id).apply()
+                                        refreshWatcher()
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        HubReveal(6) {
             HubGlassCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {

@@ -1,6 +1,68 @@
 # Tool Hubs delivery checklist
 
-## 5G Reconnect (network-switcher) — this pass
+## Data accuracy, warnings & SIM failover — latest pass
+
+### Observed traffic & speed
+- [x] The dashboard reads *today's* bucket instead of the lifetime total, so the 4G/5G figures reset
+      at midnight and tomorrow starts from zero.
+- [x] Per-day buckets (`usage_lte_bytes:<yyyy-MM-dd>`) are surfaced as a 7-day history, each row
+      carrying that day's traffic split and peak speed.
+- [x] Peak speed is tracked per day (`usage_peak_bps:<day>`) and a live speed sample
+      (`usage_current_bps`) is recorded alongside it, so the peak no longer climbs forever.
+- [x] Cross-session over-count fixed: `TrafficStats` keeps counting while the watcher is stopped, so
+      restoring the previous session's counter dumped every byte used while the app was off onto the
+      last radio label. Baselines are now session-local and a delta is only attributed between two
+      consecutive samples of the same session.
+- [x] Bytes observed while the network is unknown are still dropped rather than assigned to 4G or 5G.
+
+### 4G data warning
+- [x] New "Data guard" settings card: enable a daily LTE limit and set the threshold in GB.
+- [x] The watcher posts a dedicated "Data warnings" notification once per day, the first time today's
+      observed LTE traffic crosses the limit, and records a `warning` history event.
+- [x] The Data page shows a live progress meter against the limit.
+
+### RAT-driven SIM failover
+- [x] New option: while the monitored SIM is on LTE, move mobile data to a backup SIM; when the
+      monitored SIM reports 5G again, move it back.
+- [x] A 60-second cooldown plus a persisted ACTIVE flag stop one LTE stretch from firing the switch
+      on every tick. State only flips once the Shizuku command confirms, so a failed attempt simply
+      retries after the cooldown.
+- [x] Kept separate from the existing "no service" SIM failover.
+
+### UI
+- [x] Bottom nav refreshed with clearer icons (`NetworkCheck` / `Timeline` / `DataUsage` / `Tune`) and
+      an icon-size spring on the selected tab.
+- [x] The radio orb now carries five animated signal bars that shimmer and light up per generation —
+      five for 5G, three for LTE — so the LTE/5G state reads at a glance.
+- [x] Data page reorganised: Today card, live speed + daily peak, 4G warning meter and a 7-day history.
+
+### Notifications
+- [x] The ongoing notification no longer goes stale: `publishState()` now writes the status and pushes
+      the *same* text to the tray in one call. Previously some call sites stored a status without
+      notifying (so the tray stayed on "Starting background watcher…") while others notified with a
+      different string than they stored (so the tray contradicted the app).
+- [x] Headline is now explicit about the radio and the watcher: "5G Reconnect · on 5G / on 4G /
+      no service / paused", with a sub-text for background vs manual.
+- [x] Updates are guarded until `startForeground` has run, so the tray never gets a detached copy of
+      the service notification during cold start.
+- [x] Short-lived progress lines (an in-flight attempt, a SIM switch result) update the tray without
+      overwriting the persisted status.
+
+### Packaging
+- [x] Version bumped to `versionCode 3` / `versionName 0.3.0`.
+- [x] Release builds sign with the real keystore when `RELEASE_KEYSTORE_PATH` is present, and fall
+      back to the throwaway debug key otherwise so fork PR builds still work. The workflow decodes
+      the `KEYSTORE_BASE64` secret and exports the signing environment.
+
+## Known platform limitations — data guard
+Documented rather than left as unfinished work:
+- [x] `TrafficStats` is device-wide and is not split by subscription, so the observed 4G/5G split stays
+      an observation. Cross-session gaps are now excluded instead of being inflated.
+- [x] The data warning needs the foreground watcher to be running; the Tune card says so.
+- [x] RAT-driven SIM switching needs Shizuku and a vendor that honours
+      `cmd phone set-default-data-subscription`; the result is recorded either way.
+
+## 5G Reconnect (network-switcher) — previous pass
 
 ### Shizuku detection
 - [x] `ShizukuHealthMonitor.refresh()` is now exception-safe. `Shizuku.checkSelfPermission()` throws
