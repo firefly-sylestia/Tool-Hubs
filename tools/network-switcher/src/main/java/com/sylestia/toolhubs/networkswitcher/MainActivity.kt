@@ -440,18 +440,6 @@ private fun WatchPage(
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
-    var thermalStatus by remember { mutableIntStateOf(PowerManager.THERMAL_STATUS_NONE) }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                thermalStatus = context.getSystemService(PowerManager::class.java)?.currentThermalStatus
-                    ?: PowerManager.THERMAL_STATUS_NONE
-            }
-            delay(2_000)
-        }
-    }
-
     val network = radio?.label ?: snapshot.network
     val live5G = radio?.is5G == true
     val fallback = radio?.isLteFallback == true
@@ -639,100 +627,6 @@ private fun WatchPage(
         }
 
         Spacer(Modifier.height(12.dp))
-        HubReveal(4) {
-            HubGlassCard(accent = MaterialTheme.colorScheme.tertiary) {
-                Text(
-                    "Experimental RF recovery",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Open Samsung's RF band selector. Restricting to a stable 5G band can reduce modem hunting and heat, but this is firmware-dependent.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
-                )
-                Spacer(Modifier.height(10.dp))
-                HubQuietButton(
-                    text = "Open Samsung Band Selection",
-                    icon = Icons.Rounded.Settings,
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        scope.launch {
-                            message = withContext(Dispatchers.IO) {
-                                runCatching { NetworkSwitcherBridge(context).openSamsungBandSelection() }
-                                    .getOrElse { "Band selection failed: " + it.javaClass.simpleName }
-                            }
-                        }
-                    },
-                )
-                Spacer(Modifier.height(7.dp))
-                Text(
-                    "This does not disable thermal protection. If the modem is thermally throttling 5G, the app will continue using its normal recovery path rather than bypassing the protection.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 10.sp,
-                )
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "Thermal service experiment",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Reported thermal status: $thermalStatus",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 10.sp,
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    ThermalActionButton(
-                        text = "Force status 0",
-                        icon = Icons.Rounded.Warning,
-                        modifier = Modifier.weight(1f),
-                        destructive = true,
-                        onClick = {
-                            scope.launch {
-                                message = withContext(Dispatchers.IO) {
-                                    runCatching {
-                                        val bridge = NetworkSwitcherBridge(context)
-                                        val thermal = bridge.setThermalStatusOverride(0)
-                                        if (thermal.startsWith("Thermal service rejected") || thermal.startsWith("Thermal service failed")) {
-                                            thermal
-                                        } else {
-                                            val recovery = bridge.reconnect5G()
-                                            "Thermal status forced to 0 · 5G re-selection: $recovery"
-                                        }
-                                    }.getOrElse { "Thermal override failed: " + it.javaClass.simpleName }
-                                }
-                            }
-                        },
-                    )
-                    ThermalActionButton(
-                        text = "Reset",
-                        icon = Icons.Rounded.Refresh,
-                        modifier = Modifier.weight(1f),
-                        destructive = false,
-                        onClick = {
-                            scope.launch {
-                                message = withContext(Dispatchers.IO) {
-                                    runCatching { NetworkSwitcherBridge(context).resetThermalStatus() }
-                                        .getOrElse { "Thermal reset failed: " + it.javaClass.simpleName }
-                                }
-                            }
-                        },
-                    )
-                }
-                Spacer(Modifier.height(7.dp))
-                Text(
-                    "⚠ Status 0 tells Android that the device is not thermally throttling and locks that reported status until reset. It does NOT cool the modem or remove hardware protection. Use only for controlled testing and press Reset afterward.",
-                    color = MaterialTheme.colorScheme.error,
-                    fontSize = 10.sp,
-                )
-            }
-        }
 
         message?.let { text ->
             Spacer(Modifier.height(12.dp))
