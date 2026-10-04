@@ -38,6 +38,23 @@ class NetworkModeService(private val context: Context) : INetworkModeService.Stu
         }
     }
 
+    override fun openSamsungBandSelection(): String {
+        return try {
+            val process = ProcessBuilder(
+                "am", "broadcast",
+                "-a", "android.provider.Telephony.SECRET_CODE",
+                "-d", "android_secret_code://2263"
+            ).redirectErrorStream(true).start()
+            val output = process.inputStream.bufferedReader().use { it.readText().trim() }
+            if (process.waitFor() == 0) {
+                "Samsung Band Selection opened"
+            } else {
+                "Could not open Samsung Band Selection: " + output
+            }
+        } catch (t: Throwable) {
+            "Band selection launch failed: " + t.javaClass.simpleName + ": " + (t.message ?: "unknown error")
+        }
+    }
     override fun switchDefaultDataSubscription(subscriptionId: Int): String {
         if (subscriptionId < 0) return "No eligible SIM selected."
         return try {
