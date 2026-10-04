@@ -39,21 +39,30 @@ class NetworkModeService(private val context: Context) : INetworkModeService.Stu
     }
 
     override fun openSamsungBandSelection(): String {
-        return try {
-            val process = ProcessBuilder(
-                "am", "broadcast",
-                "-a", "android.provider.Telephony.SECRET_CODE",
-                "-d", "android_secret_code://2263"
-            ).redirectErrorStream(true).start()
-            val output = process.inputStream.bufferedReader().use { it.readText().trim() }
-            if (process.waitFor() == 0) {
-                "Samsung Band Selection opened"
-            } else {
-                "Could not open Samsung Band Selection: " + output
+        val activities = listOf(
+            "com.samsung.android.app.telephonyui/.bandselection.BandSelectionActivity",
+            "com.samsung.android.app.telephonyui/.hiddennetworksetting.MainActivity",
+            "com.samsung.android.app.telephonyui/.hiddennetworksettings.MainActivity",
+        )
+
+        var lastError = "unknown error"
+        for (activity in activities) {
+            try {
+                val process = ProcessBuilder(
+                    "am", "start", "-n", activity
+                ).redirectErrorStream(true).start()
+                val output = process.inputStream.bufferedReader().use { it.readText().trim() }
+                val exit = process.waitFor()
+                if (exit == 0 && !output.contains("Error:", ignoreCase = true)) {
+                    return "Samsung Band Selection opened"
+                }
+                lastError = output.ifBlank { "exit code $exit" }
+            } catch (t: Throwable) {
+                lastError = t.javaClass.simpleName + ": " + (t.message ?: "unknown error")
             }
-        } catch (t: Throwable) {
-            "Band selection launch failed: " + t.javaClass.simpleName + ": " + (t.message ?: "unknown error")
         }
+
+        return "Could not open Samsung Band Selection: $lastError"
     }
     override fun setThermalStatusOverride(status: Int): String {
         if (status < 0 || status > 6) return "Invalid thermal status: $status"
