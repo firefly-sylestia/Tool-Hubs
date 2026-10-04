@@ -690,8 +690,8 @@ private fun PulseCanvas(frame: PulseFrame, time: Float) {
                 val a2 = centerAngle + step * .08f
                 val a3 = centerAngle + step * .46f
                 val r0 = radius(layer.toFloat() / (layers - 1), layer, sector)
-                val r1 = radius((layer + .52f) / (layers - 1), layer, sector)
-                    * (1f + audioWarp)
+                val r1 = radius((layer + .52f) / (layers - 1), layer, sector) *
+                    (1f + audioWarp)
                 val r2 = radius((layer + 1f) / (layers - 1), layer + 1, sector)
 
                 val p0 = point(a0, r0)
