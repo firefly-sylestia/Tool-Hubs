@@ -34,6 +34,9 @@ class NetworkSwitcherBridge(private val context: Context) {
     fun switchDefaultDataSubscription(subscriptionId: Int): String =
         withService { it.switchDefaultDataSubscription(subscriptionId) }
 
+    fun openSamsungBandSelection(): String =
+        withService { it.openSamsungBandSelection() }
+
     private fun withService(operation: (INetworkModeService) -> String): String {
         ShizukuHealthMonitor.install()
         when (ShizukuHealthMonitor.refresh()) {
