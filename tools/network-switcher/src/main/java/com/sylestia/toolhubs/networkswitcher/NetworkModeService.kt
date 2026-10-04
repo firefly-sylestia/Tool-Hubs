@@ -39,13 +39,23 @@ class NetworkModeService(private val context: Context) : INetworkModeService.Stu
     }
 
     override fun openSamsungBandSelection(): String {
-        val activities = listOf(
+        // Samsung has moved/renamed this activity across One UI releases. The
+        // hiddennetworksetting (singular) form is the known path on older firmware,
+        // while newer One UI builds may expose the fully-qualified class name.
+        val knownActivities = listOf(
             "com.samsung.android.app.telephonyui/.bandselection.BandSelectionActivity",
             "com.samsung.android.app.telephonyui/.hiddennetworksetting.MainActivity",
-            "com.samsung.android.app.telephonyui/.hiddennetworksettings.MainActivity",
+            "com.samsung.android.app.telephonyui/com.samsung.android.app.telephonyui.hiddennetworksetting.MainActivity",
         )
 
-        var lastError = "unknown error"
+        // Prefer activities actually present on this phone instead of relying
+        // on a hard-coded Samsung component name.
+        val discoveredActivities = discoverSamsungBandSelectionActivities()
+
+        val activities = (discoveredActivities + knownActivities)
+            .distinct()
+
+        val errors = mutableListOf<String>()
         for (activity in activities) {
             try {
                 val process = ProcessBuilder(
@@ -53,17 +63,46 @@ class NetworkModeService(private val context: Context) : INetworkModeService.Stu
                 ).redirectErrorStream(true).start()
                 val output = process.inputStream.bufferedReader().use { it.readText().trim() }
                 val exit = process.waitFor()
+
                 if (exit == 0 && !output.contains("Error:", ignoreCase = true)) {
                     return "Samsung Band Selection opened"
                 }
-                lastError = output.ifBlank { "exit code $exit" }
+
+                errors += "$activity -> ${output.ifBlank { "exit code $exit" }}"
             } catch (t: Throwable) {
-                lastError = t.javaClass.simpleName + ": " + (t.message ?: "unknown error")
+                errors += "$activity -> ${t.javaClass.simpleName}: ${t.message ?: "unknown error"}"
             }
         }
 
-        return "Could not open Samsung Band Selection: $lastError"
+        return "Could not open Samsung Band Selection: " +
+            errors.joinToString(" | ").takeLast(1800)
     }
+
+    private fun discoverSamsungBandSelectionActivities(): List<String> {
+        return try {
+            val process = ProcessBuilder(
+                "dumpsys", "package", "com.samsung.android.app.telephonyui"
+            ).redirectErrorStream(true).start()
+            val output = process.inputStream.bufferedReader().use { it.readText() }
+            process.waitFor()
+
+            val componentPattern = Regex(
+                """com\\.samsung\\.android\\.app\\.telephonyui/(?:[A-Za-z0-9_$.]+)"""
+            )
+
+            componentPattern.findAll(output)
+                .map { it.value }
+                .filter {
+                    it.contains("bandselection", ignoreCase = true) ||
+                        it.contains("hiddennetworksetting", ignoreCase = true)
+                }
+                .distinct()
+                .toList()
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
     override fun setThermalStatusOverride(status: Int): String {
         if (status < 0 || status > 6) return "Invalid thermal status: $status"
         return runThermalCommand("override-status", status.toString())
