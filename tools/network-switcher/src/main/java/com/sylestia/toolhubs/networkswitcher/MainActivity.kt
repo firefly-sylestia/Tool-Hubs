@@ -1534,6 +1534,9 @@ private fun UsageHistoryPage(context: MainActivity) {
         1 -> 24L * 60L * 60L * 1000L
         else -> 7L * 24L * 60L * 60L * 1000L
     }
+    // Keep all non-composable derived values above the UI tree. This also avoids Compose
+    // misreporting local collection calls after composable invocations.
+    val rows = filtered.asReversed().take(180)
 
     Column(
         Modifier
@@ -1673,7 +1676,6 @@ private fun UsageHistoryPage(context: MainActivity) {
         HubSectionTitle(if (suspiciousOnly) "Suspicious intervals" else "Exact intervals")
         Spacer(Modifier.height(8.dp))
 
-        val rows = filtered.asReversed().take(180)
         if (rows.isEmpty()) {
             HubGlassCard {
                 HubEmptyState(
