@@ -80,6 +80,7 @@ class AutoReconnectService : Service() {
         const val PREF_LTE_FAILOVER_PRIMARY = "lte_failover_primary"
         const val PREF_LTE_FAILOVER_ACTIVE = "lte_failover_active"
         const val PREF_LTE_FAILOVER_LAST = "lte_failover_last_switch"
+        const val PREF_LTE_FAILOVER_PAUSE_RECOVERY = "lte_failover_pause_recovery"
         const val PREF_PAUSE_DURING_CALL = "pause_during_call"
         const val PREF_FALLBACK_STARTED = "fallback_started_elapsed"
         const val PREF_LTE_FALLBACK_MS = "lte_fallback_ms"
@@ -442,6 +443,15 @@ class AutoReconnectService : Service() {
 
         if (paused || operationRunning) return
         if (!radio.isLteFallback) return
+
+        // When LTE failover has moved data to the backup SIM, do not keep forcing
+        // 5G re-selection on the monitored primary. The backup SIM may be LTE-only.
+        // We still keep watching the primary radio, so a natural 5G return can move
+        // data back to the primary and automatically resume recovery.
+        val failoverActive = prefs().getBoolean(PREF_LTE_FAILOVER_ACTIVE, false)
+        val pauseRecoveryForBackup = prefs().getBoolean(PREF_LTE_FAILOVER_PAUSE_RECOVERY, true)
+        if (failoverActive && pauseRecoveryForBackup) return
+
         if (now < nextAttemptAt) return
 
         if (!ShizukuHealthMonitor.isReady) {
@@ -695,6 +705,10 @@ class AutoReconnectService : Service() {
     /**
      * RAT-driven SIM failover: while the monitored SIM sits on LTE, move mobile data to the backup
      * SIM, then move it back once the monitored SIM reports 5G again.
+     *
+     * When `PREF_LTE_FAILOVER_PAUSE_RECOVERY` is enabled, the normal 5G re-selection loop is suspended
+     * while the backup SIM is active. This is important when the backup SIM is LTE-only: the watcher
+     * must not keep trying to force 5G on the data path just because the primary SIM is still on LTE.
      *
      * The 60-second cooldown plus the persisted `ACTIVE` flag keep a single LTE stretch from firing
      * the switch on every tick. The switch itself is an async Shizuku call, so the state is only
