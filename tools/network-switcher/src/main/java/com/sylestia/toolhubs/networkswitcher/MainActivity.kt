@@ -1544,6 +1544,9 @@ private fun TunePage(
     var lteFailoverSim by rememberSaveable {
         mutableIntStateOf(store.getInt(AutoReconnectService.PREF_LTE_FAILOVER_TARGET, SubscriptionManager.INVALID_SUBSCRIPTION_ID))
     }
+    var pauseDuringCall by rememberSaveable {
+        mutableStateOf(store.getBoolean(AutoReconnectService.PREF_PAUSE_DURING_CALL, false))
+    }
 
     fun refreshWatcher() {
         if (store.getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)) context.startWatcher()
@@ -1848,6 +1851,19 @@ private fun TunePage(
                             }
                         }
                     }
+                    Spacer(Modifier.height(10.dp))
+                    HubHairline()
+                    Spacer(Modifier.height(10.dp))
+                    HubToggleRow(
+                        title = "Pause switching during calls",
+                        subtitle = "Do not change the radio or data SIM during a call. After the call ends, wait about 4 seconds and retry if LTE is still active.",
+                        checked = pauseDuringCall,
+                        onCheckedChange = { enabled ->
+                            pauseDuringCall = enabled
+                            store.edit().putBoolean(AutoReconnectService.PREF_PAUSE_DURING_CALL, enabled).apply()
+                            refreshWatcher()
+                        },
+                    )
                 }
             }
         }
