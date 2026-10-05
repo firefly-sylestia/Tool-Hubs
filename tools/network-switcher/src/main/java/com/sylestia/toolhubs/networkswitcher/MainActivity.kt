@@ -966,6 +966,12 @@ private fun TelemetryGlance(context: Context) {
 
 // ── page 2: events ───────────────────────────────────────────────────────────────────────────────
 
+private data class EventGroup(
+    val first: HistoryEntry,
+    val count: Int,
+    val lastTimestamp: Long,
+)
+
 @Composable
 private fun EventsPage(context: Context) {
     var entries by remember { mutableStateOf(readNetworkHistory(context)) }
@@ -980,33 +986,45 @@ private fun EventsPage(context: Context) {
         }
     }
 
-    val shown = entries.filter { entry ->
+    val filtered = entries.filter { entry ->
         when (filter) {
             "Success" -> entry.type == "success"
             "Failed" -> entry.type == "failed"
-            "Network" -> entry.type == "network"
+            "Network" -> entry.type == "network" || entry.type == "sim_failover"
             else -> true
         }
     }
+    val groups = collapseDuplicateEvents(filtered)
+    val failureCount = filtered.count { it.type == "failed" }
+    val networkCount = filtered.count { it.type == "network" || it.type == "sim_failover" }
 
     Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .statusBarsPadding()
-            .padding(horizontal = 18.dp)
-            .padding(top = 14.dp, bottom = 22.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding()
+            .padding(horizontal = 18.dp).padding(top = 14.dp, bottom = 22.dp),
     ) {
         HubReveal(0) {
             HubHeroHeader(
-                kicker = "History",
-                title = "Every recovery event",
-                subtitle = "Filter, inspect and export what the watcher observed.",
-                icon = Icons.Rounded.History,
+                kicker = "Activity",
+                title = "Network timeline",
+                subtitle = "Repeated watcher noise is grouped into one event so the useful signal stays visible.",
+                icon = Icons.Rounded.Timeline,
             )
         }
         Spacer(Modifier.height(16.dp))
-        HubReveal(1) {
+
+        HubReveal(1) { EventActivityGraph(filtered) }
+        Spacer(Modifier.height(12.dp))
+
+        HubReveal(2) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                HubStatTile("Events", filtered.size.toString(), MaterialTheme.colorScheme.primary, Modifier.weight(1f))
+                HubStatTile("Grouped", groups.size.toString(), MaterialTheme.hubAccents.success, Modifier.weight(1f))
+                HubStatTile("Failed", failureCount.toString(), MaterialTheme.colorScheme.error, Modifier.weight(1f))
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+
+        HubReveal(3) {
             HubSegmented(
                 options = filters,
                 selectedIndex = filters.indexOf(filter).coerceAtLeast(0),
@@ -1014,151 +1032,236 @@ private fun EventsPage(context: Context) {
             )
         }
         Spacer(Modifier.height(14.dp))
-        HubReveal(2) {
-            HubGlassCard(contentPadding = 6.dp) {
-                if (shown.isEmpty()) {
+
+        HubReveal(4) {
+            HubGlassCard {
+                Text("ACTIVITY", fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+                if (groups.isEmpty()) {
                     HubEmptyState("Nothing recorded", "Events appear here as the radio changes state.")
                 } else {
-                    val visible = shown.take(80)
-                    visible.forEachIndexed { index, entry ->
-                        HubReveal(minOf(index, 8)) { EventRow(entry, compact = false) }
-                        if (index < visible.lastIndex) HubRowDivider(Modifier.padding(horizontal = 14.dp))
+                    groups.take(60).forEachIndexed { index, group ->
+                        EventGroupCard(group)
+                        if (index < minOf(groups.size, 60) - 1) HubRowDivider(Modifier.padding(vertical = 7.dp))
+                    }
+                    if (groups.size > 60) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("Showing the latest 60 grouped events.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
                     }
                 }
             }
         }
+
+        Spacer(Modifier.height(14.dp))
+        HubReveal(5) { EventFeatureRecommendations(context, filtered, failureCount, networkCount) }
+
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            HubQuietButton(
-                text = "Export report",
-                icon = Icons.Rounded.OpenInNew,
-                modifier = Modifier.weight(1f),
-                onClick = { showExport = true },
-            )
-            HubQuietButton(
-                text = "Clear history",
-                modifier = Modifier.weight(1f),
-                onClick = {
-                    MainActivity.store(context).edit().remove(AutoReconnectService.PREF_HISTORY).apply()
-                    entries = emptyList()
-                },
-            )
+            HubQuietButton("Export report", icon = Icons.Rounded.OpenInNew, modifier = Modifier.weight(1f),
+                onClick = { showExport = true })
+            HubQuietButton("Clear history", modifier = Modifier.weight(1f), onClick = {
+                MainActivity.store(context).edit().remove(AutoReconnectService.PREF_HISTORY).apply()
+                entries = emptyList()
+            })
         }
     }
 
     if (showExport) {
-        ModalBottomSheet(
-            onDismissRequest = { showExport = false },
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ) {
+        ModalBottomSheet(onDismissRequest = { showExport = false }, containerColor = MaterialTheme.colorScheme.surfaceContainer) {
             Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(20.dp)) {
-                Text(
-                    "Reconnect report",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Black,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    "A JSON summary of observed traffic, fallback time and recovery timing.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                )
+                Text("Reconnect report", fontSize = 22.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+                Text("A JSON summary of observed traffic, fallback time and recovery timing.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                 Spacer(Modifier.height(16.dp))
-                HubPrimaryButton(
-                    text = "Share as JSON",
-                    icon = Icons.Rounded.OpenInNew,
-                    onClick = {
-                        val share = Intent(Intent.ACTION_SEND).setType("application/json")
-                            .putExtra(Intent.EXTRA_TEXT, buildNetworkReport(context, entries))
-                        context.startActivity(Intent.createChooser(share, "Export reconnect report"))
-                        showExport = false
-                    },
-                )
+                HubPrimaryButton(text = "Share as JSON", icon = Icons.Rounded.OpenInNew, onClick = {
+                    val share = Intent(Intent.ACTION_SEND).setType("application/json")
+                        .putExtra(Intent.EXTRA_TEXT, buildNetworkReport(context, entries))
+                    context.startActivity(Intent.createChooser(share, "Export reconnect report"))
+                    showExport = false
+                })
             }
         }
     }
 }
 
+private fun collapseDuplicateEvents(entries: List<HistoryEntry>): List<EventGroup> {
+    if (entries.isEmpty()) return emptyList()
+    val chronological = entries.sortedBy { it.timestamp }
+    val result = mutableListOf<EventGroup>()
+    var current = chronological.first()
+    var count = 1
+    var last = current.timestamp
+
+    for (entry in chronological.drop(1)) {
+        val sameKind = entry.type == current.type &&
+            entry.network == current.network &&
+            normalizeEventDetail(entry.detail) == normalizeEventDetail(current.detail)
+        val closeEnough = entry.timestamp - last <= 90_000L
+        if (sameKind && closeEnough) {
+            count++
+            last = entry.timestamp
+        } else {
+            result += EventGroup(current, count, last)
+            current = entry
+            count = 1
+            last = entry.timestamp
+        }
+    }
+    result += EventGroup(current, count, last)
+    return result.sortedByDescending { it.first.timestamp }
+}
+
+private fun normalizeEventDetail(detail: String): String =
+    detail.replace(Regex("\\b\\d+(?:\\.\\d+)?s\\b"), "<time>")
+        .replace(Regex("\\b\\d+\\s*min\\b"), "<time>")
+        .replace(Regex("\\b\\d+\\s*attempts?\\b"), "<attempts>")
+        .trim().lowercase(Locale.getDefault())
+
 @Composable
-private fun EventRow(entry: HistoryEntry, compact: Boolean) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = if (compact) 9.dp else 11.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        EventBadge(entry)
-        Spacer(Modifier.width(11.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+private fun EventActivityGraph(entries: List<HistoryEntry>) {
+    val now = System.currentTimeMillis()
+    val cutoff = now - 24L * 60L * 60L * 1000L
+    val buckets = MutableList(24) { 0 }
+    entries.filter { it.timestamp >= cutoff }.forEach {
+        val age = ((now - it.timestamp).coerceAtLeast(0L) / (60L * 60L * 1000L)).toInt()
+        buckets[(23 - age).coerceIn(0, 23)]++
+    }
+    val max = buckets.maxOrNull()?.coerceAtLeast(1) ?: 1
+    val failures = entries.count { it.type == "failed" }
+
+    HubGlassCard(contentPadding = 14.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("EVENT RHYTHM", fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
-                    entry.network,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = if (compact) 12.sp else 13.sp,
-                    modifier = Modifier.weight(1f),
+                    if (failures == 0) "Quiet and healthy" else failures.toString() + " failure events need attention",
+                    fontSize = 17.sp, fontWeight = FontWeight.Black,
+                    color = if (failures == 0) MaterialTheme.hubAccents.success else MaterialTheme.colorScheme.error,
                 )
-                Text(
-                    entry.time,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.SemiBold,
+                Text(entries.size.toString() + " recorded events · last 24 hours",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+            }
+            HubPill(if (max > 1) max.toString() + " peak/hr" else "steady", MaterialTheme.colorScheme.primary)
+        }
+        Spacer(Modifier.height(12.dp))
+        Canvas(
+            Modifier.fillMaxWidth().height(92.dp).clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                .padding(horizontal = 6.dp, vertical = 10.dp)
+        ) {
+            val gap = 4.dp.toPx()
+            val width = (size.width - gap * (buckets.size - 1)) / buckets.size
+            buckets.forEachIndexed { index, value ->
+                val h = size.height * (value / max.toFloat())
+                val left = index * (width + gap)
+                drawRoundRect(
+                    color = if (value == max && value > 0) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.38f),
+                    topLeft = Offset(left, size.height - h),
+                    size = Size(width, h.coerceAtLeast(if (value > 0) 3.dp.toPx() else 0f)),
+                    cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx()),
                 )
             }
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("24h ago", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp)
+            Text("now", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp)
+        }
+    }
+}
+
+@Composable
+private fun EventGroupCard(group: EventGroup) {
+    val entry = group.first
+    val tint = when (entry.type) {
+        "success" -> MaterialTheme.hubAccents.success
+        "failed" -> MaterialTheme.colorScheme.error
+        "warning" -> MaterialTheme.hubAccents.warning
+        "network", "sim_failover" -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.primary
+    }
+    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(10.dp).clip(CircleShape).background(tint))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(entry.network, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Spacer(Modifier.width(8.dp))
+                Text(eventTypeLabel(entry.type), color = tint, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 0.7.sp)
+                if (group.count > 1) {
+                    Spacer(Modifier.width(7.dp))
+                    HubPill(group.count.toString() + "×", tint)
+                }
+            }
+            Text(entry.detail.ifBlank { "Network state observed" }, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
-                entry.detail.ifBlank { "Network state observed" },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = if (compact) 10.sp else 11.sp,
-                maxLines = if (compact) 1 else 3,
-                overflow = TextOverflow.Ellipsis,
+                if (group.count > 1) formatTimestamp(entry.timestamp) + " → " + formatTimestamp(group.lastTimestamp)
+                else formatTimestamp(entry.timestamp),
+                color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, fontWeight = FontWeight.SemiBold,
             )
         }
     }
 }
 
+private fun eventTypeLabel(type: String): String = when (type) {
+    "success" -> "SUCCESS"
+    "failed" -> "FAILED"
+    "network" -> "NETWORK"
+    "sim_failover" -> "SIM"
+    "warning" -> "WARNING"
+    "attempt" -> "ATTEMPT"
+    else -> "SYSTEM"
+}
+
 @Composable
-private fun EventBadge(entry: HistoryEntry) {
-    val accents = MaterialTheme.hubAccents
-    val label: String
-    val tint: Color
-    when (entry.type) {
-        "success" -> {
-            label = "OK"
-            tint = accents.success
-        }
-        "failed" -> {
-            label = "FAIL"
-            tint = MaterialTheme.colorScheme.error
-        }
-        "attempt" -> {
-            label = "TRY"
-            tint = MaterialTheme.colorScheme.secondary
-        }
-        "network" -> {
-            label = "MOVE"
-            tint = MaterialTheme.colorScheme.tertiary
-        }
-        "sim_failover" -> {
-            label = "SIM"
-            tint = MaterialTheme.colorScheme.tertiary
-        }
-        "warning" -> {
-            label = "WARN"
-            tint = MaterialTheme.hubAccents.warning
-        }
-        else -> {
-            label = entry.network.replace(" / LTE", "").take(4).uppercase(Locale.getDefault())
-            tint = MaterialTheme.colorScheme.primary
-        }
+private fun EventFeatureRecommendations(
+    context: Context,
+    entries: List<HistoryEntry>,
+    failureCount: Int,
+    networkCount: Int,
+) {
+    val store = MainActivity.store(context)
+    val sims = runCatching { context.getSystemService(SubscriptionManager::class.java).activeSubscriptionInfoList.orEmpty().size }.getOrDefault(0)
+    val pauseDuringCall = store.getBoolean(AutoReconnectService.PREF_PAUSE_DURING_CALL, false)
+    val backupFailover = store.getBoolean(AutoReconnectService.PREF_LTE_FAILOVER_ENABLED, false)
+    val recommendations = mutableListOf<Pair<String, String>>()
+
+    if (failureCount >= 3) {
+        recommendations += "Recovery health" to "You have several failed recoveries. Add a recovery-health view with failure streaks, cooldowns and the most common failure cause."
     }
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(9.dp))
-            .background(tint.copy(alpha = 0.14f))
-            .border(1.dp, tint.copy(alpha = 0.26f), RoundedCornerShape(9.dp))
-            .padding(horizontal = 7.dp, vertical = 5.dp),
-    ) {
-        Text(label, color = tint, fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 0.6.sp)
+    if (sims >= 2 && !backupFailover) {
+        recommendations += "Backup SIM protection" to "A second SIM is available. Enable LTE failover if you want data to move away from a 4G fallback while the primary recovers."
+    }
+    if (!pauseDuringCall && entries.any { it.detail.contains("call", ignoreCase = true) }) {
+        recommendations += "Call-safe switching" to "Pause radio and data-SIM changes during calls, then retry a few seconds after the call ends."
+    }
+    if (networkCount >= 5) {
+        recommendations += "Network session timeline" to "The network is changing often. Add session-duration visualization to make long LTE fallback stretches easy to spot."
+    }
+    if (recommendations.isEmpty()) {
+        recommendations += "Smart insights" to "Next useful upgrade: automatic patterns such as frequent LTE hours, recovery success rate and repeated failure causes."
+    }
+
+    HubGlassCard {
+        Text("FEATURE RECOMMENDATIONS", fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(4.dp))
+        Text("Based on what the watcher is seeing", color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        recommendations.take(3).forEachIndexed { index, recommendation ->
+            if (index > 0) HubRowDivider(Modifier.padding(vertical = 9.dp))
+            Row(verticalAlignment = Alignment.Top) {
+                Box(Modifier.size(7.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(recommendation.first, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text(recommendation.second, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, lineHeight = 14.sp)
+                }
+            }
+        }
     }
 }
 
