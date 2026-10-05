@@ -956,7 +956,7 @@ private fun TelemetryGlance(context: Context) {
             } else {
                 val recent = history.take(3)
                 recent.forEachIndexed { index, entry ->
-                    HubReveal(index) { EventRow(entry, compact = true) }
+                    HubReveal(index) { EventGroupCard(EventGroup(entry, 1, entry.timestamp)) }
                     if (index < recent.lastIndex) HubRowDivider(Modifier.padding(horizontal = 12.dp))
                 }
             }
@@ -1143,9 +1143,10 @@ private fun EventActivityGraph(entries: List<HistoryEntry>) {
                 Text(entries.size.toString() + " recorded events · last 24 hours",
                     color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
             }
-            HubPill(if (max > 1) max.toString() + " peak/hr" else "steady", MaterialTheme.colorScheme.primary)
+            HubPill(if (max > 1) max.toString() + " peak/hr" else "steady", max > 1, MaterialTheme.colorScheme.primary)
         }
         Spacer(Modifier.height(12.dp))
+        val eventPrimaryColor = MaterialTheme.colorScheme.primary
         Canvas(
             Modifier.fillMaxWidth().height(92.dp).clip(RoundedCornerShape(16.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerLow)
@@ -1157,8 +1158,8 @@ private fun EventActivityGraph(entries: List<HistoryEntry>) {
                 val h = size.height * (value / max.toFloat())
                 val left = index * (width + gap)
                 drawRoundRect(
-                    color = if (value == max && value > 0) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.38f),
+                    color = if (value == max && value > 0) eventPrimaryColor
+                    else eventPrimaryColor.copy(alpha = 0.38f),
                     topLeft = Offset(left, size.height - h),
                     size = Size(width, h.coerceAtLeast(if (value > 0) 3.dp.toPx() else 0f)),
                     cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx()),
@@ -1192,7 +1193,7 @@ private fun EventGroupCard(group: EventGroup) {
                 Text(eventTypeLabel(entry.type), color = tint, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 0.7.sp)
                 if (group.count > 1) {
                     Spacer(Modifier.width(7.dp))
-                    HubPill(group.count.toString() + "×", tint)
+                    HubPill(group.count.toString() + "×", true, tint)
                 }
             }
             Text(entry.detail.ifBlank { "Network state observed" }, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1778,7 +1779,7 @@ private fun UsageHistoryGraph(intervals: List<UsageInterval>) {
         buckets.forEachIndexed { index, bucket ->
             val height = size.height * (bucket.second.toFloat() / maxBytes.toFloat()).coerceIn(0f, 1f)
             val left = index * (size.width / buckets.size.coerceAtLeast(1))
-            val color = if (bucket.third) MaterialTheme.colorScheme.error else MaterialTheme.hubAccents.success
+            val color = if (bucket.third) historyErrorColor else historySuccessColor
             drawRoundRect(
                 color = color.copy(alpha = if (bucket.third) 0.72f else 0.58f),
                 topLeft = Offset(left, size.height - height),
