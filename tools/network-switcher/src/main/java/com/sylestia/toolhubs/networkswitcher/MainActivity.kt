@@ -371,6 +371,7 @@ private fun NetworkApp(
                         HubNavItem(Icons.Rounded.NetworkCheck, "Watch"),
                         HubNavItem(Icons.Rounded.Timeline, "Events"),
                         HubNavItem(Icons.Rounded.DataUsage, "Data"),
+                        HubNavItem(Icons.Rounded.History, "History"),
                         HubNavItem(Icons.Rounded.Tune, "Tune"),
                     ),
                     selectedIndex = page,
@@ -396,6 +397,7 @@ private fun NetworkApp(
                     0 -> WatchPage(context, snapshot, radio, shizuku, accent)
                     1 -> EventsPage(context)
                     2 -> DataPage(context)
+                    3 -> UsageHistoryPage(context)
                     else -> TunePage(context, themeMode, onThemeMode, radio, shizuku)
                 }
             }
@@ -1235,6 +1237,25 @@ private fun DataPage(context: Context) {
                 )
                 Spacer(Modifier.height(14.dp))
                 NetworkSplitBar(lte = totals.todayLte, fiveG = totals.todayFiveG)
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    HubQuietButton(
+                        text = "Reset today",
+                        icon = Icons.Rounded.Refresh,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        NetworkUsageTracker.resetToday(context)
+                        tick++
+                    }
+                    HubQuietButton(
+                        text = "History",
+                        icon = Icons.Rounded.History,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        // The bottom navigation owns the screen transition; this button is intentionally
+                        // kept as a discoverable shortcut only through the History tab.
+                    }
+                }
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -1374,6 +1395,283 @@ private fun DataPage(context: Context) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 10.sp,
         )
+    }
+}
+
+@Composable
+private fun UsageHistoryPage(context: MainActivity) {
+    var tick by remember { mutableIntStateOf(0) }
+    var rangeIndex by rememberSaveable { mutableIntStateOf(1) }
+    var suspiciousOnly by rememberSaveable { mutableStateOf(false) }
+    var selectedId by rememberSaveable { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(2_000)
+            tick++
+        }
+    }
+
+    val rangeDays = when (rangeIndex) {
+        0 -> 1
+        1 -> 1
+        else -> 7
+    }
+    val all = tick.let { NetworkUsageTracker.readIntervals(context, rangeDays) }
+    val filtered = all.filter { !suspiciousOnly || it.suspicious }
+    val selected = selectedId?.let { id -> filtered.firstOrNull { it.id == id } }
+    val graphStart = System.currentTimeMillis() - when (rangeIndex) {
+        0 -> 6L * 60L * 60L * 1000L
+        1 -> 24L * 60L * 60L * 1000L
+        else -> 7L * 24L * 60L * 60L * 1000L
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .statusBarsPadding()
+            .padding(horizontal = 18.dp)
+            .padding(top = 14.dp, bottom = 22.dp),
+    ) {
+        HubReveal(0) {
+            HubHeroHeader(
+                kicker = "History",
+                title = "Usage timeline",
+                subtitle = "Minute-level mobile traffic with suspicious-spike review and manual cleanup.",
+                icon = Icons.Rounded.History,
+            )
+        }
+
+        Spacer(Modifier.height(14.dp))
+        HubReveal(1) {
+            HubGlassCard {
+                HubSegmented(
+                    options = listOf("6 hours", "24 hours", "7 days"),
+                    selectedIndex = rangeIndex,
+                    onSelect = {
+                        rangeIndex = it
+                        selectedId = null
+                    },
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Show suspicious spikes only",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "500 MiB/s+ is flagged for review, not automatically deleted.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 10.sp,
+                        )
+                    }
+                    androidx.compose.material3.Switch(
+                        checked = suspiciousOnly,
+                        onCheckedChange = {
+                            suspiciousOnly = it
+                            selectedId = null
+                        },
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        HubReveal(2) {
+            HubGlassCard {
+                Text(
+                    "TRAFFIC OVER TIME",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.5.sp,
+                )
+                Spacer(Modifier.height(8.dp))
+                UsageHistoryGraph(all.filter { it.endAt >= graphStart })
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.hubAccents.success))
+                        Spacer(Modifier.width(6.dp))
+                        Text("5G", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.tertiary))
+                        Spacer(Modifier.width(6.dp))
+                        Text("4G / LTE", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.error))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Suspicious", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "The graph compresses minute records for readability. The list below keeps the exact recorded interval.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
+                )
+            }
+        }
+
+        selected?.let { item ->
+            Spacer(Modifier.height(12.dp))
+            HubReveal(3) {
+                HubGlassCard(accent = if (item.fake) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                if (item.fake) "MARKED FAKE" else if (item.suspicious) "SUSPECTED SPIKE" else item.network,
+                                color = if (item.fake) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.4.sp,
+                            )
+                            Text(
+                                formatIntervalClock(item.startAt) + " → " + formatIntervalClock(item.endAt),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black,
+                            )
+                            Text(
+                                formatBytes(item.bytes) + " · peak " + formatSpeed(item.peakBps),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 11.sp,
+                            )
+                        }
+                        HubPrimaryButton(
+                            text = if (item.fake) "Restore" else "Mark fake",
+                            icon = if (item.fake) Icons.Rounded.Refresh else Icons.Rounded.Warning,
+                        ) {
+                            NetworkUsageTracker.toggleIntervalFake(context, item.id)
+                            tick++
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        HubSectionTitle(if (suspiciousOnly) "Suspicious intervals" else "Exact intervals")
+        Spacer(Modifier.height(8.dp))
+
+        val rows = filtered.asReversed().take(180)
+        if (rows.isEmpty()) {
+            HubGlassCard {
+                HubEmptyState(
+                    icon = Icons.Rounded.DataUsage,
+                    title = "No intervals yet",
+                    message = "Keep the watcher running. Usage history is recorded in one-minute intervals.",
+                )
+            }
+        } else {
+            rows.forEach { item ->
+                val selectedRow = item.id == selectedId
+                HubGlassCard(
+                    accent = when {
+                        item.fake -> MaterialTheme.colorScheme.error
+                        item.suspicious -> MaterialTheme.colorScheme.error
+                        item.network == NetworkUsageTracker.FIVE_G_LABEL -> MaterialTheme.hubAccents.success
+                        else -> MaterialTheme.colorScheme.tertiary
+                    },
+                    contentPadding = 12.dp,
+                ) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedId = if (selectedRow) null else item.id },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    formatIntervalClock(item.startAt) + " – " + formatIntervalClock(item.endAt),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                if (item.suspicious) {
+                                    Spacer(Modifier.width(7.dp))
+                                    HubPill("SPIKE", active = false, accent = MaterialTheme.colorScheme.error)
+                                }
+                                if (item.fake) {
+                                    Spacer(Modifier.width(7.dp))
+                                    HubPill("FAKE", active = false, accent = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                item.network + " · " + formatBytes(item.bytes) + " · peak " + formatSpeed(item.peakBps),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 10.sp,
+                            )
+                        }
+                        Icon(
+                            if (selectedRow) Icons.Rounded.Warning else Icons.Rounded.Timeline,
+                            contentDescription = null,
+                            tint = if (item.suspicious) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "A suspicious spike is only a review flag. Marking an interval fake subtracts its bytes from the 4G/5G totals and recomputes today's speed peak. Android's mobile counters are aggregate observations, not carrier billing records.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 10.sp,
+        )
+    }
+}
+
+@Composable
+private fun UsageHistoryGraph(intervals: List<UsageInterval>) {
+    val buckets = remember(intervals) {
+        val now = System.currentTimeMillis()
+        val range = when {
+            now - (intervals.minOfOrNull { it.startAt } ?: now) <= 6L * 60L * 60L * 1000L -> 5L * 60L * 1000L
+            now - (intervals.minOfOrNull { it.startAt } ?: now) <= 24L * 60L * 60L * 1000L -> 15L * 60L * 1000L
+            else -> 60L * 60L * 1000L
+        }
+        intervals.groupBy { (it.startAt / range) * range }
+            .toSortedMap()
+            .map { (bucket, rows) ->
+                val lte = rows.filter { it.network == NetworkUsageTracker.LTE_LABEL && !it.fake }.sumOf { it.bytes }
+                val fiveG = rows.filter { it.network == NetworkUsageTracker.FIVE_G_LABEL && !it.fake }.sumOf { it.bytes }
+                val suspicious = rows.any { it.suspicious }
+                Triple(bucket, lte + fiveG, suspicious)
+            }
+    }
+
+    val maxBytes = (buckets.maxOfOrNull { it.second } ?: 1L).coerceAtLeast(1L)
+    Canvas(
+        Modifier
+            .fillMaxWidth()
+            .height(180.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
+        val gap = 2f
+        val barWidth = (size.width / buckets.size.coerceAtLeast(1)) - gap
+        buckets.forEachIndexed { index, bucket ->
+            val height = size.height * (bucket.second.toFloat() / maxBytes.toFloat()).coerceIn(0f, 1f)
+            val left = index * (size.width / buckets.size.coerceAtLeast(1))
+            val color = if (bucket.third) MaterialTheme.colorScheme.error else MaterialTheme.hubAccents.success
+            drawRoundRect(
+                color = color.copy(alpha = if (bucket.third) 0.72f else 0.58f),
+                topLeft = Offset(left, size.height - height),
+                size = Size(barWidth.coerceAtLeast(1f), height),
+                cornerRadius = CornerRadius(4f, 4f),
+            )
+        }
     }
 }
 
@@ -2051,6 +2349,9 @@ private fun formatSpeed(bytesPerSecond: Long): String = when {
 
 private fun formatTimestamp(timestamp: Long): String =
     if (timestamp <= 0L) "—" else SimpleDateFormat("dd MMM · HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
+
+private fun formatIntervalClock(timestamp: Long): String =
+    SimpleDateFormat("dd MMM · HH:mm", Locale.getDefault()).format(Date(timestamp))
 
 private fun formatDuration(ms: Long): String {
     val seconds = ms / 1000L
