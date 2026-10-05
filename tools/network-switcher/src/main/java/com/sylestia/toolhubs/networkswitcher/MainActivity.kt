@@ -1544,6 +1544,9 @@ private fun TunePage(
     var lteFailoverSim by rememberSaveable {
         mutableIntStateOf(store.getInt(AutoReconnectService.PREF_LTE_FAILOVER_TARGET, SubscriptionManager.INVALID_SUBSCRIPTION_ID))
     }
+    var pause5gDuringFailover by rememberSaveable {
+        mutableStateOf(store.getBoolean(AutoReconnectService.PREF_LTE_FAILOVER_PAUSE_RECOVERY, true))
+    }
     var pauseDuringCall by rememberSaveable {
         mutableStateOf(store.getBoolean(AutoReconnectService.PREF_PAUSE_DURING_CALL, false))
     }
@@ -1850,6 +1853,17 @@ private fun TunePage(
                                 )
                             }
                         }
+                        Spacer(Modifier.height(10.dp))
+                        HubToggleRow(
+                            title = "Pause 5G recovery while backup SIM is active",
+                            subtitle = "Do not keep forcing 5G while data is on the backup SIM. This is useful when the backup SIM is 4G-only; the primary SIM is still watched for a natural 5G return.",
+                            checked = pause5gDuringFailover,
+                            onCheckedChange = { enabled ->
+                                pause5gDuringFailover = enabled
+                                store.edit().putBoolean(AutoReconnectService.PREF_LTE_FAILOVER_PAUSE_RECOVERY, enabled).apply()
+                                refreshWatcher()
+                            },
+                        )
                     }
                 }
                 Spacer(Modifier.height(10.dp))
