@@ -10,6 +10,7 @@ import android.os.IBinder
 import android.os.SystemClock
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
+import android.telecom.TelecomManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
@@ -79,6 +80,7 @@ class AutoReconnectService : Service() {
         const val PREF_LTE_FAILOVER_PRIMARY = "lte_failover_primary"
         const val PREF_LTE_FAILOVER_ACTIVE = "lte_failover_active"
         const val PREF_LTE_FAILOVER_LAST = "lte_failover_last_switch"
+        const val PREF_PAUSE_DURING_CALL = "pause_during_call"
         const val PREF_FALLBACK_STARTED = "fallback_started_elapsed"
         const val PREF_LTE_FALLBACK_MS = "lte_fallback_ms"
         const val PREF_RECOVERY_TOTAL_MS = "recovery_total_ms"
@@ -110,6 +112,9 @@ class AutoReconnectService : Service() {
 
         /** Stops a RAT-driven SIM switch from flapping between the two SIMs. */
         const val LTE_FAILOVER_COOLDOWN_MS = 60_000L
+
+        /** Give the modem a few seconds after a call before any automatic SIM/RAT change. */
+        const val CALL_END_GRACE_MS = 3_500L
 
         /** How often the LTE data-warning threshold is evaluated. */
         const val DATA_WARNING_CHECK_MS = 5_000L
@@ -176,6 +181,8 @@ class AutoReconnectService : Service() {
     private var noServiceSince = 0L
     private var lastLteWarningCheckAt = 0L
     @Volatile private var lteFailoverInFlight = false
+    @Volatile private var callPaused = false
+    private var callGraceUntilElapsed = 0L
     private var lastShizukuHealth: ShizukuHealth? = null
 
     private val healthListener: (ShizukuHealth) -> Unit = { health ->
@@ -381,8 +388,24 @@ class AutoReconnectService : Service() {
             applyReset()
         }
         val radio = radioWatcher?.snapshot() ?: return
-        observeNetwork(radio)
-        maybeRecover(radio, now)
+        val pauseDuringCall = prefs().getBoolean(PREF_PAUSE_DURING_CALL, false)
+        val inCall = pauseDuringCall && isPhoneCallActive()
+
+        if (inCall && !callPaused) {
+            callPaused = true
+            callGraceUntilElapsed = 0L
+            usageTracker.pauseForCall()
+            publishState(radio.label, "Call active · automatic switching paused")
+        } else if (!inCall && callPaused) {
+            callPaused = false
+            callGraceUntilElapsed = now + CALL_END_GRACE_MS
+            usageTracker.resumeAfterCall()
+            publishState(radio.label, "Call ended · waiting 4s before switching")
+        }
+
+        val automationBlocked = inCall || now < callGraceUntilElapsed
+        observeNetwork(radio, automationBlocked)
+        if (!automationBlocked) maybeRecover(radio, now)
     }
 
     private fun refreshHealth(now: Long) {
@@ -547,7 +570,7 @@ class AutoReconnectService : Service() {
 
     // ── network observation ──────────────────────────────────────────────────────────────────────
 
-    private fun observeNetwork(radio: RadioState) {
+    private fun observeNetwork(radio: RadioState, automationBlocked: Boolean = false) {
         currentLabel = radio.label
 
         if (radio.is5G && (consecutiveFailures != 0 || circuitOpen || nextAttemptAt != 0L || attemptTimes.isNotEmpty())) {
@@ -565,10 +588,10 @@ class AutoReconnectService : Service() {
             publishState(radio.label, statusFor(radio), detail)
         }
 
-        usageTracker.sample(radio.label)
+        if (!callPaused) usageTracker.sample(radio.label)
         trackFallbackImpact(radio.label)
         checkLteDataWarning()
-        maybeLteFailover(radio)
+        if (!automationBlocked) maybeLteFailover(radio)
 
         val now = System.currentTimeMillis()
         if (radio.label == "Unknown") {
@@ -617,6 +640,12 @@ class AutoReconnectService : Service() {
                 .apply()
         }
     }
+
+    /** Telecom covers managed and self-managed calls on either SIM. */
+    private fun isPhoneCallActive(): Boolean = runCatching {
+        getSystemService(TelecomManager::class.java)?.isInCall == true ||
+            telephony.callState != TelephonyManager.CALL_STATE_IDLE
+    }.getOrDefault(false)
 
     private fun maybeFailOverSim(now: Long) {
         val store = prefs()
