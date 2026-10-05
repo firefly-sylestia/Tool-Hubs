@@ -29,6 +29,17 @@ data class DailyUsage(
     val peakBps: Long,
 )
 
+data class UsageInterval(
+    val id: Long,
+    val startAt: Long,
+    val endAt: Long,
+    val network: String,
+    val bytes: Long,
+    val peakBps: Long,
+    val suspicious: Boolean,
+    val fake: Boolean,
+)
+
 /**
  * Tracks device-wide mobile traffic observed while the watcher is alive.
  *
@@ -51,6 +62,7 @@ data class DailyUsage(
  * observed while the network was unknown are dropped rather than assigned to 4G or 5G.
  */
 class NetworkUsageTracker(context: Context) {
+    private val prefsContext = context.applicationContext
     private val prefs = context.getSharedPreferences(AutoReconnectService.PREFS_NAME, Context.MODE_PRIVATE)
 
     private var lastPersistAt = 0L
@@ -64,6 +76,15 @@ class NetworkUsageTracker(context: Context) {
     private var lastSpeedTotal = -1L
     private var lastSpeedElapsed = -1L
     private var lastSpeedPersistAt = 0L
+
+    // Current minute bucket. We keep one-minute intervals so the history screen can show exactly
+    // when data moved without creating thousands of SharedPreferences writes.
+    private var intervalId = -1L
+    private var intervalStartAt = -1L
+    private var intervalEndAt = -1L
+    private var intervalNetwork: String? = null
+    private var intervalBytes = 0L
+    private var intervalPeakBps = 0L
 
     /** Ignore traffic samples while telephony is changing accounting state during a call. */
     private var pausedForCall = false
@@ -88,6 +109,7 @@ class NetworkUsageTracker(context: Context) {
         val counterReset = lastTotal >= 0L && total < lastTotal
         val networkChanged = lastNetwork != null && network != lastNetwork
         if (counterReset || networkChanged) {
+            flushInterval()
             persist(dayFormat.format(Date(nowWall)), nowWall)
             lastTotal = total
             lastElapsed = nowElapsed
@@ -102,21 +124,27 @@ class NetworkUsageTracker(context: Context) {
             val intervalMs = nowElapsed - lastElapsed
             val bytesPerSecond = delta * 1000L / intervalMs
 
-            // A phone-level mobile counter cannot legitimately produce multi-GB/s bursts.
-            // Samsung can briefly report a discontinuity while switching RAT/SIM, so discard
-            // only the impossible spike rather than polluting the day/lifetime totals.
-            if (bytesPerSecond <= MAX_REASONABLE_BPS) {
+            // Keep suspicious bursts in the history so the user can inspect and mark
+            // the exact interval as fake. Only an extreme value beyond the tracking ceiling is
+            // treated as a counter discontinuity and excluded automatically.
+            if (bytesPerSecond <= MAX_TRACKABLE_BPS) {
                 when (lastNetwork) {
                     LTE_LABEL -> pendingLte += delta
                     FIVE_G_LABEL -> pending5G += delta
                 }
+                recordInterval(
+                    network = lastNetwork ?: network,
+                    bytes = delta,
+                    peakBps = bytesPerSecond,
+                    wall = nowWall,
+                )
             }
         }
 
         if (lastSpeedTotal >= 0L && lastSpeedElapsed >= 0L && nowElapsed > lastSpeedElapsed && total >= lastSpeedTotal) {
             val intervalMs = nowElapsed - lastSpeedElapsed
             val bytesPerSecond = (total - lastSpeedTotal) * 1000L / intervalMs
-            if (bytesPerSecond <= MAX_REASONABLE_BPS) {
+            if (bytesPerSecond <= MAX_TRACKABLE_BPS) {
                 recordSpeed(bytesPerSecond, network, nowWall)
             }
         }
@@ -143,6 +171,7 @@ class NetworkUsageTracker(context: Context) {
             persist(dayFormat.format(Date()), System.currentTimeMillis())
         }
         pausedForCall = true
+        flushInterval()
         resetBaselines()
     }
 
@@ -200,10 +229,62 @@ class NetworkUsageTracker(context: Context) {
     }
 
     fun flush() {
-        val total = TrafficStats.getMobileRxBytes() + TrafficStats.getMobileTxBytes()
-        if (total < 0L) return
+        flushInterval()
+        val rx = TrafficStats.getMobileRxBytes()
+        val tx = TrafficStats.getMobileTxBytes()
+        if (rx < 0L || tx < 0L) return
         val nowWall = System.currentTimeMillis()
         persist(dayFormat.format(Date(nowWall)), nowWall)
+    }
+
+    private fun recordInterval(network: String, bytes: Long, peakBps: Long, wall: Long) {
+        if (bytes <= 0L) return
+        val bucket = (wall / INTERVAL_MS) * INTERVAL_MS
+        if (intervalId != bucket) {
+            flushInterval()
+            intervalId = bucket
+            intervalStartAt = wall
+            intervalEndAt = wall
+            intervalNetwork = network
+            intervalBytes = 0L
+            intervalPeakBps = 0L
+        }
+        if (intervalNetwork != network) {
+            flushInterval()
+            intervalId = bucket
+            intervalStartAt = wall
+            intervalEndAt = wall
+            intervalNetwork = network
+            intervalBytes = 0L
+            intervalPeakBps = 0L
+        }
+        intervalEndAt = wall
+        intervalBytes += bytes
+        intervalPeakBps = maxOf(intervalPeakBps, peakBps)
+    }
+
+    private fun flushInterval() {
+        val network = intervalNetwork
+        if (intervalId < 0L || network == null || intervalBytes <= 0L) return
+        UsageHistoryStore.append(
+            context = prefsContext,
+            interval = UsageInterval(
+                id = intervalId,
+                startAt = intervalStartAt,
+                endAt = intervalEndAt,
+                network = network,
+                bytes = intervalBytes,
+                peakBps = intervalPeakBps,
+                suspicious = intervalPeakBps >= SUSPECT_SPIKE_BPS,
+                fake = false,
+            ),
+        )
+        intervalId = -1L
+        intervalStartAt = -1L
+        intervalEndAt = -1L
+        intervalNetwork = null
+        intervalBytes = 0L
+        intervalPeakBps = 0L
     }
 
     companion object {
@@ -220,9 +301,13 @@ class NetworkUsageTracker(context: Context) {
         const val PERSIST_EVERY_MS = 30_000L
         private const val SPEED_PERSIST_MS = 2_000L
 
-        // 500 MB/s is deliberately generous for this device class; anything above it is treated
-        // as a counter discontinuity, not a real transfer rate.
-        private const val MAX_REASONABLE_BPS = 500L * 1024L * 1024L
+        /** Above this, treat the counter jump as a discontinuity instead of real traffic. */
+        private const val MAX_TRACKABLE_BPS = 2L * 1024L * 1024L * 1024L
+
+        /** 500 MiB/s+ is suspicious and is shown for manual review instead of being hidden. */
+        const val SUSPECT_SPIKE_BPS = 500L * 1024L * 1024L
+
+        const val INTERVAL_MS = 60_000L
 
         private fun prefs(context: Context) =
             context.getSharedPreferences(AutoReconnectService.PREFS_NAME, Context.MODE_PRIVATE)
@@ -233,21 +318,77 @@ class NetworkUsageTracker(context: Context) {
         fun todayStamp(): String = dayFormat().format(Date())
 
         /** Today's value for [key] (`KEY_LTE_BYTES` / `KEY_5G_BYTES`). Resets at midnight. */
-        fun todayBytes(context: Context, key: String): Long =
-            prefs(context).getLong("$key:" + todayStamp(), 0L)
+        fun todayBytes(context: Context, key: String): Long {
+            val store = prefs(context)
+            val raw = store.getLong("$key:" + todayStamp(), 0L)
+            val fake = readIntervals(context, 1)
+                .filter { it.fake && it.network == if (key == KEY_5G_BYTES) FIVE_G_LABEL else LTE_LABEL }
+                .sumOf { it.bytes }
+            return (raw - fake).coerceAtLeast(0L)
+        }
+
+        fun readIntervals(context: Context, days: Int = 7): List<UsageInterval> =
+            UsageHistoryStore.read(context, System.currentTimeMillis() - days.coerceAtLeast(1) * 24L * 60L * 60L * 1000L)
+
+        fun toggleIntervalFake(context: Context, id: Long): UsageInterval? {
+            val updated = UsageHistoryStore.toggleFake(context, id) ?: return null
+            val store = prefs(context)
+            val day = dayFormat().format(Date(updated.startAt))
+            val signed = if (updated.fake) -updated.bytes else updated.bytes
+            val key = if (updated.network == FIVE_G_LABEL) KEY_5G_BYTES else KEY_LTE_BYTES
+            store.edit()
+                .putLong("$key:$day", (store.getLong("$key:$day", 0L) + signed).coerceAtLeast(0L))
+                .putLong(key, (store.getLong(key, 0L) + signed).coerceAtLeast(0L))
+                .apply()
+            recomputeTodayPeak(context, day)
+            return updated
+        }
+
+        fun resetToday(context: Context) {
+            val today = todayStamp()
+            val store = prefs(context)
+            store.edit()
+                .putLong("$KEY_LTE_BYTES:$today", 0L)
+                .putLong("$KEY_5G_BYTES:$today", 0L)
+                .putLong("$KEY_PEAK_BPS:$today", 0L)
+                .putLong("$KEY_PEAK_AT:$today", 0L)
+                .remove("$KEY_PEAK_NETWORK:$today")
+                .putLong(KEY_CURRENT_BPS, 0L)
+                .apply()
+            UsageHistoryStore.clearDay(context, today)
+        }
+
+        private fun fakeBytes(context: Context, day: String, network: String): Long =
+            UsageHistoryStore.read(context, System.currentTimeMillis() - 14L * 24L * 60L * 60L * 1000L)
+                .filter { dayFormat().format(Date(it.startAt)) == day && it.fake && it.network == network }
+                .sumOf { it.bytes }
+
+        private fun recomputeTodayPeak(context: Context, day: String) {
+            if (day != todayStamp()) return
+            val store = prefs(context)
+            val peak = UsageHistoryStore.read(context, System.currentTimeMillis() - 24L * 60L * 60L * 1000L)
+                .filter { dayFormat().format(Date(it.startAt)) == day && !it.fake }
+                .maxByOrNull { it.peakBps }
+            store.edit()
+                .putLong("$KEY_PEAK_BPS:$day", peak?.peakBps ?: 0L)
+                .putLong("$KEY_PEAK_AT:$day", peak?.endAt ?: 0L)
+                .putString("$KEY_PEAK_NETWORK:$day", peak?.network ?: "")
+                .apply()
+        }
 
         fun readTotals(context: Context): UsageTotals {
             val store = prefs(context)
             val today = todayStamp()
             return UsageTotals(
-                todayLte = store.getLong("$KEY_LTE_BYTES:$today", 0L),
-                todayFiveG = store.getLong("$KEY_5G_BYTES:$today", 0L),
+                todayLte = (store.getLong("$KEY_LTE_BYTES:$today", 0L) - fakeBytes(context, today, LTE_LABEL)).coerceAtLeast(0L),
+                todayFiveG = (store.getLong("$KEY_5G_BYTES:$today", 0L) - fakeBytes(context, today, FIVE_G_LABEL)).coerceAtLeast(0L),
                 lifetimeLte = store.getLong(KEY_LTE_BYTES, 0L),
                 lifetimeFiveG = store.getLong(KEY_5G_BYTES, 0L),
-                todayPeakBps = store.getLong("$KEY_PEAK_BPS:$today", 0L).coerceAtMost(MAX_REASONABLE_BPS),
+                todayPeakBps = store.getLong("$KEY_PEAK_BPS:$today", 0L).coerceAtMost(MAX_TRACKABLE_BPS),
                 todayPeakAt = store.getLong("$KEY_PEAK_AT:$today", 0L),
                 todayPeakNetwork = store.getString("$KEY_PEAK_NETWORK:$today", null),
-                currentBps = store.getLong(KEY_CURRENT_BPS, 0L).coerceAtMost(MAX_REASONABLE_BPS),
+
+                currentBps = store.getLong(KEY_CURRENT_BPS, 0L).coerceAtMost(MAX_TRACKABLE_BPS),
             )
         }
 
@@ -275,9 +416,9 @@ class NetworkUsageTracker(context: Context) {
                 DailyUsage(
                     stamp = stamp,
                     label = labelFormatter.format(calendar.time),
-                    lte = store.getLong("$KEY_LTE_BYTES:$stamp", 0L),
-                    fiveG = store.getLong("$KEY_5G_BYTES:$stamp", 0L),
-                    peakBps = store.getLong("$KEY_PEAK_BPS:$stamp", 0L).coerceAtMost(MAX_REASONABLE_BPS),
+                    lte = (store.getLong("$KEY_LTE_BYTES:$stamp", 0L) - fakeBytes(context, stamp, LTE_LABEL)).coerceAtLeast(0L),
+                    fiveG = (store.getLong("$KEY_5G_BYTES:$stamp", 0L) - fakeBytes(context, stamp, FIVE_G_LABEL)).coerceAtLeast(0L),
+                    peakBps = store.getLong("$KEY_PEAK_BPS:$stamp", 0L).coerceAtMost(MAX_TRACKABLE_BPS),
                 )
             }
         }
