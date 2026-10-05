@@ -29,17 +29,6 @@ data class DailyUsage(
     val peakBps: Long,
 )
 
-data class UsageInterval(
-    val id: Long,
-    val startAt: Long,
-    val endAt: Long,
-    val network: String,
-    val bytes: Long,
-    val peakBps: Long,
-    val suspicious: Boolean,
-    val fake: Boolean,
-)
-
 /**
  * Tracks device-wide mobile traffic observed while the watcher is alive.
  *
@@ -318,14 +307,8 @@ class NetworkUsageTracker(context: Context) {
         fun todayStamp(): String = dayFormat().format(Date())
 
         /** Today's value for [key] (`KEY_LTE_BYTES` / `KEY_5G_BYTES`). Resets at midnight. */
-        fun todayBytes(context: Context, key: String): Long {
-            val store = prefs(context)
-            val raw = store.getLong("$key:" + todayStamp(), 0L)
-            val fake = readIntervals(context, 1)
-                .filter { it.fake && it.network == if (key == KEY_5G_BYTES) FIVE_G_LABEL else LTE_LABEL }
-                .sumOf { it.bytes }
-            return (raw - fake).coerceAtLeast(0L)
-        }
+        fun todayBytes(context: Context, key: String): Long =
+            prefs(context).getLong("$key:" + todayStamp(), 0L).coerceAtLeast(0L)
 
         fun readIntervals(context: Context, days: Int = 7): List<UsageInterval> =
             UsageHistoryStore.read(context, System.currentTimeMillis() - days.coerceAtLeast(1) * 24L * 60L * 60L * 1000L)
@@ -358,11 +341,6 @@ class NetworkUsageTracker(context: Context) {
             UsageHistoryStore.clearDay(context, today)
         }
 
-        private fun fakeBytes(context: Context, day: String, network: String): Long =
-            UsageHistoryStore.read(context, System.currentTimeMillis() - 14L * 24L * 60L * 60L * 1000L)
-                .filter { dayFormat().format(Date(it.startAt)) == day && it.fake && it.network == network }
-                .sumOf { it.bytes }
-
         private fun recomputeTodayPeak(context: Context, day: String) {
             if (day != todayStamp()) return
             val store = prefs(context)
@@ -380,8 +358,8 @@ class NetworkUsageTracker(context: Context) {
             val store = prefs(context)
             val today = todayStamp()
             return UsageTotals(
-                todayLte = (store.getLong("$KEY_LTE_BYTES:$today", 0L) - fakeBytes(context, today, LTE_LABEL)).coerceAtLeast(0L),
-                todayFiveG = (store.getLong("$KEY_5G_BYTES:$today", 0L) - fakeBytes(context, today, FIVE_G_LABEL)).coerceAtLeast(0L),
+                todayLte = store.getLong("$KEY_LTE_BYTES:$today", 0L).coerceAtLeast(0L),
+                todayFiveG = store.getLong("$KEY_5G_BYTES:$today", 0L).coerceAtLeast(0L),
                 lifetimeLte = store.getLong(KEY_LTE_BYTES, 0L),
                 lifetimeFiveG = store.getLong(KEY_5G_BYTES, 0L),
                 todayPeakBps = store.getLong("$KEY_PEAK_BPS:$today", 0L).coerceAtMost(MAX_TRACKABLE_BPS),
@@ -416,8 +394,8 @@ class NetworkUsageTracker(context: Context) {
                 DailyUsage(
                     stamp = stamp,
                     label = labelFormatter.format(calendar.time),
-                    lte = (store.getLong("$KEY_LTE_BYTES:$stamp", 0L) - fakeBytes(context, stamp, LTE_LABEL)).coerceAtLeast(0L),
-                    fiveG = (store.getLong("$KEY_5G_BYTES:$stamp", 0L) - fakeBytes(context, stamp, FIVE_G_LABEL)).coerceAtLeast(0L),
+                    lte = store.getLong("$KEY_LTE_BYTES:$stamp", 0L).coerceAtLeast(0L),
+                    fiveG = store.getLong("$KEY_5G_BYTES:$stamp", 0L).coerceAtLeast(0L),
                     peakBps = store.getLong("$KEY_PEAK_BPS:$stamp", 0L).coerceAtMost(MAX_TRACKABLE_BPS),
                 )
             }
