@@ -1767,6 +1767,8 @@ private fun UsageHistoryGraph(intervals: List<UsageInterval>) {
     }
 
     val maxBytes = (buckets.maxOfOrNull { it.second } ?: 1L).coerceAtLeast(1L)
+    val historyErrorColor = MaterialTheme.colorScheme.error
+    val historySuccessColor = MaterialTheme.hubAccents.success
     Canvas(
         Modifier
             .fillMaxWidth()
