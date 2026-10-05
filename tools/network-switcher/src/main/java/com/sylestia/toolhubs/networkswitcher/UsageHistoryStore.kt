@@ -29,6 +29,7 @@ object UsageHistoryStore {
     private const val RETENTION_MS = 14L * 24L * 60L * 60L * 1000L
     private val lock = Any()
     private val dayFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+    @Volatile private var lastPruneAt = 0L
 
     fun append(context: Context, interval: UsageInterval) = synchronized(lock) {
         val file = File(context.filesDir, FILE_NAME)
@@ -106,8 +107,9 @@ object UsageHistoryStore {
     }
 
     private fun pruneLocked(file: File, now: Long) {
-        // Avoid a full rewrite on every minute. The file only needs pruning when it gets stale.
-        if (now % (6L * 60L * 60L * 1000L) > 60_000L) return
+        // Avoid a full rewrite on every minute.
+        if (now - lastPruneAt < 6L * 60L * 60L * 1000L) return
+        lastPruneAt = now
         val cutoff = now - RETENTION_MS
         val rows = file.readLines().mapNotNull(::decode).filter { it.endAt >= cutoff }
         rewriteLocked(file, rows)
