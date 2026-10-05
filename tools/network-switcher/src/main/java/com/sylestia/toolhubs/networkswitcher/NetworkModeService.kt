@@ -131,17 +131,53 @@ class NetworkModeService(private val context: Context) : INetworkModeService.Stu
 
     override fun switchDefaultDataSubscription(subscriptionId: Int): String {
         if (subscriptionId < 0) return "No eligible SIM selected."
+
         return try {
-            val process = ProcessBuilder(
-                "cmd", "phone", "set-default-data-subscription", subscriptionId.toString()
-            ).redirectErrorStream(true).start()
-            val output = process.inputStream.bufferedReader().use { it.readText().trim() }
-            if (process.waitFor() == 0) "Data SIM switched" else "Could not switch data SIM: $output"
+            val subscriptionManager = context.getSystemService(android.telephony.SubscriptionManager::class.java)
+            val target = subscriptionManager?.getActiveSubscriptionInfo(subscriptionId)
+            if (target == null) {
+                return "Cannot switch data SIM: subscription $subscriptionId is not active."
+            }
+
+            // Samsung firmware can accept one telephony-shell command while ignoring another.
+            // Try the Android command first, then the legacy variant, and verify the framework.
+            val commands = listOf(
+                listOf("cmd", "phone", "set-default-data-subscription", subscriptionId.toString()),
+                listOf("cmd", "phone", "set-data-subscription", subscriptionId.toString()),
+            )
+
+            val errors = mutableListOf<String>()
+            for (command in commands) {
+                val process = ProcessBuilder(command).redirectErrorStream(true).start()
+                val output = process.inputStream.bufferedReader().use { it.readText().trim() }
+                val exit = process.waitFor()
+                if (exit == 0) {
+                    Thread.sleep(500)
+                    val current = android.telephony.SubscriptionManager.getDefaultDataSubscriptionId()
+                    if (current == subscriptionId) {
+                        return "Data SIM switched to SIM ${target.simSlotIndex + 1}"
+                    }
+                }
+                errors += "${command.last()} -> ${output.ifBlank { "exit code $exit" }}"
+            }
+
+            // Samsung/older Android fallback: select the data SIM by modem slot.
+            val slot = target.simSlotIndex
+            val settings = ProcessBuilder("settings", "put", "global", "multi_sim_data_call", slot.toString())
+                .redirectErrorStream(true).start()
+            val settingsOutput = settings.inputStream.bufferedReader().use { it.readText().trim() }
+            val settingsExit = settings.waitFor()
+            Thread.sleep(700)
+            val current = android.telephony.SubscriptionManager.getDefaultDataSubscriptionId()
+            if (current == subscriptionId) {
+                return "Data SIM switched to SIM ${slot + 1}"
+            }
+            "Could not switch data SIM to SIM ${slot + 1}: " +
+                (errors + "settings -> ${settingsOutput.ifBlank { "exit code $settingsExit" }}").joinToString(" | ")
         } catch (t: Throwable) {
             "Data SIM switch failed: ${t.javaClass.simpleName}: ${t.message ?: "unknown error"}"
         }
     }
-
     private fun ensureTelephonyFrameworkInitialized() {
         val initializer = Class.forName("android.telephony.TelephonyFrameworkInitializer")
         val managerClass = Class.forName("android.os.TelephonyServiceManager")
