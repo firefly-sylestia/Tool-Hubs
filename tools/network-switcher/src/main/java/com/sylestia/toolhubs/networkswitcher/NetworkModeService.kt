@@ -135,47 +135,41 @@ class NetworkModeService(private val context: Context) : INetworkModeService.Stu
         return try {
             val subscriptionManager = context.getSystemService(android.telephony.SubscriptionManager::class.java)
             val target = subscriptionManager?.getActiveSubscriptionInfo(subscriptionId)
-            if (target == null) {
-                return "Cannot switch data SIM: subscription $subscriptionId is not active."
-            }
+                ?: return "Cannot switch data SIM: subscription " + subscriptionId + " is not active."
 
-            // Samsung firmware can accept one telephony-shell command while ignoring another.
-            // Try the Android command first, then the legacy variant, and verify the framework.
-            val commands = listOf(
-                listOf("cmd", "phone", "set-default-data-subscription", subscriptionId.toString()),
-                listOf("cmd", "phone", "set-data-subscription", subscriptionId.toString()),
-            )
-
+            // Samsung does not expose the cmd phone set-default-data-subscription command.
+            // Shizuku gives this service shell-level privileges, so call the hidden framework
+            // SystemApi directly first, then use the backing global setting as a fallback.
             val errors = mutableListOf<String>()
-            for (command in commands) {
-                val process = ProcessBuilder(command).redirectErrorStream(true).start()
-                val output = process.inputStream.bufferedReader().use { it.readText().trim() }
-                val exit = process.waitFor()
-                if (exit == 0) {
-                    Thread.sleep(500)
-                    val current = android.telephony.SubscriptionManager.getDefaultDataSubscriptionId()
-                    if (current == subscriptionId) {
-                        return "Data SIM switched to SIM ${target.simSlotIndex + 1}"
-                    }
+            try {
+                val method = android.telephony.SubscriptionManager::class.java.getMethod("setDefaultDataSubId", Int::class.javaPrimitiveType)
+                method.invoke(subscriptionManager, subscriptionId)
+                Thread.sleep(700)
+                if (android.telephony.SubscriptionManager.getDefaultDataSubscriptionId() == subscriptionId) {
+                    return "Data SIM switched to SIM " + (target.simSlotIndex + 1)
                 }
-                errors += "${command.last()} -> ${output.ifBlank { "exit code $exit" }}"
+                errors += "framework call returned without changing the default data SIM"
+            } catch (t: Throwable) {
+                errors += "framework call -> " + t.javaClass.simpleName + ": " + (t.message ?: "unknown error")
             }
 
-            // Samsung/older Android fallback: select the data SIM by modem slot.
-            val slot = target.simSlotIndex
-            val settings = ProcessBuilder("settings", "put", "global", "multi_sim_data_call", slot.toString())
-                .redirectErrorStream(true).start()
-            val settingsOutput = settings.inputStream.bufferedReader().use { it.readText().trim() }
-            val settingsExit = settings.waitFor()
-            Thread.sleep(700)
-            val current = android.telephony.SubscriptionManager.getDefaultDataSubscriptionId()
-            if (current == subscriptionId) {
-                return "Data SIM switched to SIM ${slot + 1}"
+            try {
+                val settings = ProcessBuilder("settings", "put", "global", "multi_sim_data_call", subscriptionId.toString())
+                    .redirectErrorStream(true).start()
+                val output = settings.inputStream.bufferedReader().use { it.readText().trim() }
+                val exit = settings.waitFor()
+                Thread.sleep(700)
+                if (android.telephony.SubscriptionManager.getDefaultDataSubscriptionId() == subscriptionId) {
+                    return "Data SIM switched to SIM " + (target.simSlotIndex + 1)
+                }
+                errors += "settings -> " + output.ifBlank { "exit code " + exit }
+            } catch (t: Throwable) {
+                errors += "settings -> " + t.javaClass.simpleName + ": " + (t.message ?: "unknown error")
             }
-            "Could not switch data SIM to SIM ${slot + 1}: " +
-                (errors + "settings -> ${settingsOutput.ifBlank { "exit code $settingsExit" }}").joinToString(" | ")
+
+            "Could not switch data SIM to SIM " + (target.simSlotIndex + 1) + ": " + errors.joinToString(" | ")
         } catch (t: Throwable) {
-            "Data SIM switch failed: ${t.javaClass.simpleName}: ${t.message ?: "unknown error"}"
+            "Data SIM switch failed: " + t.javaClass.simpleName + ": " + (t.message ?: "unknown error")
         }
     }
     private fun ensureTelephonyFrameworkInitialized() {
