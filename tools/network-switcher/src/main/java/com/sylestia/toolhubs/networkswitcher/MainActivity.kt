@@ -1404,6 +1404,7 @@ private fun UsageHistoryPage(context: MainActivity) {
     var rangeIndex by rememberSaveable { mutableIntStateOf(1) }
     var suspiciousOnly by rememberSaveable { mutableStateOf(false) }
     var selectedId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val historyScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -1417,7 +1418,12 @@ private fun UsageHistoryPage(context: MainActivity) {
         1 -> 1
         else -> 7
     }
-    val all = tick.let { NetworkUsageTracker.readIntervals(context, rangeDays) }
+    var all by remember { mutableStateOf<List<UsageInterval>>(emptyList()) }
+    LaunchedEffect(rangeIndex, tick) {
+        all = withContext(Dispatchers.IO) {
+            NetworkUsageTracker.readIntervals(context, rangeDays)
+        }
+    }
     val filtered = all.filter { !suspiciousOnly || it.suspicious }
     val selected = selectedId?.let { id -> filtered.firstOrNull { it.id == id } }
     val graphStart = System.currentTimeMillis() - when (rangeIndex) {
@@ -1548,8 +1554,12 @@ private fun UsageHistoryPage(context: MainActivity) {
                             text = if (item.fake) "Restore" else "Mark fake",
                             icon = if (item.fake) Icons.Rounded.Refresh else Icons.Rounded.Warning,
                         ) {
-                            NetworkUsageTracker.toggleIntervalFake(context, item.id)
-                            tick++
+                            historyScope.launch {
+                                withContext(Dispatchers.IO) {
+                                    NetworkUsageTracker.toggleIntervalFake(context, item.id)
+                                }
+                                tick++
+                            }
                         }
                     }
                 }
