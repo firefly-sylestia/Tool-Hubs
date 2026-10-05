@@ -14,8 +14,20 @@ android {
         versionName = "0.1.0"
     }
     buildFeatures { compose = true }
+    // Use the repository release key when CI provides it; keep the debug key as a safe fallback for forks/local PRs.
+    val releaseKeystorePath = System.getenv("RELEASE_KEYSTORE_PATH")
+    val hasReleaseKeystore = !releaseKeystorePath.isNullOrBlank()
+
     signingConfigs {
         getByName("debug")
+        create("release") {
+            if (hasReleaseKeystore) {
+                storeFile = rootProject.file(releaseKeystorePath!!)
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
         create("debugRelease") {
             storeFile = rootProject.file(".ci/debug.keystore")
             storePassword = "android"
@@ -25,7 +37,11 @@ android {
     }
     buildTypes {
         getByName("release") {
-            signingConfig = signingConfigs.getByName("debugRelease")
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debugRelease")
+            }
             isMinifyEnabled = false
         }
     }

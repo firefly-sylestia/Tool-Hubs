@@ -7,11 +7,37 @@ android {
     compileSdk = 37
     defaultConfig { applicationId = "com.sylestia.toolhubs.datawarden"; minSdk = 24; targetSdk = 37; versionCode = 1; versionName = "0.1.0" }
     buildFeatures { compose = true; aidl = true }
+    // Use the repository release key when CI provides it; keep the debug key as a safe fallback for forks/local PRs.
+    val releaseKeystorePath = System.getenv("RELEASE_KEYSTORE_PATH")
+    val hasReleaseKeystore = !releaseKeystorePath.isNullOrBlank()
+
     signingConfigs {
         getByName("debug")
-        create("debugRelease") { storeFile = rootProject.file(".ci/debug.keystore"); storePassword = "android"; keyAlias = "androiddebugkey"; keyPassword = "android" }
+        create("release") {
+            if (hasReleaseKeystore) {
+                storeFile = rootProject.file(releaseKeystorePath!!)
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
+        create("debugRelease") {
+            storeFile = rootProject.file(".ci/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
-    buildTypes { getByName("release") { signingConfig = signingConfigs.getByName("debugRelease"); isMinifyEnabled = false } }
+    buildTypes {
+        getByName("release") {
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debugRelease")
+            }
+            isMinifyEnabled = false
+        }
+    }
 }
 dependencies {
     implementation(project(":core:designsystem"))

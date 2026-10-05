@@ -65,25 +65,60 @@ class NetworkUsageTracker(context: Context) {
     private var lastSpeedElapsed = -1L
     private var lastSpeedPersistAt = 0L
 
+    /** Ignore traffic samples while telephony is changing accounting state during a call. */
+    private var pausedForCall = false
+
     private val dayFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
     fun sample(network: String) {
-        val total = TrafficStats.getMobileRxBytes() + TrafficStats.getMobileTxBytes()
+        val rx = TrafficStats.getMobileRxBytes()
+        val tx = TrafficStats.getMobileTxBytes()
+        // TrafficStats.UNSUPPORTED is -1. Never add a valid counter to an unsupported one.
+        if (rx < 0L || tx < 0L) return
+        val total = rx + tx
         if (total < 0L) return
 
         val nowElapsed = SystemClock.elapsedRealtime()
-        if (lastTotal >= 0L && total >= lastTotal && lastElapsed >= 0L && nowElapsed >= lastElapsed) {
+        val nowWall = System.currentTimeMillis()
+
+        if (pausedForCall) return
+
+        // A RAT/SIM transition can make the kernel's aggregate mobile counter jump or restart.
+        // Treat that sample as a new baseline instead of turning the discontinuity into fake data.
+        val counterReset = lastTotal >= 0L && total < lastTotal
+        val networkChanged = lastNetwork != null && network != lastNetwork
+        if (counterReset || networkChanged) {
+            persist(dayFormat.format(Date(nowWall)), nowWall)
+            lastTotal = total
+            lastElapsed = nowElapsed
+            lastSpeedTotal = total
+            lastSpeedElapsed = nowElapsed
+            lastNetwork = network
+            return
+        }
+
+        if (lastTotal >= 0L && lastElapsed >= 0L && nowElapsed > lastElapsed && total >= lastTotal) {
             val delta = total - lastTotal
-            when (lastNetwork) {
-                LTE_LABEL -> pendingLte += delta
-                FIVE_G_LABEL -> pending5G += delta
+            val intervalMs = nowElapsed - lastElapsed
+            val bytesPerSecond = delta * 1000L / intervalMs
+
+            // A phone-level mobile counter cannot legitimately produce multi-GB/s bursts.
+            // Samsung can briefly report a discontinuity while switching RAT/SIM, so discard
+            // only the impossible spike rather than polluting the day/lifetime totals.
+            if (bytesPerSecond <= MAX_REASONABLE_BPS) {
+                when (lastNetwork) {
+                    LTE_LABEL -> pendingLte += delta
+                    FIVE_G_LABEL -> pending5G += delta
+                }
             }
         }
 
-        val nowWall = System.currentTimeMillis()
-        if (lastSpeedTotal >= 0L && total >= lastSpeedTotal && lastSpeedElapsed >= 0L && nowElapsed > lastSpeedElapsed) {
-            val bytesPerSecond = ((total - lastSpeedTotal) * 1000L / (nowElapsed - lastSpeedElapsed)).coerceAtLeast(0L)
-            recordSpeed(bytesPerSecond, network, nowWall)
+        if (lastSpeedTotal >= 0L && lastSpeedElapsed >= 0L && nowElapsed > lastSpeedElapsed && total >= lastSpeedTotal) {
+            val intervalMs = nowElapsed - lastSpeedElapsed
+            val bytesPerSecond = (total - lastSpeedTotal) * 1000L / intervalMs
+            if (bytesPerSecond <= MAX_REASONABLE_BPS) {
+                recordSpeed(bytesPerSecond, network, nowWall)
+            }
         }
 
         lastSpeedTotal = total
@@ -97,6 +132,32 @@ class NetworkUsageTracker(context: Context) {
         lastTotal = total
         lastNetwork = network
         lastElapsed = nowElapsed
+    }
+
+    /** Flush pending traffic and forget the counter baseline before an active phone call. */
+    fun pauseForCall() {
+        if (pausedForCall) return
+        val rx = TrafficStats.getMobileRxBytes()
+        val tx = TrafficStats.getMobileTxBytes()
+        if (rx >= 0L && tx >= 0L) {
+            persist(dayFormat.format(Date()), System.currentTimeMillis())
+        }
+        pausedForCall = true
+        resetBaselines()
+    }
+
+    /** Resume with a fresh baseline so call-time counter changes cannot become fake traffic. */
+    fun resumeAfterCall() {
+        pausedForCall = false
+        resetBaselines()
+    }
+
+    private fun resetBaselines() {
+        lastTotal = -1L
+        lastNetwork = null
+        lastElapsed = -1L
+        lastSpeedTotal = -1L
+        lastSpeedElapsed = -1L
     }
 
     /**
@@ -159,6 +220,10 @@ class NetworkUsageTracker(context: Context) {
         const val PERSIST_EVERY_MS = 30_000L
         private const val SPEED_PERSIST_MS = 2_000L
 
+        // 500 MB/s is deliberately generous for this device class; anything above it is treated
+        // as a counter discontinuity, not a real transfer rate.
+        private const val MAX_REASONABLE_BPS = 500L * 1024L * 1024L
+
         private fun prefs(context: Context) =
             context.getSharedPreferences(AutoReconnectService.PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -179,10 +244,10 @@ class NetworkUsageTracker(context: Context) {
                 todayFiveG = store.getLong("$KEY_5G_BYTES:$today", 0L),
                 lifetimeLte = store.getLong(KEY_LTE_BYTES, 0L),
                 lifetimeFiveG = store.getLong(KEY_5G_BYTES, 0L),
-                todayPeakBps = store.getLong("$KEY_PEAK_BPS:$today", 0L),
+                todayPeakBps = store.getLong("$KEY_PEAK_BPS:$today", 0L).coerceAtMost(MAX_REASONABLE_BPS),
                 todayPeakAt = store.getLong("$KEY_PEAK_AT:$today", 0L),
                 todayPeakNetwork = store.getString("$KEY_PEAK_NETWORK:$today", null),
-                currentBps = store.getLong(KEY_CURRENT_BPS, 0L),
+                currentBps = store.getLong(KEY_CURRENT_BPS, 0L).coerceAtMost(MAX_REASONABLE_BPS),
             )
         }
 
@@ -212,7 +277,7 @@ class NetworkUsageTracker(context: Context) {
                     label = labelFormatter.format(calendar.time),
                     lte = store.getLong("$KEY_LTE_BYTES:$stamp", 0L),
                     fiveG = store.getLong("$KEY_5G_BYTES:$stamp", 0L),
-                    peakBps = store.getLong("$KEY_PEAK_BPS:$stamp", 0L),
+                    peakBps = store.getLong("$KEY_PEAK_BPS:$stamp", 0L).coerceAtMost(MAX_REASONABLE_BPS),
                 )
             }
         }

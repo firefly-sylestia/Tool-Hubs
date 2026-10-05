@@ -36,6 +36,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -90,6 +91,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -98,6 +100,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -436,7 +440,6 @@ private fun WatchPage(
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
-
     val network = radio?.label ?: snapshot.network
     val live5G = radio?.is5G == true
     val fallback = radio?.isLteFallback == true
@@ -622,6 +625,8 @@ private fun WatchPage(
                 },
             )
         }
+
+        Spacer(Modifier.height(12.dp))
 
         message?.let { text ->
             Spacer(Modifier.height(12.dp))
@@ -1539,6 +1544,12 @@ private fun TunePage(
     var lteFailoverSim by rememberSaveable {
         mutableIntStateOf(store.getInt(AutoReconnectService.PREF_LTE_FAILOVER_TARGET, SubscriptionManager.INVALID_SUBSCRIPTION_ID))
     }
+    var pause5gDuringFailover by rememberSaveable {
+        mutableStateOf(store.getBoolean(AutoReconnectService.PREF_LTE_FAILOVER_PAUSE_RECOVERY, true))
+    }
+    var pauseDuringCall by rememberSaveable {
+        mutableStateOf(store.getBoolean(AutoReconnectService.PREF_PAUSE_DURING_CALL, false))
+    }
 
     fun refreshWatcher() {
         if (store.getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)) context.startWatcher()
@@ -1842,8 +1853,32 @@ private fun TunePage(
                                 )
                             }
                         }
+                        Spacer(Modifier.height(10.dp))
+                        HubToggleRow(
+                            title = "Pause 5G recovery while backup SIM is active",
+                            subtitle = "Do not keep forcing 5G while data is on the backup SIM. This is useful when the backup SIM is 4G-only; the primary SIM is still watched for a natural 5G return.",
+                            checked = pause5gDuringFailover,
+                            onCheckedChange = { enabled ->
+                                pause5gDuringFailover = enabled
+                                store.edit().putBoolean(AutoReconnectService.PREF_LTE_FAILOVER_PAUSE_RECOVERY, enabled).apply()
+                                refreshWatcher()
+                            },
+                        )
                     }
                 }
+                Spacer(Modifier.height(10.dp))
+                HubHairline()
+                Spacer(Modifier.height(10.dp))
+                HubToggleRow(
+                    title = "Pause switching during calls",
+                    subtitle = "Do not change the radio or data SIM during a call. After the call ends, wait about 4 seconds and retry if LTE is still active.",
+                    checked = pauseDuringCall,
+                    onCheckedChange = { enabled ->
+                        pauseDuringCall = enabled
+                        store.edit().putBoolean(AutoReconnectService.PREF_PAUSE_DURING_CALL, enabled).apply()
+                        refreshWatcher()
+                    },
+                )
             }
         }
 
@@ -1881,6 +1916,52 @@ private fun TunePage(
                 fontSize = 10.sp,
             )
         }
+    }
+}
+
+@Composable
+private fun ThermalActionButton(
+    text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
+    destructive: Boolean,
+    onClick: () -> Unit,
+) {
+    val haptic = LocalHapticFeedback.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.965f else 1f,
+        animationSpec = spring(stiffness = 700f, dampingRatio = 0.72f),
+        label = "thermal_button_scale",
+    )
+    val container = if (destructive) MaterialTheme.colorScheme.errorContainer
+    else MaterialTheme.colorScheme.surfaceContainerHigh
+    val content = if (destructive) MaterialTheme.colorScheme.onErrorContainer
+    else MaterialTheme.colorScheme.onSurface
+    val borderColor = if (destructive) MaterialTheme.colorScheme.error.copy(alpha = 0.22f)
+    else MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
+
+    Row(
+        modifier
+            .scale(scale)
+            .clip(RoundedCornerShape(18.dp))
+            .background(container)
+            .border(1.dp, borderColor, RoundedCornerShape(18.dp))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+            ) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onClick()
+            }
+            .padding(horizontal = 16.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(19.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(text, color = content, fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
 }
 
