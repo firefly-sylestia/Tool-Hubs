@@ -244,10 +244,10 @@ class NetworkUsageTracker(context: Context) {
                 todayFiveG = store.getLong("$KEY_5G_BYTES:$today", 0L),
                 lifetimeLte = store.getLong(KEY_LTE_BYTES, 0L),
                 lifetimeFiveG = store.getLong(KEY_5G_BYTES, 0L),
-                todayPeakBps = store.getLong("$KEY_PEAK_BPS:$today", 0L),
+                todayPeakBps = store.getLong("$KEY_PEAK_BPS:$today", 0L).coerceAtMost(MAX_REASONABLE_BPS),
                 todayPeakAt = store.getLong("$KEY_PEAK_AT:$today", 0L),
                 todayPeakNetwork = store.getString("$KEY_PEAK_NETWORK:$today", null),
-                currentBps = store.getLong(KEY_CURRENT_BPS, 0L),
+                currentBps = store.getLong(KEY_CURRENT_BPS, 0L).coerceAtMost(MAX_REASONABLE_BPS),
             )
         }
 
@@ -277,7 +277,7 @@ class NetworkUsageTracker(context: Context) {
                     label = labelFormatter.format(calendar.time),
                     lte = store.getLong("$KEY_LTE_BYTES:$stamp", 0L),
                     fiveG = store.getLong("$KEY_5G_BYTES:$stamp", 0L),
-                    peakBps = store.getLong("$KEY_PEAK_BPS:$stamp", 0L),
+                    peakBps = store.getLong("$KEY_PEAK_BPS:$stamp", 0L).coerceAtMost(MAX_REASONABLE_BPS),
                 )
             }
         }
