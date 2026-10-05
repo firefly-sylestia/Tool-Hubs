@@ -98,6 +98,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.center
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -1604,7 +1605,7 @@ private fun UsageHistoryPage(context: MainActivity) {
                     letterSpacing = 1.5.sp,
                 )
                 Spacer(Modifier.height(8.dp))
-                UsageHistoryGraph(all.filter { it.endAt >= graphStart })
+                UsageHistoryGraph(all.filter { it.endAt >= graphStart }, graphStart)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1636,29 +1637,38 @@ private fun UsageHistoryPage(context: MainActivity) {
             Spacer(Modifier.height(12.dp))
             HubReveal(3) {
                 HubGlassCard(accent = if (item.fake) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                if (item.fake) "MARKED FAKE" else if (item.suspicious) "SUSPECTED SPIKE" else item.network,
-                                color = if (item.fake) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 1.4.sp,
-                            )
-                            Text(
-                                formatIntervalClock(item.startAt) + " → " + formatIntervalClock(item.endAt),
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Black,
-                            )
-                            Text(
-                                formatBytes(item.bytes) + " · peak " + formatSpeed(item.peakBps),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 11.sp,
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    if (item.fake) "MARKED FAKE" else if (item.suspicious) "SUSPECTED SPIKE" else item.network,
+                                    color = if (item.fake) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 1.4.sp,
+                                )
+                                Text(
+                                    formatIntervalClock(item.startAt) + " → " + formatIntervalClock(item.endAt),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Black,
+                                )
+                                Text(
+                                    formatBytes(item.bytes) + " · peak " + formatSpeed(item.peakBps),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            Icon(
+                                if (item.fake) Icons.Rounded.Refresh else if (item.suspicious) Icons.Rounded.Warning else Icons.Rounded.Timeline,
+                                contentDescription = null,
+                                tint = if (item.fake || item.suspicious) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(22.dp),
                             )
                         }
+                        Spacer(Modifier.height(12.dp))
                         HubPrimaryButton(
-                            text = if (item.fake) "Restore" else "Mark fake",
+                            text = if (item.fake) "Restore interval" else "Mark interval fake",
                             icon = if (item.fake) Icons.Rounded.Refresh else Icons.Rounded.Warning,
                         ) {
                             historyScope.launch {
@@ -1748,27 +1758,58 @@ private fun UsageHistoryPage(context: MainActivity) {
 }
 
 @Composable
-private fun UsageHistoryGraph(intervals: List<UsageInterval>) {
-    val buckets = remember(intervals) {
-        val now = System.currentTimeMillis()
-        val range = when {
-            now - (intervals.minOfOrNull { it.startAt } ?: now) <= 6L * 60L * 60L * 1000L -> 5L * 60L * 1000L
-            now - (intervals.minOfOrNull { it.startAt } ?: now) <= 24L * 60L * 60L * 1000L -> 15L * 60L * 1000L
-            else -> 60L * 60L * 1000L
-        }
-        intervals.groupBy { (it.startAt / range) * range }
-            .toSortedMap()
-            .map { (bucket, rows) ->
-                val lte = rows.filter { it.network == NetworkUsageTracker.LTE_LABEL && !it.fake }.sumOf { it.bytes }
-                val fiveG = rows.filter { it.network == NetworkUsageTracker.FIVE_G_LABEL && !it.fake }.sumOf { it.bytes }
-                val suspicious = rows.any { it.suspicious }
-                Triple(bucket, lte + fiveG, suspicious)
-            }
+private fun UsageHistoryGraph(intervals: List<UsageInterval>, graphStart: Long) {
+    data class GraphBucket(
+        val timestamp: Long,
+        val bytes: Long,
+        val network: String?,
+        val suspicious: Boolean,
+    )
+
+    val now = System.currentTimeMillis()
+    val bucketSize = when {
+        now - graphStart <= 6L * 60L * 60L * 1000L -> 5L * 60L * 1000L
+        now - graphStart <= 24L * 60L * 60L * 1000L -> 15L * 60L * 1000L
+        else -> 60L * 60L * 1000L
     }
 
-    val maxBytes = (buckets.maxOfOrNull { it.second } ?: 1L).coerceAtLeast(1L)
+    val buckets = remember(intervals, graphStart, bucketSize) {
+        val firstBucket = (graphStart / bucketSize) * bucketSize
+        val lastBucket = (now / bucketSize) * bucketSize
+        val count = ((lastBucket - firstBucket) / bucketSize).toInt().coerceIn(0, 288)
+
+        val byBucket = intervals
+            .filter { !it.fake && it.endAt >= graphStart }
+            .groupBy { (it.startAt / bucketSize) * bucketSize }
+
+        (0..count).map { index ->
+            val timestamp = firstBucket + index * bucketSize
+            val rows = byBucket[timestamp].orEmpty()
+            val activeRows = rows.filter { it.bytes > 0L }
+            val bytes = activeRows.sumOf { it.bytes }
+            val network = activeRows
+                .groupingBy { it.network }
+                .eachCount()
+                .maxByOrNull { it.value }
+                ?.key
+            GraphBucket(
+                timestamp = timestamp,
+                bytes = bytes,
+                network = network,
+                suspicious = rows.any { it.suspicious },
+            )
+        }
+    }
+
+    val maxBytes = maxOf(
+        buckets.maxOfOrNull { it.bytes } ?: 0L,
+        1L * 1024L * 1024L,
+    )
     val historyErrorColor = MaterialTheme.colorScheme.error
     val historySuccessColor = MaterialTheme.hubAccents.success
+    val historyLteColor = MaterialTheme.colorScheme.tertiary
+    val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
+
     Canvas(
         Modifier
             .fillMaxWidth()
@@ -1776,19 +1817,84 @@ private fun UsageHistoryGraph(intervals: List<UsageInterval>) {
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
-        val gap = 2f
-        val barWidth = (size.width / buckets.size.coerceAtLeast(1)) - gap
-        buckets.forEachIndexed { index, bucket ->
-            val height = size.height * (bucket.second.toFloat() / maxBytes.toFloat()).coerceIn(0f, 1f)
-            val left = index * (size.width / buckets.size.coerceAtLeast(1))
-            val color = if (bucket.third) historyErrorColor else historySuccessColor
-            drawRoundRect(
-                color = color.copy(alpha = if (bucket.third) 0.72f else 0.58f),
-                topLeft = Offset(left, size.height - height),
-                size = Size(barWidth.coerceAtLeast(1f), height),
-                cornerRadius = CornerRadius(4f, 4f),
+        val inset = 12.dp.toPx()
+        val chartWidth = (size.width - inset * 2f).coerceAtLeast(1f)
+        val chartHeight = (size.height - inset * 2f).coerceAtLeast(1f)
+        val baseline = size.height - inset
+        val stepX = chartWidth / (buckets.lastIndex.coerceAtLeast(1))
+
+        // Subtle horizontal guides make an almost-empty timeline readable instead of
+        // looking like a blank card.
+        for (row in 0..3) {
+            val y = inset + chartHeight * row / 3f
+            drawLine(
+                color = gridColor,
+                start = Offset(inset, y),
+                end = Offset(size.width - inset, y),
+                strokeWidth = 1f,
             )
         }
+
+        fun pointFor(index: Int, bucket: GraphBucket): Offset {
+            val x = inset + stepX * index
+            val normalized = (bucket.bytes.toFloat() / maxBytes.toFloat()).coerceIn(0f, 1f)
+            val y = baseline - chartHeight * normalized
+            return Offset(x, y)
+        }
+
+        val points = buckets.mapIndexed { index, bucket -> pointFor(index, bucket) }
+
+        if (points.size >= 2) {
+            val area = Path().apply {
+                moveTo(points.first().x, baseline)
+                points.forEach { lineTo(it.x, it.y) }
+                lineTo(points.last().x, baseline)
+                close()
+            }
+            drawPath(
+                path = area,
+                color = historySuccessColor.copy(alpha = 0.08f),
+            )
+
+            val line = Path().apply {
+                moveTo(points.first().x, points.first().y)
+                points.drop(1).forEach { lineTo(it.x, it.y) }
+            }
+            drawPath(
+                path = line,
+                color = historySuccessColor.copy(alpha = 0.72f),
+                style = Stroke(width = 3.dp.toPx()),
+            )
+        }
+
+        // Draw only meaningful points. Zero-traffic buckets remain as the baseline,
+        // so one 20 KB interval no longer turns the entire graph into a giant rectangle.
+        buckets.forEachIndexed { index, bucket ->
+            if (bucket.bytes <= 0L) return@forEachIndexed
+            val point = points[index]
+            val color = when {
+                bucket.suspicious -> historyErrorColor
+                bucket.network == NetworkUsageTracker.FIVE_G_LABEL -> historySuccessColor
+                else -> historyLteColor
+            }
+            drawCircle(
+                color = color.copy(alpha = 0.18f),
+                radius = 7.dp.toPx(),
+                center = point,
+            )
+            drawCircle(
+                color = color,
+                radius = 3.5.dp.toPx(),
+                center = point,
+            )
+        }
+
+        drawLine(
+            color = historyLteColor.copy(alpha = 0.22f),
+            start = Offset(inset, baseline),
+            end = Offset(size.width - inset, baseline),
+            strokeWidth = 1.5.dp.toPx(),
+        )
     }
 }
 
