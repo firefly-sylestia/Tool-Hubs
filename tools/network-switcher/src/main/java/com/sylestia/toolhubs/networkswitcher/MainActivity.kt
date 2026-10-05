@@ -1564,9 +1564,8 @@ private fun UsageHistoryPage(context: MainActivity) {
         if (rows.isEmpty()) {
             HubGlassCard {
                 HubEmptyState(
-                    icon = Icons.Rounded.DataUsage,
-                    title = "No intervals yet",
-                    message = "Keep the watcher running. Usage history is recorded in one-minute intervals.",
+                    "No intervals yet",
+                    "Keep the watcher running. Usage history is recorded in one-minute intervals.",
                 )
             }
         } else {
