@@ -7,4 +7,5 @@ interface INetworkModeService {
     String openSamsungBandSelection() = 3;
     String setThermalStatusOverride(int status) = 4;
     String resetThermalStatus() = 5;
+    String setWifiEnabled(boolean enable) = 6;
 }

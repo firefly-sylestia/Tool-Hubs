@@ -187,6 +187,33 @@ class NetworkModeService(private val context: Context) : INetworkModeService.Stu
             .invoke(null, manager)
     }
 
+    /**
+     * Turns the Wi-Fi radio on or off.
+     *
+     * Apps have been unable to call `WifiManager.setWifiEnabled` since Android 10, but this service
+     * runs with shell privileges under Shizuku, where `svc wifi` still works. `svc` returns as soon as
+     * the request is queued, so a short settle is observed before reporting success — the caller is
+     * using this to decide whether it may claim Wi-Fi is available.
+     */
+    override fun setWifiEnabled(enable: Boolean): String {
+        val action = if (enable) "enable" else "disable"
+        return try {
+            val process = ProcessBuilder("svc", "wifi", action)
+                .redirectErrorStream(true)
+                .start()
+            val output = process.inputStream.bufferedReader().use { it.readText().trim() }
+            val exit = process.waitFor()
+            Thread.sleep(900)
+            if (exit == 0) {
+                "Wi-Fi ${if (enable) "enabled" else "disabled"}"
+            } else {
+                "Wi-Fi switch rejected: " + output.ifBlank { "exit code " + exit }
+            }
+        } catch (t: Throwable) {
+            "Wi-Fi switch failed: ${t.javaClass.simpleName}: ${t.message ?: "unknown error"}"
+        }
+    }
+
     override fun destroy() {
         System.exit(0)
     }

@@ -47,6 +47,7 @@ class AutoReconnectService : Service() {
         const val ACTION_PAUSE = "com.sylestia.toolhubs.networkswitcher.PAUSE"
         const val ACTION_RESUME = "com.sylestia.toolhubs.networkswitcher.RESUME"
         const val ACTION_RETRY = "com.sylestia.toolhubs.networkswitcher.RETRY"
+        const val ACTION_REVERT = "com.sylestia.toolhubs.networkswitcher.REVERT"
         const val CHANNEL_ID = "network_switcher"
         const val NOTIFICATION_ID = 501
         const val ALERT_CHANNEL_ID = "network_switcher_alerts"
@@ -68,6 +69,19 @@ class AutoReconnectService : Service() {
         const val PREF_FAILOVER_TARGET = "sim_failover_target"
         const val PREF_LAST_FAILOVER = "last_sim_failover"
 
+        // No-service failover bookkeeping. `ACTIVE` plus `MONITORED` is what makes the move back
+        // possible at all: the outbound switch recorded nothing about where it came from, so there
+        // was no code path that could ever return the data connection to the monitored SIM.
+        const val PREF_FAILOVER_ACTIVE = "sim_failover_active"
+        const val PREF_FAILOVER_MONITORED = "sim_failover_monitored"
+        const val PREF_FAILOVER_MOVED_TO = "sim_failover_moved_to"
+
+        // Wi-Fi failover. Shell-level Wi-Fi control is the only version of this that can work: apps
+        // have been barred from toggling Wi-Fi since Android 10, so it goes through Shizuku.
+        const val PREF_WIFI_FAILOVER_ENABLED = "wifi_failover_enabled"
+        const val PREF_WIFI_FAILOVER_ACTIVE = "wifi_failover_active"
+        const val PREF_WIFI_FAILOVER_LAST = "wifi_failover_last"
+
         // LTE data warning.
         const val PREF_LTE_WARNING_ENABLED = "lte_warning_enabled"
         const val PREF_LTE_WARNING_BYTES = "lte_warning_bytes"
@@ -81,6 +95,8 @@ class AutoReconnectService : Service() {
         const val PREF_LTE_FAILOVER_PRIMARY = "lte_failover_primary"
         const val PREF_LTE_FAILOVER_ACTIVE = "lte_failover_active"
         const val PREF_LTE_FAILOVER_LAST = "lte_failover_last_switch"
+        const val PREF_LTE_FAILOVER_ACTIVATED_AT = "lte_failover_activated_at"
+        const val PREF_LTE_FAILOVER_RELAPSE_UNTIL = "lte_failover_relapse_until"
         const val PREF_LTE_FAILOVER_PAUSE_RECOVERY = "lte_failover_pause_recovery"
         const val PREF_PAUSE_DURING_CALL = "pause_during_call"
         const val PREF_FALLBACK_STARTED = "fallback_started_elapsed"
@@ -112,8 +128,31 @@ class AutoReconnectService : Service() {
         const val NO_SERVICE_FAILOVER_DELAY_MS = 45_000L
         const val SIM_FAILOVER_COOLDOWN_MS = 15 * 60_000L
 
+        /** Settle time before handing data back after service returns, so it does not bounce. */
+        const val SIM_FAILOVER_REVERT_SETTLE_MS = 60_000L
+
         /** Stops a RAT-driven SIM switch from flapping between the two SIMs. */
         const val LTE_FAILOVER_COOLDOWN_MS = 60_000L
+
+        /**
+         * How long data may stay parked on the backup SIM before it is handed back regardless.
+         *
+         * Reverting only when the monitored SIM reports 5G assumed the primary would recover on its
+         * own, which it cannot do while the backup SIM holds the data connection — so a phone that
+         * fell back stayed on the backup SIM until the user intervened. This bounds that.
+         */
+        const val LTE_FAILOVER_MAX_HOLD_MS = 4 * 60_000L
+
+        /**
+         * After a timed hand-back, wait this long before moving to the backup SIM again. Without it
+         * the two SIMs would trade the data connection every cooldown, which is worse than either
+         * SIM on its own.
+         */
+        const val LTE_FAILOVER_RELAPSE_COOLDOWN_MS = 10 * 60_000L
+
+        /** How long the monitored SIM may sit on LTE (or with no service) before Wi-Fi is raised. */
+        const val WIFI_FAILOVER_DELAY_MS = 20_000L
+        const val WIFI_FAILOVER_COOLDOWN_MS = 60_000L
 
         /** Give the modem a few seconds after a call before any automatic SIM/RAT change. */
         const val CALL_END_GRACE_MS = 3_500L
@@ -188,8 +227,13 @@ class AutoReconnectService : Service() {
     private var lastCooldownPublishAt = 0L
     private var lastLoopErrorAt = 0L
     private var noServiceSince = 0L
+    private var wifiStruggleSince = 0L
     private var lastLteWarningCheckAt = 0L
     @Volatile private var lteFailoverInFlight = false
+    @Volatile private var wifiFailoverInFlight = false
+
+    /** Set from the notification's revert action, consumed on the watcher thread. */
+    @Volatile private var revertRequested = false
     @Volatile private var callPaused = false
     private var callGraceUntilElapsed = 0L
     private var lastShizukuHealth: ShizukuHealth? = null
@@ -299,6 +343,13 @@ class AutoReconnectService : Service() {
                 requestReset("Retry requested from the status notification")
                 ShizukuHealthMonitor.refresh()
                 publishState(currentNetworkLabel(), statusText())
+            }
+
+            ACTION_REVERT -> {
+                // Undo every active failover now. This is the escape hatch for the case the automatic
+                // path cannot cover: the monitored SIM never recovers, so waiting is pointless.
+                revertRequested = true
+                publishState(currentNetworkLabel(), "Moving data back to the monitored connection…")
             }
         }
         return START_STICKY
@@ -411,6 +462,10 @@ class AutoReconnectService : Service() {
         if (resetRequested) {
             resetRequested = false
             applyReset()
+        }
+        if (revertRequested) {
+            revertRequested = false
+            revertAllFailovers("Manual revert")
         }
         val radio = radioWatcher?.snapshot() ?: return
         val pauseDuringCall = prefs().getBoolean(PREF_PAUSE_DURING_CALL, false)
@@ -651,9 +706,12 @@ class AutoReconnectService : Service() {
         val now = System.currentTimeMillis()
         if (radio.label == "Unknown") {
             if (noServiceSince == 0L) noServiceSince = now
-            maybeFailOverSim(now)
         } else {
             noServiceSince = 0L
+        }
+        if (!automationBlocked) {
+            maybeNoServiceFailover(radio, now)
+            maybeWifiFailover(radio, now)
         }
     }
 
@@ -694,9 +752,40 @@ class AutoReconnectService : Service() {
 
         val state = radio ?: runCatching { radioWatcher?.snapshot() }.getOrNull()
             ?: return "Monitoring cellular state"
+        // A moved data connection outranks the radio label: it is the one thing the user has to know.
+        failoverSummary()?.let { return "$it · ${statusFor(state)}" }
         val wait = remainingUntilNextAttemptMs()
         if (wait > 0L && state.isLteFallback) return "4G / LTE detected · next attempt in ${formatCountdown(wait)}"
         return statusFor(state)
+    }
+
+    /**
+     * Where the data connection currently is, or null when nothing has been moved.
+     *
+     * The tray used to keep reading "monitoring 4G / LTE" straight through a failover, so the user
+     * could not tell that their data had been moved to the other SIM, or that Wi-Fi had been raised.
+     */
+    private fun failoverSummary(): String? {
+        val store = prefs()
+        val wifiActive = store.getBoolean(PREF_WIFI_FAILOVER_ACTIVE, false)
+        val lteActive = store.getBoolean(PREF_LTE_FAILOVER_ACTIVE, false)
+        val simActive = store.getBoolean(PREF_FAILOVER_ACTIVE, false)
+        if (!wifiActive && !lteActive && !simActive) return null
+
+        val defaultData = runCatching { SubscriptionManager.getDefaultDataSubscriptionId() }
+            .getOrDefault(SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+        val monitored = store.getInt(PREF_SELECTED_SUBSCRIPTION, SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+        val dataIsOnBackup = defaultData != SubscriptionManager.INVALID_SUBSCRIPTION_ID &&
+            monitored != SubscriptionManager.INVALID_SUBSCRIPTION_ID &&
+            defaultData != monitored
+
+        return when {
+            wifiActive && dataIsOnBackup -> "Wi-Fi raised · data on the other SIM"
+            wifiActive -> "Wi-Fi raised · waiting for 5G"
+            dataIsOnBackup -> "Data moved to the other SIM · tap Revert to move it back"
+            lteActive || simActive -> "Failover active · confirming the data SIM"
+            else -> null
+        }
     }
 
     /** Milliseconds before the next attempt may run, or 0 when one is allowed now. */
@@ -736,19 +825,224 @@ class AutoReconnectService : Service() {
             telephony.callState != TelephonyManager.CALL_STATE_IDLE
     }.getOrDefault(false)
 
-    private fun maybeFailOverSim(now: Long) {
+    /**
+     * Works out which SIM is monitored and which one is the backup.
+     *
+     * Both used to have to be chosen explicitly, so a phone with two SIMs and untouched settings sat
+     * there doing nothing at all — the failover looked broken because it never engaged. The monitored
+     * SIM now defaults to whichever SIM carries data, and the backup to the other active SIM.
+     * Returns null when the device genuinely only has one usable subscription.
+     */
+    private fun resolveSubscriptions(
+        store: android.content.SharedPreferences,
+        monitorKey: String,
+        backupKey: String,
+    ): Pair<Int, Int>? {
+        val active = runCatching {
+            getSystemService(SubscriptionManager::class.java)
+                ?.activeSubscriptionInfoList
+                .orEmpty()
+                .map { it.subscriptionId }
+        }.getOrDefault(emptyList())
+        if (active.size < 2) return null
+
+        val storedMonitor = store.getInt(monitorKey, SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+        val monitored = if (active.contains(storedMonitor)) {
+            storedMonitor
+        } else {
+            SubscriptionManager.getDefaultDataSubscriptionId().takeIf { active.contains(it) } ?: active.first()
+        }
+
+        val storedBackup = store.getInt(backupKey, SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+        val backup = if (storedBackup != monitored && active.contains(storedBackup)) {
+            storedBackup
+        } else {
+            active.firstOrNull { it != monitored } ?: return null
+        }
+        return monitored to backup
+    }
+
+    /** Performs one data-SIM move and reports whether the device confirmed it. */
+    private suspend fun moveData(subscriptionId: Int): Boolean {
+        val result = try {
+            withContext(Dispatchers.IO) { bridge.switchDefaultDataSubscription(subscriptionId) }
+        } catch (t: Throwable) {
+            "Data SIM switch failed: ${t.javaClass.simpleName}: ${t.message ?: "unknown error"}"
+        }
+        val switched = result.startsWith("Data SIM switched")
+        recordHistory("SIM", result, if (switched) "success" else "failed")
+        updateOngoing("SIM", result)
+        return switched
+    }
+
+    /**
+     * No-service SIM failover, in both directions.
+     *
+     * The previous version could only ever move data *to* the backup SIM. Nothing recorded that a
+     * failover was in progress or which SIM it came from, so there was no path back and the user
+     * stayed on the backup SIM until they changed it by hand.
+     */
+    private fun maybeNoServiceFailover(radio: RadioState, now: Long) {
         val store = prefs()
+
+        if (store.getBoolean(PREF_FAILOVER_ACTIVE, false)) {
+            // Any service at all on the monitored SIM is enough to hand the connection back.
+            if (radio.label == "Unknown") return
+            val monitored = store.getInt(
+                PREF_FAILOVER_MONITORED,
+                store.getInt(PREF_SELECTED_SUBSCRIPTION, SubscriptionManager.INVALID_SUBSCRIPTION_ID),
+            )
+            if (monitored == SubscriptionManager.INVALID_SUBSCRIPTION_ID) return
+            if (now - store.getLong(PREF_LAST_FAILOVER, 0L) < SIM_FAILOVER_REVERT_SETTLE_MS) return
+            store.edit().putLong(PREF_LAST_FAILOVER, now).apply()
+            recordHistory(radio.label, "Service restored · moving data back to the monitored SIM", "sim_failover")
+            scope.launch {
+                if (moveData(monitored)) {
+                    prefs().edit()
+                        .putBoolean(PREF_FAILOVER_ACTIVE, false)
+                        .remove(PREF_FAILOVER_MOVED_TO)
+                        .remove(PREF_FAILOVER_MONITORED)
+                        .apply()
+                }
+                publishState(currentLabel, statusText())
+            }
+            return
+        }
+
         if (!store.getBoolean(PREF_FAILOVER_ENABLED, false)) return
         if (noServiceSince == 0L || now - noServiceSince < NO_SERVICE_FAILOVER_DELAY_MS) return
         if (now - store.getLong(PREF_LAST_FAILOVER, 0L) < SIM_FAILOVER_COOLDOWN_MS) return
-        val target = store.getInt(PREF_FAILOVER_TARGET, SubscriptionManager.INVALID_SUBSCRIPTION_ID)
-        if (target == SubscriptionManager.INVALID_SUBSCRIPTION_ID) return
-        store.edit().putLong(PREF_LAST_FAILOVER, now).apply()
-        recordHistory("No service", "Switching mobile data to the selected backup SIM", "sim_failover")
+
+        val pair = resolveSubscriptions(store, PREF_SELECTED_SUBSCRIPTION, PREF_FAILOVER_TARGET)
+        if (pair == null) {
+            recordHistory("No service", "Backup SIM failover skipped: no second SIM is available", "system")
+            return
+        }
+        val (monitored, backup) = pair
+        store.edit()
+            .putLong(PREF_LAST_FAILOVER, now)
+            .putInt(PREF_FAILOVER_MONITORED, monitored)
+            .putInt(PREF_FAILOVER_MOVED_TO, backup)
+            .apply()
+        recordHistory("No service", "Switching mobile data to the other SIM", "sim_failover")
         scope.launch {
-            val result = withContext(Dispatchers.IO) { bridge.switchDefaultDataSubscription(target) }
-            recordHistory("SIM", result, if (result.startsWith("Data SIM switched")) "success" else "failed")
-            updateOngoing("SIM", result)
+            if (moveData(backup)) {
+                prefs().edit().putBoolean(PREF_FAILOVER_ACTIVE, true).apply()
+            }
+            publishState(currentLabel, statusText())
+        }
+    }
+
+    /**
+     * Wi-Fi failover: raise the Wi-Fi radio when cellular recovery cannot get anywhere.
+     *
+     * This can only *enable* Wi-Fi and let the device auto-join a saved network — Android gives no way
+     * to pick one — so it is a nudge, not a guarantee, and it says so. It is reverted as soon as the
+     * monitored radio is back on 5G.
+     */
+    private fun maybeWifiFailover(radio: RadioState, now: Long) {
+        val store = prefs()
+        val enabled = store.getBoolean(PREF_WIFI_FAILOVER_ENABLED, false)
+        val active = store.getBoolean(PREF_WIFI_FAILOVER_ACTIVE, false)
+        if (!enabled && !active) return
+        if (wifiFailoverInFlight) return
+
+        val wifiOn = runCatching {
+            getSystemService(android.net.wifi.WifiManager::class.java)?.isWifiEnabled == true
+        }.getOrDefault(false)
+
+        if (active) {
+            if (!radio.is5G || !wifiOn) return
+            if (now - store.getLong(PREF_WIFI_FAILOVER_LAST, 0L) < WIFI_FAILOVER_COOLDOWN_MS) return
+            wifiFailoverInFlight = true
+            store.edit().putLong(PREF_WIFI_FAILOVER_LAST, now).apply()
+            scope.launch {
+                try {
+                    val result = runCatching {
+                        withContext(Dispatchers.IO) { bridge.setWifiEnabled(false) }
+                    }.getOrElse { "Wi-Fi switch failed: ${it.javaClass.simpleName}" }
+                    if (result.startsWith("Wi-Fi")) {
+                        prefs().edit().putBoolean(PREF_WIFI_FAILOVER_ACTIVE, false).apply()
+                    }
+                    recordHistory("Wi-Fi", "5G restored · $result", if (result.startsWith("Wi-Fi")) "success" else "failed")
+                    publishState(currentLabel, statusText())
+                } finally {
+                    wifiFailoverInFlight = false
+                }
+            }
+            return
+        }
+
+        val struggling = radio.isLteFallback || radio.label == "Unknown"
+        if (!struggling) {
+            wifiStruggleSince = 0L
+            return
+        }
+        if (wifiStruggleSince == 0L) wifiStruggleSince = now
+        if (now - wifiStruggleSince < WIFI_FAILOVER_DELAY_MS) return
+        if (wifiOn) return
+        if (now - store.getLong(PREF_WIFI_FAILOVER_LAST, 0L) < WIFI_FAILOVER_COOLDOWN_MS) return
+
+        wifiFailoverInFlight = true
+        store.edit().putLong(PREF_WIFI_FAILOVER_LAST, now).apply()
+        recordHistory(radio.label, "Cellular recovery stalled · raising Wi-Fi", "wifi_failover")
+        scope.launch {
+            try {
+                val result = runCatching {
+                    withContext(Dispatchers.IO) { bridge.setWifiEnabled(true) }
+                }.getOrElse { "Wi-Fi switch failed: ${it.javaClass.simpleName}" }
+                if (result.startsWith("Wi-Fi")) {
+                    prefs().edit().putBoolean(PREF_WIFI_FAILOVER_ACTIVE, true).apply()
+                }
+                recordHistory("Wi-Fi", result, if (result.startsWith("Wi-Fi")) "success" else "failed")
+                publishState(currentLabel, statusText())
+            } finally {
+                wifiFailoverInFlight = false
+            }
+        }
+    }
+
+    /**
+     * Hands every active failover back in one ordered pass: data first, then the Wi-Fi radio.
+     *
+     * Used by the tray's revert action, which exists because the automatic path cannot cover the case
+     * where the monitored SIM never recovers at all.
+     */
+    private fun revertAllFailovers(reason: String) {
+        scope.launch {
+            val store = prefs()
+            val monitored = store.getInt(PREF_SELECTED_SUBSCRIPTION, SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+            val lteActive = store.getBoolean(PREF_LTE_FAILOVER_ACTIVE, false)
+            val simActive = store.getBoolean(PREF_FAILOVER_ACTIVE, false)
+
+            if (lteActive || simActive) {
+                val target = if (lteActive) {
+                    store.getInt(PREF_LTE_FAILOVER_PRIMARY, monitored)
+                } else {
+                    store.getInt(PREF_FAILOVER_MONITORED, monitored)
+                }
+                if (target != SubscriptionManager.INVALID_SUBSCRIPTION_ID && moveData(target)) {
+                    prefs().edit()
+                        .putBoolean(PREF_LTE_FAILOVER_ACTIVE, false)
+                        .putBoolean(PREF_FAILOVER_ACTIVE, false)
+                        .remove(PREF_LTE_FAILOVER_ACTIVATED_AT)
+                        .remove(PREF_FAILOVER_MOVED_TO)
+                        .apply()
+                }
+            }
+
+            if (store.getBoolean(PREF_WIFI_FAILOVER_ACTIVE, false)) {
+                val result = runCatching {
+                    withContext(Dispatchers.IO) { bridge.setWifiEnabled(false) }
+                }.getOrElse { "Wi-Fi switch failed: ${it.javaClass.simpleName}" }
+                if (result.startsWith("Wi-Fi")) {
+                    prefs().edit().putBoolean(PREF_WIFI_FAILOVER_ACTIVE, false).apply()
+                }
+                recordHistory("Wi-Fi", "$reason · $result", if (result.startsWith("Wi-Fi")) "success" else "failed")
+            }
+
+            recordHistory(currentLabel, reason, "sim_failover")
+            publishState(currentLabel, statusText())
         }
     }
 
@@ -797,51 +1091,75 @@ class AutoReconnectService : Service() {
         val store = prefs()
         if (!store.getBoolean(PREF_LTE_FAILOVER_ENABLED, false)) return
 
-        val target = store.getInt(PREF_LTE_FAILOVER_TARGET, SubscriptionManager.INVALID_SUBSCRIPTION_ID)
-        val primary = store.getInt(PREF_SELECTED_SUBSCRIPTION, SubscriptionManager.INVALID_SUBSCRIPTION_ID)
-        if (target == SubscriptionManager.INVALID_SUBSCRIPTION_ID ||
-            primary == SubscriptionManager.INVALID_SUBSCRIPTION_ID ||
-            target == primary
-        ) return
         if (lteFailoverInFlight) return
 
+        val pair = resolveSubscriptions(store, PREF_SELECTED_SUBSCRIPTION, PREF_LTE_FAILOVER_TARGET) ?: return
+        val (monitored, backup) = pair
+
         val now = System.currentTimeMillis()
+        val active = store.getBoolean(PREF_LTE_FAILOVER_ACTIVE, false)
+
+        if (active) {
+            if (now - store.getLong(PREF_LTE_FAILOVER_LAST, 0L) < LTE_FAILOVER_COOLDOWN_MS) return
+            val heldFor = (now - store.getLong(PREF_LTE_FAILOVER_ACTIVATED_AT, now)).coerceAtLeast(0L)
+            val restored = radio.is5G
+            val heldTooLong = heldFor >= LTE_FAILOVER_MAX_HOLD_MS
+            if (!restored && !heldTooLong) return
+
+            val note = if (restored) {
+                "5G restored · moving data back to the monitored SIM"
+            } else {
+                "Handing data back to the monitored SIM after " + formatInterval(LTE_FAILOVER_MAX_HOLD_MS)
+            }
+            // A timed hand-back means the same fallback is still in place, so suppress the next
+            // outbound switch for a while. Otherwise the two SIMs would trade the data connection on
+            // every cooldown, which is worse than leaving it on either one.
+            val editor = store.edit().putLong(PREF_LTE_FAILOVER_LAST, now)
+            if (heldTooLong && !restored) {
+                editor.putLong(PREF_LTE_FAILOVER_RELAPSE_UNTIL, now + LTE_FAILOVER_RELAPSE_COOLDOWN_MS)
+            }
+            editor.apply()
+
+            lteFailoverInFlight = true
+            recordHistory(radio.label, note, "sim_failover")
+            scope.launch {
+                try {
+                    if (moveData(monitored)) {
+                        prefs().edit()
+                            .putBoolean(PREF_LTE_FAILOVER_ACTIVE, false)
+                            .remove(PREF_LTE_FAILOVER_ACTIVATED_AT)
+                            .apply()
+                    }
+                    publishState(currentLabel, statusText())
+                } finally {
+                    lteFailoverInFlight = false
+                }
+            }
+            return
+        }
+
+        if (now < store.getLong(PREF_LTE_FAILOVER_RELAPSE_UNTIL, 0L)) return
+        if (!radio.isLteFallback) return
         if (now - store.getLong(PREF_LTE_FAILOVER_LAST, 0L) < LTE_FAILOVER_COOLDOWN_MS) return
 
-        val active = store.getBoolean(PREF_LTE_FAILOVER_ACTIVE, false)
-        when {
-            !active && radio.isLteFallback -> {
-                lteFailoverInFlight = true
-                store.edit().putLong(PREF_LTE_FAILOVER_LAST, now).apply()
-                switchDataSim(target, primary, true, "LTE fallback · moving data to the backup SIM")
-            }
-
-            active && radio.is5G -> {
-                lteFailoverInFlight = true
-                store.edit().putLong(PREF_LTE_FAILOVER_LAST, now).apply()
-                switchDataSim(primary, primary, false, "5G restored · moving data back to the primary SIM")
-            }
-        }
+        lteFailoverInFlight = true
+        store.edit()
+            .putLong(PREF_LTE_FAILOVER_LAST, now)
+            .putLong(PREF_LTE_FAILOVER_ACTIVATED_AT, now)
+            .apply()
+        switchDataSim(backup, monitored, true, "LTE fallback · moving data to the backup SIM")
     }
 
     private fun switchDataSim(target: Int, primary: Int, outbound: Boolean, note: String) {
         recordHistory(currentLabel, note, "sim_failover")
         scope.launch {
             try {
-                val result = try {
-                    withContext(Dispatchers.IO) { bridge.switchDefaultDataSubscription(target) }
-                } catch (t: Throwable) {
-                    "Data SIM switch failed: ${t.javaClass.simpleName}: ${t.message ?: "unknown error"}"
-                }
-                val switched = result.startsWith("Data SIM switched")
-                if (switched) {
+                if (moveData(target)) {
                     prefs().edit()
                         .putBoolean(PREF_LTE_FAILOVER_ACTIVE, outbound)
                         .putInt(PREF_LTE_FAILOVER_PRIMARY, primary)
                         .apply()
                 }
-                recordHistory("SIM", result, if (switched) "success" else "failed")
-                updateOngoing("SIM", result)
             } finally {
                 lteFailoverInFlight = false
             }
@@ -1008,6 +1326,18 @@ class AutoReconnectService : Service() {
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(primaryIcon, primaryLabel, pauseIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopIntent)
+
+        if (failoverSummary() != null) {
+            builder.addAction(
+                android.R.drawable.ic_menu_revert,
+                "Move data back",
+                PendingIntent.getService(
+                    this, 704,
+                    Intent(this, AutoReconnectService::class.java).setAction(ACTION_REVERT),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
+        }
 
         if (health == ShizukuHealth.UNAVAILABLE || health == ShizukuHealth.SERVICE_DIED) {
             packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")?.let { launch ->
