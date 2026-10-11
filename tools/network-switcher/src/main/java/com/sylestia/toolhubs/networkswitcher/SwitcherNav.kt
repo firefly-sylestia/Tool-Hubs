@@ -45,9 +45,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Brush
@@ -236,22 +234,30 @@ fun SwitcherHeader(
     val titleColor = lerp(scheme.onSurface, accents.auroraMid, 0.10f + 0.22f * glow)
 
     /*
-     * The rail.
+     * The pill.
      *
      * A page header that is the first child of a scrolling column leaves the screen with everything
      * else, so this pins it: translating it down by exactly the scroll offset cancels the scroll and
-     * leaves the header where it started. What makes it read as a rail rather than a stuck header is
-     * the glass that grows behind it — at the top of the page there is no panel at all and the header
-     * is part of the content, and once you scroll, a frosted panel *bleeds past the header's own
-     * bounds* so the status-bar strip is covered too. Content keeps sliding underneath; it simply
-     * cannot be read there.
+     * leaves the header where it started. As you scroll it contracts as well — inset from the edges,
+     * fully rounded and solid — until it is a small opaque pill floating over the page, and that is
+     * the state it stays in. At the very top it paints nothing at all, so a page still opens on its
+     * hero header rather than on a stranded bar.
      */
     val pin = (scrollState?.value?.toFloat() ?: 0f).coerceAtLeast(0f)
     // Measured in dp, not pixels: a raw pixel threshold would make the rail take three times as
     // long to appear on a low-density screen as it does on a high-density one.
     val barrierAt = with(LocalDensity.current) { 40.dp.toPx() }
     val barrier = (pin / barrierAt).coerceIn(0f, 1f)
-    val railColor = scheme.surfaceContainer.copy(alpha = 0.92f * barrier)
+    //
+    // Pill geometry. At the top of the page the header is part of the content and paints nothing;
+    // scrolled, it contracts into a small opaque pill floating above it. Opaque is the point: a
+    // translucent panel let the cards show through the title, which reads as a rendering fault
+    // rather than as glass.
+    val pillRadius = (6f + 20f * barrier).dp
+    val pillFill = if (barrier > 0.02f) scheme.surfaceContainerHigh else Color.Transparent
+    val edgeInset = (8f * barrier).dp
+    val pillPaddingX = (12f * barrier).dp
+    val pillPaddingY = (10f * barrier).dp
     val railProgress = scrollState?.let { state ->
         if (state.maxValue > 0) (state.value.toFloat() / state.maxValue).coerceIn(0f, 1f) else 0f
     } ?: 0f
@@ -270,28 +276,21 @@ fun SwitcherHeader(
             .fillMaxWidth()
             .zIndex(1f)
             .graphicsLayer { translationY = pin }
-            .drawBehind {
-                if (barrier > 0.01f) {
-                    val bleed = 64.dp.toPx()
-                    drawRect(
-                        color = railColor,
-                        topLeft = Offset(0f, -bleed),
-                        size = Size(size.width, size.height + bleed),
-                    )
-                }
-            }
-            // Tapping the pinned rail is a jump back to the top, which is the one affordance a long
-            // timeline is missing. It only exists once the rail does, so it cannot be hit by accident
-            // while the page is at rest.
+            .padding(horizontal = edgeInset, vertical = edgeInset)
+            .clip(RoundedCornerShape(pillRadius))
+            .background(pillFill)
+            // Tapping the pill is a jump back to the top: the affordance a long page is missing. It
+            // only exists once the pill does, so it cannot be hit while the page is at rest.
             .clickable(enabled = barrier > 0.6f) {
                 scrollState?.let { state -> scope.launch { state.animateScrollTo(0) } }
             }
-            .padding(bottom = 10.dp * barrier),
+            .padding(horizontal = pillPaddingX, vertical = pillPaddingY),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (icon != null) {
-                SwitcherIconBadge(icon = icon, progress = collapse, sweep = sweep)
-                Spacer(Modifier.width(13.dp))
+                // Fully contracted once the pill has formed, so the mark matches the smaller frame.
+                SwitcherIconBadge(icon = icon, progress = if (barrier > 0.4f) 1f else collapse, sweep = sweep)
+                Spacer(Modifier.width((13f - 5f * barrier).dp))
             }
             Column(
                 Modifier
@@ -377,14 +376,23 @@ fun SettingsHeader(scrollState: ScrollState? = null, onBack: () -> Unit) {
         label = "settings_sweep",
     )
 
-    // Same pinned rail as the page headers, so the settings page does not behave differently: the
-    // back affordance stays reachable however far down the diagnostics you are.
+    // The same pinned, opaque pill as the page headers, so the settings page does not behave
+    // differently: the back affordance stays reachable however far down the diagnostics you are.
     val pin = (scrollState?.value?.toFloat() ?: 0f).coerceAtLeast(0f)
     // Measured in dp, not pixels: a raw pixel threshold would make the rail take three times as
     // long to appear on a low-density screen as it does on a high-density one.
     val barrierAt = with(LocalDensity.current) { 40.dp.toPx() }
     val barrier = (pin / barrierAt).coerceIn(0f, 1f)
-    val railColor = scheme.surfaceContainer.copy(alpha = 0.92f * barrier)
+    //
+    // Pill geometry. At the top of the page the header is part of the content and paints nothing;
+    // scrolled, it contracts into a small opaque pill floating above it. Opaque is the point: a
+    // translucent panel let the cards show through the title, which reads as a rendering fault
+    // rather than as glass.
+    val pillRadius = (6f + 20f * barrier).dp
+    val pillFill = if (barrier > 0.02f) scheme.surfaceContainerHigh else Color.Transparent
+    val edgeInset = (8f * barrier).dp
+    val pillPaddingX = (12f * barrier).dp
+    val pillPaddingY = (10f * barrier).dp
     val railProgress = scrollState?.let { state ->
         if (state.maxValue > 0) (state.value.toFloat() / state.maxValue).coerceIn(0f, 1f) else 0f
     } ?: 0f
@@ -394,17 +402,10 @@ fun SettingsHeader(scrollState: ScrollState? = null, onBack: () -> Unit) {
             .fillMaxWidth()
             .zIndex(1f)
             .graphicsLayer { translationY = pin }
-            .drawBehind {
-                if (barrier > 0.01f) {
-                    val bleed = 64.dp.toPx()
-                    drawRect(
-                        color = railColor,
-                        topLeft = Offset(0f, -bleed),
-                        size = Size(size.width, size.height + bleed),
-                    )
-                }
-            }
-            .padding(bottom = 10.dp * barrier),
+            .padding(horizontal = edgeInset, vertical = edgeInset)
+            .clip(RoundedCornerShape(pillRadius))
+            .background(pillFill)
+            .padding(horizontal = pillPaddingX, vertical = pillPaddingY),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             HubIconActionButton(icon = Icons.Rounded.ArrowBack, label = "Back", onClick = onBack)

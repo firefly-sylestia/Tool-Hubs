@@ -151,3 +151,48 @@ jobs:
           # One day only: these APKs are debug-signed build outputs, and the 90-day default filled the
           # account's artifact storage quota, which failed the upload step on every matrix leg.
           retention-days: 1
+
+  release:
+    name: Attach the APKs to the release
+    # Only a tag build has a release to attach to, and only a tag build should write one.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The one job that may write to the repository's releases. It never checks out code, so it can
+    # hold the write permission the build job must not have.
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download the release APKs
+        uses: actions/download-artifact@v5
+        with:
+          path: apks
+
+      - name: Attach them to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The tag must be downloadable as an installable build, not just a source snapshot, so the
+          # APKs each matrix leg produced become release assets. They are flattened and named after
+          # the module, because the artifact names carry the run number and a downloader should not
+          # have to work out which file is which.
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "No release for $GITHUB_REF_NAME yet; creating one with generated notes."
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              --repo "$GITHUB_REPOSITORY"
+          fi
+          shopt -s nullglob
+          for apk in apks/*/*.apk; do
+            module="$(basename "$(dirname "$apk")")"
+            name="${module#tool-hubs-}"
+            cp "$apk" "release-${name%-*}.apk"
+          done
+          ls -l release-*.apk
+          gh release upload "$GITHUB_REF_NAME" release-*.apk \
+            --clobber \
+            --repo "$GITHUB_REPOSITORY"

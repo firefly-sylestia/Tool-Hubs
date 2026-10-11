@@ -37,6 +37,18 @@ Switcher.
 - Snooze, dismiss and skip straight from the notification, and re-arming after a reboot, a clock
   change or an app update.
 
+## [0.11.4]
+
+### Fixed
+- The watcher no longer disappears after an app update. The restart receiver treated an update exactly
+  like a reboot and honoured the "start after reboot" setting, so with that setting off the ongoing
+  notification vanished on every install and the watcher had to be toggled off and on again. An update
+  now restores the watcher whenever it was running, and brings it back in about five seconds rather
+  than waiting thirty for a radio stack that never went away.
+- The page header contracts into a small **opaque** pill rather than a translucent rail. Translucent
+  meant the cards read through the title; the pill is solid, inset from the screen edges, fully
+  rounded, and still carries the scroll-progress filament.
+
 ## [0.11.3]
 
 ### Fixed
