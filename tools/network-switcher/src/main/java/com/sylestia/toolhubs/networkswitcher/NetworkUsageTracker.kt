@@ -20,6 +20,29 @@ data class UsageTotals(
     val currentBps: Long,
 )
 
+/**
+ * The device's aggregate mobile counter against the app's own attribution, for one watcher session.
+ *
+ * [unexplained] is the honest residual: bytes the device counted that the app never saw because the
+ * watcher was off, the radio state was unknown, or the sample was rejected. It is expected to be
+ * positive — a negative value would mean the app credited more traffic than the device moved.
+ */
+data class UsageReconciliation(
+    val sinceAt: Long,
+    val deviceTotal: Long,
+    val attributedLte: Long,
+    val attributedFiveG: Long,
+    val unattributed: Long,
+    val rejected: Long,
+) {
+    val attributed: Long get() = attributedLte + attributedFiveG
+
+    val unexplained: Long get() = (deviceTotal - attributed - unattributed - rejected).coerceAtLeast(0L)
+
+    /** True when the parts still add up to what the device reported. */
+    val balanced: Boolean get() = attributed + unattributed + rejected <= deviceTotal
+}
+
 /** One calendar day of observed traffic, used to build the history list. */
 data class DailyUsage(
     val stamp: String,
@@ -69,6 +92,18 @@ class NetworkUsageTracker(context: Context) {
     private var pendingLte = 0L
     private var pending5G = 0L
 
+    /** Bytes this session observed but could not attribute to a radio at all. */
+    private var pendingUnattributed = 0L
+
+    /** Bytes this session rejected as an impossible burst. */
+    private var pendingRejected = 0L
+
+    /** Rolling suffix that keeps interval ids unique inside the same millisecond. */
+    private var intervalSeq = 0L
+
+    /** Device counter when this session's baseline was taken, or -1 before the first sample. */
+    private var sessionStartTotal = -1L
+
     // Session-local baselines. Intentionally not restored from disk — see the class comment.
     // Usage and speed share one window, so a single pair of baselines drives both.
     private var lastTotal = -1L
@@ -109,6 +144,10 @@ class NetworkUsageTracker(context: Context) {
 
         if (pausedForCall) return
 
+        // Anchor the reconciliation baseline before anything is credited, so the 4G/5G split can be
+        // checked against the raw device counter for this session.
+        ensureSessionBaseline(total)
+
         // A RAT/SIM transition can make the kernel's aggregate mobile counter jump or restart.
         // Treat that sample as a new baseline instead of turning the discontinuity into fake data.
         val counterReset = lastTotal >= 0L && total < lastTotal
@@ -132,6 +171,7 @@ class NetworkUsageTracker(context: Context) {
         // Too short to be a rate. Keep the baseline moving so the next window is honest, but do not
         // credit these bytes to a radio, a minute bucket or the speed peak.
         if (intervalMs < MIN_TRUSTED_WINDOW_MS) {
+            pendingUnattributed += delta
             rebaseline(total, nowElapsed, network)
             return
         }
@@ -143,6 +183,9 @@ class NetworkUsageTracker(context: Context) {
         // watcher record a visible note so the user is told instead of silently losing data.
         if (bytesPerSecond > MAX_PLAUSIBLE_BPS) {
             flushInterval()
+            // Counted in the reconciliation as rejected, so the device total still adds up: the
+            // counter really did move, we simply refuse to call it traffic.
+            pendingRejected += delta
             persist(dayFormat.format(Date(nowWall)), nowWall)
             onImplausibleBurst?.invoke(lastNetwork ?: network, bytesPerSecond)
             rebaseline(total, nowElapsed, network)
@@ -152,6 +195,9 @@ class NetworkUsageTracker(context: Context) {
         when (lastNetwork) {
             LTE_LABEL -> pendingLte += delta
             FIVE_G_LABEL -> pending5G += delta
+            // Bytes moved while the radio state was unknown. They are deliberately not assigned to
+            // 4G or 5G, but they are still reported so the totals can be reconciled.
+            else -> pendingUnattributed += delta
         }
         recordInterval(
             network = lastNetwork ?: network,
@@ -202,6 +248,42 @@ class NetworkUsageTracker(context: Context) {
     }
 
     /**
+     * Establishes the device-counter baseline the reconciliation is measured from.
+     *
+     * A counter that went backwards means a reboot or a kernel reset, so the previous baseline and
+     * every session total are discarded together — otherwise the reconciliation would compare a
+     * fresh counter against a pre-reboot baseline and report a huge bogus gap.
+     */
+    private fun ensureSessionBaseline(total: Long) {
+        // The in-memory value doubles as a cache so the common path costs no preference read.
+        if (sessionStartTotal >= 0L && total >= sessionStartTotal) return
+        val stored = prefs().getLong(KEY_SESSION_START_TOTAL, -1L)
+        if (stored >= 0L && total >= stored) {
+            sessionStartTotal = stored
+            return
+        }
+        sessionStartTotal = total
+        prefs().edit()
+            .putLong(KEY_SESSION_START_TOTAL, total)
+            .putLong(KEY_SESSION_START_AT, System.currentTimeMillis())
+            .putLong(KEY_SESSION_LTE, 0L)
+            .putLong(KEY_SESSION_5G, 0L)
+            .putLong(KEY_SESSION_UNATTRIBUTED, 0L)
+            .putLong(KEY_SESSION_REJECTED, 0L)
+            .apply()
+    }
+
+    /**
+     * Ids must be unique per record: the review list toggles a row by id, so sharing a bucket made
+     * "mark interval fake" flip a different record and appear to do nothing. Wall-clock milliseconds
+     * alone can collide when one bucket is flushed twice in the same millisecond, hence the suffix.
+     */
+    private fun nextIntervalId(): Long {
+        intervalSeq = (intervalSeq + 1L) % 1_000L
+        return System.currentTimeMillis() * 1_000L + intervalSeq
+    }
+
+    /**
      * Persists the live speed (throttled), today's peak (resets at midnight) and the lifetime best.
      *
      * The two peaks are tracked separately so starting a new day — when the day bucket is empty and the
@@ -234,9 +316,15 @@ class NetworkUsageTracker(context: Context) {
             .putLong(KEY_5G_BYTES, prefs.getLong(KEY_5G_BYTES, 0L) + pending5G)
             .putLong("$KEY_LTE_BYTES:$day", prefs.getLong("$KEY_LTE_BYTES:$day", 0L) + pendingLte)
             .putLong("$KEY_5G_BYTES:$day", prefs.getLong("$KEY_5G_BYTES:$day", 0L) + pending5G)
+            .putLong(KEY_SESSION_LTE, prefs.getLong(KEY_SESSION_LTE, 0L) + pendingLte)
+            .putLong(KEY_SESSION_5G, prefs.getLong(KEY_SESSION_5G, 0L) + pending5G)
+            .putLong(KEY_SESSION_UNATTRIBUTED, prefs.getLong(KEY_SESSION_UNATTRIBUTED, 0L) + pendingUnattributed)
+            .putLong(KEY_SESSION_REJECTED, prefs.getLong(KEY_SESSION_REJECTED, 0L) + pendingRejected)
             .apply()
         pendingLte = 0L
         pending5G = 0L
+        pendingUnattributed = 0L
+        pendingRejected = 0L
         lastPersistAt = wall
     }
 
@@ -281,7 +369,7 @@ class NetworkUsageTracker(context: Context) {
         UsageHistoryStore.append(
             context = prefsContext,
             interval = UsageInterval(
-                id = intervalId,
+                id = nextIntervalId(),
                 startAt = intervalStartAt,
                 endAt = intervalEndAt,
                 network = network,
@@ -309,6 +397,16 @@ class NetworkUsageTracker(context: Context) {
         const val KEY_PEAK_AT = "usage_peak_at"
         const val KEY_PEAK_NETWORK = "usage_peak_network"
         const val KEY_CURRENT_BPS = "usage_current_bps"
+
+        // Session reconciliation: the raw device counter at baseline time, and how this session's
+        // observed bytes were divided. These are what let the 4G/5G split be checked against the
+        // device instead of being taken on trust.
+        const val KEY_SESSION_START_TOTAL = "usage_session_start_total"
+        const val KEY_SESSION_START_AT = "usage_session_start_at"
+        const val KEY_SESSION_LTE = "usage_session_lte"
+        const val KEY_SESSION_5G = "usage_session_5g"
+        const val KEY_SESSION_UNATTRIBUTED = "usage_session_unattributed"
+        const val KEY_SESSION_REJECTED = "usage_session_rejected"
 
         const val PERSIST_EVERY_MS = 30_000L
         private const val SPEED_PERSIST_MS = 2_000L
@@ -353,6 +451,36 @@ class NetworkUsageTracker(context: Context) {
 
         fun toggleIntervalFake(context: Context, id: Long): UsageInterval? {
             val updated = UsageHistoryStore.toggleFake(context, id) ?: return null
+            applyIntervalAccounting(context, updated)
+            recomputeTodayPeak(context, dayFormat().format(Date(updated.startAt)))
+            return updated
+        }
+
+        /**
+         * Marks every flagged spike fake in one pass and returns how many rows changed.
+         *
+         * Each row is flipped through the same single-row path, so the byte accounting is identical
+         * to marking them one at a time; the speed peak is recomputed once at the end instead of once
+         * per row, which would re-read the whole history file every time.
+         */
+        fun markAllSuspiciousFake(context: Context): Int {
+            val targets = UsageHistoryStore
+                .read(context, System.currentTimeMillis() - 14L * 24L * 60L * 60L * 1000L)
+                .filter { it.suspicious && !it.fake }
+            var changed = 0
+            val days = mutableSetOf<String>()
+            for (row in targets) {
+                val updated = UsageHistoryStore.toggleFake(context, row.id) ?: continue
+                applyIntervalAccounting(context, updated)
+                days += dayFormat().format(Date(updated.startAt))
+                changed++
+            }
+            days.forEach { recomputeTodayPeak(context, it) }
+            return changed
+        }
+
+        /** Adds or removes one interval's bytes from its day and lifetime buckets. */
+        private fun applyIntervalAccounting(context: Context, updated: UsageInterval) {
             val store = prefs(context)
             val day = dayFormat().format(Date(updated.startAt))
             val signed = if (updated.fake) -updated.bytes else updated.bytes
@@ -361,22 +489,77 @@ class NetworkUsageTracker(context: Context) {
                 .putLong("$key:$day", (store.getLong("$key:$day", 0L) + signed).coerceAtLeast(0L))
                 .putLong(key, (store.getLong(key, 0L) + signed).coerceAtLeast(0L))
                 .apply()
-            recomputeTodayPeak(context, day)
-            return updated
         }
 
-        fun resetToday(context: Context) {
+        /** Which of today's counters a reset clears. */
+        enum class ResetScope { ALL, LTE, FIVE_G, PEAK }
+
+        /**
+         * Clears today's buckets.
+         *
+         * The scope is explicit because "reset the 4G number" and "reset everything" are different
+         * intentions: clearing one field must not silently wipe the other two.
+         */
+        fun resetToday(context: Context, scope: ResetScope = ResetScope.ALL) {
             val today = todayStamp()
             val store = prefs(context)
-            store.edit()
-                .putLong("$KEY_LTE_BYTES:$today", 0L)
-                .putLong("$KEY_5G_BYTES:$today", 0L)
-                .putLong("$KEY_PEAK_BPS:$today", 0L)
-                .putLong("$KEY_PEAK_AT:$today", 0L)
-                .remove("$KEY_PEAK_NETWORK:$today")
-                .putLong(KEY_CURRENT_BPS, 0L)
-                .apply()
-            UsageHistoryStore.clearDay(context, today)
+            val editor = store.edit()
+            when (scope) {
+                ResetScope.ALL -> {
+                    editor.putLong("$KEY_LTE_BYTES:$today", 0L)
+                        .putLong("$KEY_5G_BYTES:$today", 0L)
+                        .putLong("$KEY_PEAK_BPS:$today", 0L)
+                        .putLong("$KEY_PEAK_AT:$today", 0L)
+                        .remove("$KEY_PEAK_NETWORK:$today")
+                        .putLong(KEY_CURRENT_BPS, 0L)
+                        .apply()
+                    UsageHistoryStore.clearDay(context, today, null)
+                }
+
+                ResetScope.LTE -> {
+                    editor.putLong("$KEY_LTE_BYTES:$today", 0L).apply()
+                    UsageHistoryStore.clearDay(context, today, LTE_LABEL)
+                    recomputeTodayPeak(context, today)
+                }
+
+                ResetScope.FIVE_G -> {
+                    editor.putLong("$KEY_5G_BYTES:$today", 0L).apply()
+                    UsageHistoryStore.clearDay(context, today, FIVE_G_LABEL)
+                    recomputeTodayPeak(context, today)
+                }
+
+                ResetScope.PEAK -> editor
+                    .putLong("$KEY_PEAK_BPS:$today", 0L)
+                    .putLong("$KEY_PEAK_AT:$today", 0L)
+                    .remove("$KEY_PEAK_NETWORK:$today")
+                    .putLong(KEY_CURRENT_BPS, 0L)
+                    .apply()
+            }
+        }
+
+        /**
+         * The device's own mobile counter against what the app attributed, for the current session.
+         *
+         * Android gives no per-radio billing breakdown, but it does give one aggregate counter. That
+         * is enough to prove the split is self-consistent: whatever is attributed to 4G and 5G, plus
+         * what was deliberately set aside, must not add up to more than the device moved.
+         */
+        fun readReconciliation(context: Context): UsageReconciliation? {
+            val store = prefs(context)
+            val start = store.getLong(KEY_SESSION_START_TOTAL, -1L)
+            if (start < 0L) return null
+            val rx = TrafficStats.getMobileRxBytes()
+            val tx = TrafficStats.getMobileTxBytes()
+            if (rx < 0L || tx < 0L) return null
+            val deviceTotal = (rx + tx - start).coerceAtLeast(0L)
+            return UsageReconciliation(
+                sinceAt = store.getLong(KEY_SESSION_START_AT, 0L),
+                deviceTotal = deviceTotal,
+                attributedLte = store.getLong(KEY_SESSION_LTE, 0L),
+                attributedFiveG = store.getLong(KEY_SESSION_5G, 0L),
+                unattributed = store.getLong(KEY_SESSION_UNATTRIBUTED, 0L),
+                rejected = store.getLong(KEY_SESSION_REJECTED, 0L),
+            )
         }
 
         private fun recomputeTodayPeak(context: Context, day: String) {

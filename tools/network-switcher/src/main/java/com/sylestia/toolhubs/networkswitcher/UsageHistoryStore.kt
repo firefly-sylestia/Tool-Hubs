@@ -45,7 +45,9 @@ object UsageHistoryStore {
             file.useLines { lines ->
                 lines.mapNotNull(::decode)
                     .filter { it.endAt >= sinceMs }
-                    .sortedBy { it.startAt }
+                    // Ties are broken by id so several records inside one minute keep a stable order
+                    // across reads, which the review list and id-based toggling both depend on.
+                    .sortedWith(compareBy({ it.startAt }, { it.id }))
                     .toList()
             }
         }
@@ -62,11 +64,16 @@ object UsageHistoryStore {
         updated
     }
 
-    fun clearDay(context: Context, dayStamp: String) = synchronized(lock) {
+    /**
+     * Drops one day's records. A [network] narrows it to a single radio, so resetting the 4G figure
+     * does not also clear the 5G one.
+     */
+    fun clearDay(context: Context, dayStamp: String, network: String? = null) = synchronized(lock) {
         val file = File(context.filesDir, FILE_NAME)
         if (!file.exists()) return@synchronized
-        val rows = file.readLines().mapNotNull(::decode)
-            .filter { dayFormat.format(Date(it.startAt)) != dayStamp }
+        val rows = file.readLines().mapNotNull(::decode).filterNot { row ->
+            dayFormat.format(Date(row.startAt)) == dayStamp && (network == null || row.network == network)
+        }
         rewriteLocked(file, rows)
     }
 
