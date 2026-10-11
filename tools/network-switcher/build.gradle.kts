@@ -10,8 +10,8 @@ android {
         applicationId = "com.sylestia.toolhubs.networkswitcher"
         minSdk = 26
         targetSdk = 37
-        versionCode = 18
-        versionName = "0.11.3"
+        versionCode = 19
+        versionName = "0.11.4"
     }
     buildFeatures { compose = true; aidl = true; buildConfig = true }
 
