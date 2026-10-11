@@ -16,6 +16,7 @@ import android.provider.Settings as AndroidSettings
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -64,11 +65,10 @@ import androidx.compose.material.icons.rounded.DataUsage
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.NetworkCheck
+import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Timeline
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -115,7 +115,6 @@ import androidx.core.view.WindowCompat
 import com.sylestia.toolhubs.designsystem.ToolHubsTheme
 import com.sylestia.toolhubs.designsystem.hubAccents
 import com.sylestia.toolhubs.ui.HubBackdrop
-import com.sylestia.toolhubs.ui.HubBottomNav
 import com.sylestia.toolhubs.ui.HubEmptyState
 import com.sylestia.toolhubs.ui.HubGlassCard
 import com.sylestia.toolhubs.ui.HubHairline
@@ -127,7 +126,6 @@ import com.sylestia.toolhubs.ui.HubProgressRing
 import com.sylestia.toolhubs.ui.HubQuietButton
 import com.sylestia.toolhubs.ui.HubReveal
 import com.sylestia.toolhubs.ui.HubRowDivider
-import com.sylestia.toolhubs.ui.HubHeroHeader
 import com.sylestia.toolhubs.ui.HubSectionTitle
 import com.sylestia.toolhubs.ui.HubSegmented
 import com.sylestia.toolhubs.ui.HubSliderRow
@@ -165,6 +163,12 @@ private data class HistoryEntry(
     val detail: String,
     val type: String,
 )
+
+/**
+ * Not a tab index. The settings page is pushed above the four tabs, so navigation never points at
+ * it and its state lives outside [MainActivity]'s rememberSaveable page counter.
+ */
+private const val SETTINGS_PAGE = 4
 
 class MainActivity : ComponentActivity() {
 
@@ -260,6 +264,25 @@ class MainActivity : ComponentActivity() {
         packageManager.getLaunchIntentForPackage(SHIZUKU_PACKAGE)?.let { startActivity(it) }
     }
 
+    fun openNotificationSettings() {
+        runCatching {
+            startActivity(
+                Intent(AndroidSettings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(AndroidSettings.EXTRA_APP_PACKAGE, packageName),
+            )
+        }
+    }
+
+    /**
+     * True when the tray can actually show the watcher's status. When this is false the ongoing
+     * notification is invisible even though the foreground service is running, which is one reason
+     * a cooldown can look like it happened with no indicator at all.
+     */
+    fun notificationsEnabled(): Boolean = runCatching {
+        hasNotificationPermission() &&
+            getSystemService(android.app.NotificationManager::class.java)?.areNotificationsEnabled() == true
+    }.getOrDefault(false)
+
     fun requestShizuku() {
         ShizukuHealthMonitor.refresh()
         when (ShizukuHealthMonitor.state) {
@@ -338,8 +361,8 @@ private fun NetworkApp(
     themeMode: String,
     onThemeMode: (String) -> Unit,
 ) {
-    val haptic = LocalHapticFeedback.current
     var page by rememberSaveable { mutableIntStateOf(0) }
+    var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var snapshot by remember { mutableStateOf(readSnapshot(context)) }
     var radio by remember { mutableStateOf(runCatching { radioWatcher?.snapshot() }.getOrNull()) }
     var shizuku by remember { mutableStateOf(ShizukuHealthMonitor.refresh()) }
@@ -367,43 +390,57 @@ private fun NetworkApp(
             // system-bar padding on top and push the content down twice.
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
-                HubBottomNav(
-                    items = listOf(
-                        HubNavItem(Icons.Rounded.NetworkCheck, "Watch"),
-                        HubNavItem(Icons.Rounded.Timeline, "Events"),
-                        HubNavItem(Icons.Rounded.DataUsage, "Data"),
-                        HubNavItem(Icons.Rounded.History, "History"),
-                        HubNavItem(Icons.Rounded.Tune, "Tune"),
-                    ),
-                    selectedIndex = page,
-                    onSelect = {
-                        if (it != page) {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            page = it
-                        }
-                    },
-                )
+                // Settings is pushed on top of the tabs, so the bar steps out of the way and the
+                // page reads as its own destination rather than a fifth tab.
+                if (!settingsOpen) {
+                    SwitcherBottomNav(
+                        items = listOf(
+                            HubNavItem(Icons.Rounded.NetworkCheck, "Watch"),
+                            HubNavItem(Icons.Rounded.Timeline, "Events"),
+                            HubNavItem(Icons.Rounded.DataUsage, "Data"),
+                            HubNavItem(Icons.Rounded.History, "History"),
+                        ),
+                        selectedIndex = page,
+                        onSelect = { page = it },
+                    )
+                }
             },
         ) { padding ->
             AnimatedContent(
-                targetState = page,
+                targetState = if (settingsOpen) SETTINGS_PAGE else page,
                 transitionSpec = {
-                    (fadeIn(tween(240, easing = FastOutSlowInEasing)) + slideInHorizontally { it / 14 }) togetherWith
-                        (fadeOut(tween(150)) + slideOutHorizontally { -it / 14 })
+                    when {
+                        targetState == SETTINGS_PAGE ->
+                            (fadeIn(tween(220, easing = FastOutSlowInEasing)) + slideInHorizontally { it / 8 }) togetherWith
+                                (fadeOut(tween(120)) + slideOutHorizontally { -it / 20 })
+                        initialState == SETTINGS_PAGE ->
+                            (fadeIn(tween(220, easing = FastOutSlowInEasing)) + slideInHorizontally { -it / 8 }) togetherWith
+                                (fadeOut(tween(120)) + slideOutHorizontally { it / 20 })
+                        else ->
+                            (fadeIn(tween(240, easing = FastOutSlowInEasing)) + slideInHorizontally { it / 14 }) togetherWith
+                                (fadeOut(tween(150)) + slideOutHorizontally { -it / 14 })
+                    }
                 },
                 label = "page",
                 modifier = Modifier.fillMaxSize().padding(padding),
             ) { target ->
                 when (target) {
-                    0 -> WatchPage(context, snapshot, radio, shizuku, accent)
-                    1 -> EventsPage(context)
-                    2 -> DataPage(context)
-                    3 -> UsageHistoryPage(context)
-                    else -> TunePage(context, themeMode, onThemeMode, radio, shizuku)
+                    0 -> WatchPage(context, snapshot, radio, shizuku, accent) { settingsOpen = true }
+                    1 -> EventsPage(context) { settingsOpen = true }
+                    2 -> DataPage(
+                        context,
+                        onOpenHistory = { page = 3 },
+                        onOpenSettings = { settingsOpen = true },
+                    )
+                    3 -> UsageHistoryPage(context) { settingsOpen = true }
+                    else -> SettingsPage(context, themeMode, onThemeMode, radio, shizuku) { settingsOpen = false }
                 }
             }
         }
     }
+
+    // Settings is a pushed page, so the system back gesture closes it before it leaves the app.
+    BackHandler(enabled = settingsOpen) { settingsOpen = false }
 }
 
 private fun readSnapshot(context: Context): WatcherSnapshot {
@@ -438,6 +475,7 @@ private fun WatchPage(
     radio: RadioState?,
     shizuku: ShizukuHealth,
     accent: Color,
+    onOpenSettings: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -456,11 +494,12 @@ private fun WatchPage(
             .padding(top = 14.dp, bottom = 22.dp),
     ) {
         HubReveal(0) {
-            HubHeroHeader(
+            SwitcherHeader(
                 kicker = "5G Reconnect",
                 title = "Radio guardian",
                 subtitle = "Keeps watch for LTE fallback and pulls you back onto 5G.",
                 icon = Icons.Rounded.Bolt,
+                onOpenSettings = onOpenSettings,
             )
         }
 
@@ -974,7 +1013,7 @@ private data class EventGroup(
 )
 
 @Composable
-private fun EventsPage(context: Context) {
+private fun EventsPage(context: Context, onOpenSettings: () -> Unit) {
     var entries by remember { mutableStateOf(readNetworkHistory(context)) }
     var filter by rememberSaveable { mutableStateOf("All") }
     var showExport by remember { mutableStateOf(false) }
@@ -1004,11 +1043,12 @@ private fun EventsPage(context: Context) {
             .padding(horizontal = 18.dp).padding(top = 14.dp, bottom = 22.dp),
     ) {
         HubReveal(0) {
-            HubHeroHeader(
+            SwitcherHeader(
                 kicker = "Activity",
                 title = "Network timeline",
                 subtitle = "Repeated watcher noise is grouped into one event so the useful signal stays visible.",
                 icon = Icons.Rounded.Timeline,
+                onOpenSettings = onOpenSettings,
             )
         }
         Spacer(Modifier.height(16.dp))
@@ -1270,7 +1310,11 @@ private fun EventFeatureRecommendations(
 // ── page 3: data ─────────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun DataPage(context: Context) {
+private fun DataPage(
+    context: Context,
+    onOpenHistory: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
     val store = remember { MainActivity.store(context) }
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
@@ -1312,11 +1356,12 @@ private fun DataPage(context: Context) {
             .padding(top = 14.dp, bottom = 22.dp),
     ) {
         HubReveal(0) {
-            HubHeroHeader(
+            SwitcherHeader(
                 kicker = "Usage",
                 title = "Observed traffic",
                 subtitle = "Day-by-day mobile traffic, sampled by the radio that carried it.",
                 icon = Icons.Rounded.Analytics,
+                onOpenSettings = onOpenSettings,
             )
         }
         Spacer(Modifier.height(16.dp))
@@ -1356,10 +1401,8 @@ private fun DataPage(context: Context) {
                         text = "History",
                         icon = Icons.Rounded.History,
                         modifier = Modifier.weight(1f),
-                    ) {
-                        // The bottom navigation owns the screen transition; this button is intentionally
-                        // kept as a discoverable shortcut only through the History tab.
-                    }
+                        onClick = onOpenHistory,
+                    )
                 }
             }
         }
@@ -1395,7 +1438,12 @@ private fun DataPage(context: Context) {
                         )
                     }
                     HubProgressRing(
-                        progress = if (totals.todayPeakBps > 0L) (totals.todayPeakBps / 60_000_000f).coerceIn(0.05f, 1f) else 0.05f,
+                        progress = if (totals.todayPeakBps > 0L) {
+                            (totals.todayPeakBps.toFloat() / NetworkUsageTracker.MAX_PLAUSIBLE_BPS.toFloat())
+                                .coerceIn(0.05f, 1f)
+                        } else {
+                            0.05f
+                        },
                         modifier = Modifier.size(54.dp),
                         accent = MaterialTheme.hubAccents.success,
                     )
@@ -1504,7 +1552,7 @@ private fun DataPage(context: Context) {
 }
 
 @Composable
-private fun UsageHistoryPage(context: MainActivity) {
+private fun UsageHistoryPage(context: MainActivity, onOpenSettings: () -> Unit) {
     var tick by remember { mutableIntStateOf(0) }
     var rangeIndex by rememberSaveable { mutableIntStateOf(1) }
     var suspiciousOnly by rememberSaveable { mutableStateOf(false) }
@@ -1549,11 +1597,12 @@ private fun UsageHistoryPage(context: MainActivity) {
             .padding(top = 14.dp, bottom = 22.dp),
     ) {
         HubReveal(0) {
-            HubHeroHeader(
+            SwitcherHeader(
                 kicker = "History",
                 title = "Usage timeline",
                 subtitle = "Minute-level mobile traffic with suspicious-spike review and manual cleanup.",
                 icon = Icons.Rounded.History,
+                onOpenSettings = onOpenSettings,
             )
         }
 
@@ -1578,7 +1627,8 @@ private fun UsageHistoryPage(context: MainActivity) {
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            "500 MiB/s+ is flagged for review, not automatically deleted.",
+                            "Anything above " + formatSpeed(NetworkUsageTracker.SUSPECT_SPIKE_BPS) +
+                                " is flagged for review; impossible bursts are excluded outright.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 10.sp,
                         )
@@ -2015,17 +2065,27 @@ private fun DailyUsageRow(day: DailyUsage) {
     }
 }
 
-// ── page 4: tune ─────────────────────────────────────────────────────────────────────────────────
+// ── settings (pushed above the tabs, not a tab) ──────────────────────────────────────────────────
 
 @Composable
-private fun TunePage(
+private fun SettingsPage(
     context: MainActivity,
     themeMode: String,
     onThemeMode: (String) -> Unit,
     radio: RadioState?,
     shizuku: ShizukuHealth,
+    onBack: () -> Unit,
 ) {
     val store = MainActivity.store(context)
+    var statusTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(2_000)
+            statusTick++
+        }
+    }
+    // Re-read on a slow tick so the warning clears when the user comes back from system settings.
+    val notificationsEnabled = statusTick.let { context.notificationsEnabled() }
     val sims = remember { context.currentSims() }
     val watcherOn = store.getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)
 
@@ -2084,14 +2144,7 @@ private fun TunePage(
             .padding(horizontal = 18.dp)
             .padding(top = 14.dp, bottom = 22.dp),
     ) {
-        HubReveal(0) {
-            HubHeroHeader(
-                kicker = "Settings",
-                title = "Tune the guardian",
-                subtitle = "Appearance, recovery behaviour, SIM choice and diagnostics.",
-                icon = Icons.Rounded.Settings,
-            )
-        }
+        HubReveal(0) { SettingsHeader(onBack = onBack) }
 
         Spacer(Modifier.height(16.dp))
 
@@ -2108,6 +2161,38 @@ private fun TunePage(
                     options = listOf("System", "Light", "Dark"),
                     selectedIndex = listOf("system", "light", "dark").indexOf(themeMode).coerceAtLeast(0),
                     onSelect = { onThemeMode(listOf("system", "light", "dark")[it]) },
+                )
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        HubReveal(2) {
+            HubGlassCard(accent = if (notificationsEnabled) null else MaterialTheme.hubAccents.warning) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Status notifications", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                        Text(
+                            if (notificationsEnabled) {
+                                "The ongoing notification shows the live state, including an active recovery cooldown."
+                            } else {
+                                "Notifications are off, so the watcher's status and its cooldown alerts cannot appear. Enable them so a paused recovery is never silent."
+                            },
+                            color = if (notificationsEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.hubAccents.warning,
+                            fontSize = 11.sp,
+                        )
+                    }
+                    HubStatusDot(
+                        color = if (notificationsEnabled) MaterialTheme.hubAccents.success else MaterialTheme.hubAccents.warning,
+                        pulsing = !notificationsEnabled,
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                HubQuietButton(
+                    text = if (notificationsEnabled) "Notification settings" else "Enable notifications",
+                    icon = Icons.Rounded.NotificationsActive,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { context.openNotificationSettings() },
                 )
             }
         }
