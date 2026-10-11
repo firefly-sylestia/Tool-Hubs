@@ -207,6 +207,13 @@ class NetworkUsageTracker(context: Context) {
         )
         recordSpeed(bytesPerSecond, network, nowWall)
 
+        // Feed the live graph. The speed sample is what the line plots and the byte delta is what the
+        // Data metric sums per bucket; both come from this one window, so the graph and the totals
+        // can never tell different stories about the same second.
+        val attributed = lastNetwork ?: network
+        LiveTelemetry.record(LiveTelemetry.Metric.SPEED, nowWall, bytesPerSecond.toFloat(), attributed)
+        LiveTelemetry.record(LiveTelemetry.Metric.DATA, nowWall, delta.toFloat(), attributed)
+
         val day = dayFormat.format(Date(nowWall))
         if (network != lastNetwork || nowWall - lastPersistAt >= PERSIST_EVERY_MS) {
             persist(day, nowWall)

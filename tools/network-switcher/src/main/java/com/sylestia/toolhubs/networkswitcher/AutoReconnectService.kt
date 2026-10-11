@@ -103,6 +103,13 @@ class AutoReconnectService : Service() {
         const val PREF_LTE_FALLBACK_MS = "lte_fallback_ms"
         const val PREF_RECOVERY_TOTAL_MS = "recovery_total_ms"
         const val PREF_RECOVERY_COUNT = "recovery_count"
+
+        // Best and worst confirmed recovery, and the longest run of consecutive failures. The
+        // recovery analytics screen used to show only a mean, which hides exactly the two cases a
+        // user cares about: the recovery that took a minute, and the streak that never ended.
+        const val PREF_RECOVERY_FASTEST_MS = "recovery_fastest_ms"
+        const val PREF_RECOVERY_SLOWEST_MS = "recovery_slowest_ms"
+        const val PREF_FAILURE_STREAK_MAX = "failure_streak_max"
         const val PREF_LTE_FALLBACK_COUNT = "lte_fallback_count"
         const val PREF_TRIGGER_RECOVERY_TOTAL_MS = "trigger_recovery_total_ms"
         const val PREF_TRIGGER_RECOVERY_COUNT = "trigger_recovery_count"
@@ -599,12 +606,17 @@ class AutoReconnectService : Service() {
         val store = prefs()
         val nowElapsed = SystemClock.elapsedRealtime()
         val latency = (nowElapsed - startedAt).coerceAtLeast(0L)
-        store.edit()
+        val fastest = store.getLong(PREF_RECOVERY_FASTEST_MS, 0L)
+        val editor = store.edit()
             .remove(PREF_ATTEMPT_STARTED_ELAPSED)
             .putLong(PREF_TRIGGER_RECOVERY_TOTAL_MS, store.getLong(PREF_TRIGGER_RECOVERY_TOTAL_MS, 0L) + latency)
             .putInt(PREF_TRIGGER_RECOVERY_COUNT, store.getInt(PREF_TRIGGER_RECOVERY_COUNT, 0) + 1)
             .putInt(PREF_RECOVERY_COUNT, store.getInt(PREF_RECOVERY_COUNT, 0) + 1)
-            .apply()
+        if (fastest <= 0L || latency < fastest) editor.putLong(PREF_RECOVERY_FASTEST_MS, latency)
+        if (latency > store.getLong(PREF_RECOVERY_SLOWEST_MS, 0L)) {
+            editor.putLong(PREF_RECOVERY_SLOWEST_MS, latency)
+        }
+        editor.apply()
         attemptTimes = ArrayDeque()
         consecutiveFailures = 0
         circuitOpen = false
@@ -633,6 +645,9 @@ class AutoReconnectService : Service() {
     private fun onRadioFailure(detail: String) {
         consecutiveFailures++
         val now = SystemClock.elapsedRealtime()
+        if (consecutiveFailures > prefs().getInt(PREF_FAILURE_STREAK_MAX, 0)) {
+            prefs().edit().putInt(PREF_FAILURE_STREAK_MAX, consecutiveFailures).apply()
+        }
 
         if (consecutiveFailures >= maxAttempts) {
             pauseRecovery(now, detail)
@@ -1236,8 +1251,14 @@ class AutoReconnectService : Service() {
             history.remove(oldest)
         }
         val editor = store.edit().putStringSet(PREF_HISTORY, history)
-        if (type == "success") editor.putInt("successful_attempts", store.getInt("successful_attempts", 0) + 1)
-        if (type == "failed") editor.putInt("failed_attempts", store.getInt("failed_attempts", 0) + 1)
+        // Lifetime counters. The keys are shared with the health score and the recovery analytics,
+        // which read the same two values, so they are declared once in NetworkInsights.
+        if (type == "success") {
+            editor.putInt(KEY_SUCCESSFUL_ATTEMPTS, store.getInt(KEY_SUCCESSFUL_ATTEMPTS, 0) + 1)
+        }
+        if (type == "failed") {
+            editor.putInt(KEY_FAILED_ATTEMPTS, store.getInt(KEY_FAILED_ATTEMPTS, 0) + 1)
+        }
         editor.apply()
     }
 
