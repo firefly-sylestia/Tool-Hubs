@@ -3,6 +3,9 @@ name: Tool Hubs Android CI
 on:
   push:
     branches: [main, dev]
+    # A release tag is pushed after the version bump, so it has to build too: a tag push started no
+    # run at all before this, which left every release pointing at a commit CI never touched.
+    tags: ['v*']
   pull_request:
     branches: [main, dev]
   workflow_dispatch:
@@ -26,10 +29,15 @@ jobs:
       actions: write
     steps:
       - name: Delete artifacts and caches older than a day
+        # Housekeeping, not verification: it must never turn a run red the way it did when a bare
+        # `gh cache list` had no checkout to read a git remote from and failed the job, which then
+        # skipped the build. Each deletion is guarded, and the log records whatever did not work.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -uo pipefail
+          set +e
+          set -o pipefail
           repo="$GITHUB_REPOSITORY"
 
           # Artifact storage is a small, account-wide quota, and its usage figure only refreshes every
@@ -47,20 +55,21 @@ jobs:
           # Gradle caches reach gigabytes each and one is written per branch and per run, so they pile
           # up far past the artifacts. Keep the ten newest so ordinary builds stay warm and delete the
           # rest; a cache is only a download saved, never data.
-          gh cache list --limit 100 --sort created_at --order desc --json id,key,sizeInBytes \
-            > "$RUNNER_TEMP/caches.json"
-          total=$(gh api "repos/$repo/actions/cache/usage" --jq '.active_caches_count')
-          echo "caches before: $total"
+          # `--repo` is required here: this job has no checkout, so gh cannot infer the repository
+          # from a git remote and aborts with "failed to run git: not a git repository".
+          gh cache list --repo "$repo" --limit 100 --sort created_at --order desc \
+            --json id > "$RUNNER_TEMP/caches.json"
+          echo "caches before: $(gh api "repos/$repo/actions/cache/usage" --jq '.active_caches_count')"
           jq -r '.[10:] | .[] | .id' "$RUNNER_TEMP/caches.json" | while read -r id; do
             [ -n "$id" ] || continue
-            gh cache delete "$id" > /dev/null || echo "cache $id already gone"
+            gh cache delete "$id" --repo "$repo" > /dev/null \
+              || echo "cache $id: already gone or not deletable"
           done
           gh api "repos/$repo/actions/cache/usage" \
             --jq '"caches after: \(.active_caches_count), \(.active_caches_size_in_bytes / 1048576 | floor) MB"'
 
   build:
     name: Build ${{ matrix.name }} release APK
-    needs: prune
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:

@@ -15,11 +15,13 @@ unless a Network Switcher change genuinely requires it.
 ## Where builds happen
 
 **CI only.** [`.github/workflows/android.yml`](.github/workflows/android.yml) builds the release APK
-for every module on pushes to `main` and `dev`, on pull requests, and on manual dispatch, then
-uploads the APKs as artifacts (1-day retention).
+for every module on pushes to `main` and `dev`, on pushes of a `v*` release tag, on pull requests,
+and on manual dispatch, then uploads the APKs as artifacts (1-day retention).
 
-A `prune` job runs ahead of the build and deletes this repository's artifacts older than a day and
-all but the ten newest caches. Actions storage is one account-wide quota shared by every repository:
+A `prune` job runs alongside the build and deletes this repository's artifacts older than a day and
+all but the ten newest caches. It is not a prerequisite of the build and its step tolerates failure
+on purpose: housekeeping must never skip or redden a build, and it must pass `--repo` to `gh`
+because it has no checkout to read a git remote from. Actions storage is one account-wide quota shared by every repository:
 an artefact bucket that is full fails the upload step on every module, and a Gradle cache bucket that
 is full reaches gigabytes, so neither is left to age out on its own. The prune job holds the only
 `actions: write` permission in the workflow; the build job stays `contents: read` because it checks
@@ -69,7 +71,8 @@ defaultConfig {
 3. Move anything completed out of the roadmap
    ([`docs/NETWORK_SWITCHER_FUTURE_TODO.md`](docs/NETWORK_SWITCHER_FUTURE_TODO.md)) into
    [`TODO.md`](TODO.md).
-4. Commit and push. Wait for CI to go green before treating the release as done.
+4. Commit and push the bump, then push the `vX.Y.Z` tag with the release notes. Pushing the tag
+   starts its own CI run — wait for it to go green before treating the release as done.
 
 ## Commit messages
 

@@ -60,8 +60,10 @@ throwaway debug key otherwise so fork and pull-request builds still work.
 ## CI
 
 [`.github/workflows/android.yml`](.github/workflows/android.yml) builds the release APK for every
-module on `main` and `dev` pushes and pull requests, and uploads the APKs as artifacts. CI is the
-only place builds run — see [`AGENTS.md`](AGENTS.md).
+module on `main` and `dev` pushes, on `v*` release-tag pushes and on pull requests, and uploads the
+APKs as artifacts (one-day retention). A `prune` job clears artifacts older than a day and all but
+the ten newest caches, because Actions storage is one account-wide quota. CI is the only place
+builds run — see [`AGENTS.md`](AGENTS.md).
 
 ## Docs
 
