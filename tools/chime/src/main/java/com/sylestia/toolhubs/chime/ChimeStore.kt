@@ -131,8 +131,15 @@ class ChimeStore(context: Context) {
             ChimeSettings(
                 bellMode = enumOr(json.optString("bellMode"), fallback.bellMode),
                 bellTimes = json.optJSONArray("bellTimes").toIntList(),
-                announceTime = json.optBoolean("announceTime", fallback.announceTime),
-                announceTimes = json.optJSONArray("announceTimes").toIntList(),
+                bellEnabled = json.optBoolean("bell", fallback.bellEnabled),
+                speakTime = json.optBoolean("speak", fallback.speakTime),
+                // -1 is stored for "follow the device", which is not the same answer as either false
+                // or true and must not be flattened into one of them on the way back in.
+                use24Hour = when (json.optInt("use24", -1)) {
+                    0 -> false
+                    1 -> true
+                    else -> null
+                },
                 quietHoursEnabled = json.optBoolean("quiet", fallback.quietHoursEnabled),
                 quietFromHour = json.optInt("quietFrom", fallback.quietFromHour).coerceIn(0, 23),
                 quietToHour = json.optInt("quietTo", fallback.quietToHour).coerceIn(0, 23),
@@ -148,8 +155,9 @@ class ChimeStore(context: Context) {
         val json = JSONObject().apply {
             put("bellMode", settings.bellMode.name)
             put("bellTimes", JSONArray(settings.bellTimes))
-            put("announceTime", settings.announceTime)
-            put("announceTimes", JSONArray(settings.announceTimes))
+            put("bell", settings.bellEnabled)
+            put("speak", settings.speakTime)
+            put("use24", when (settings.use24Hour) { true -> 1; false -> 0; null -> -1 })
             put("quiet", settings.quietHoursEnabled)
             put("quietFrom", settings.quietFromHour)
             put("quietTo", settings.quietToHour)

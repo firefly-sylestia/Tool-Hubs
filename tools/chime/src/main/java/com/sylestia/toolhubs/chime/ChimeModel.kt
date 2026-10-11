@@ -37,7 +37,13 @@ data class AlarmItem(
 ) {
     val isRepeating: Boolean get() = days.isNotEmpty()
 
-    fun timeLabel(): String = "%02d:%02d".format(hour, minute)
+    /** The time as the user reads a clock, honouring their 12-hour or 24-hour choice. */
+    fun timeLabel(hour24: Boolean = true): String = if (hour24) {
+        "%02d:%02d".format(hour, minute)
+    } else {
+        val clockHour = if (hour % 12 == 0) 12 else hour % 12
+        "%d:%02d %s".format(clockHour, minute, if (hour < 12) "AM" else "PM")
+    }
 
     fun dayLabel(): String = when {
         days.isEmpty() -> "Once"
@@ -76,12 +82,19 @@ data class ReminderItem(
  * allowed to wrap.
  */
 data class ChimeSettings(
+    /** When the clock may speak at all: never, every hour, or only at the times below. */
     val bellMode: BellMode,
     /** Minutes past midnight for [BellMode.SET_TIMES]. */
     val bellTimes: List<Int>,
-    val announceTime: Boolean,
-    /** Speak the time at these minutes past midnight in addition to striking. Empty means "with the bell". */
-    val announceTimes: List<Int>,
+    /**
+     * Whether the bell sounds, and whether the time is spoken, are separate switches on purpose:
+     * a pendulum strike on its own, a spoken time on its own, or both are all reasonable, and one
+     * combined "announce" toggle forced the two together.
+     */
+    val bellEnabled: Boolean,
+    val speakTime: Boolean,
+    /** null follows the device's own 12/24-hour setting rather than overriding it. */
+    val use24Hour: Boolean?,
     val quietHoursEnabled: Boolean,
     val quietFromHour: Int,
     val quietToHour: Int,
@@ -109,8 +122,9 @@ data class ChimeSettings(
         val DEFAULT = ChimeSettings(
             bellMode = BellMode.HOURLY,
             bellTimes = emptyList(),
-            announceTime = false,
-            announceTimes = emptyList(),
+            bellEnabled = true,
+            speakTime = false,
+            use24Hour = null,
             quietHoursEnabled = true,
             quietFromHour = 22,
             quietToHour = 7,

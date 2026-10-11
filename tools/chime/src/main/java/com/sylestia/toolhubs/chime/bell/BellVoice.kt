@@ -47,7 +47,10 @@ object BellVoice {
      * process mid-chime.
      */
     suspend fun strike(context: Context, strikes: Int) {
-        val count = strikes.coerceIn(1, 12)
+        // Zero means the bell is switched off and only the spoken time is wanted; it must stay
+        // silent rather than fall back to a single strike.
+        val count = strikes.coerceIn(0, 12)
+        if (count == 0) return
         val samples = render(count)
         if (samples.isEmpty()) return
         val track = buildTrack(samples.size * 2) ?: return

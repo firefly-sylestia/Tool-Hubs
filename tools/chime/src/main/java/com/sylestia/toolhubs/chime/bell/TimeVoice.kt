@@ -2,7 +2,10 @@ package com.sylestia.toolhubs.chime.bell
 
 import android.content.Context
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalTime
 import java.time.ZonedDateTime
 import java.util.Locale
@@ -10,59 +13,57 @@ import java.util.Locale
 /**
  * "It's twenty past seven."
  *
- * The wording is spelled out in words rather than handed to the engine as digits, because a
- * text-to-speech engine reading "07:20" says "oh seven colon two zero" on most devices. The grammar
- * is the small part of this that people actually notice.
+ * The wording is written out rather than handed to the engine as digits, because an engine reading
+ * "07:20" says "oh seven colon two zero" on most devices. The grammar is the small part of this people
+ * actually notice.
  *
- * An engine is created per announcement and shut down again. Holding one open for the life of the
- * process would be cheaper, but only if the process were always alive — and it is the announcement
- * that is rare, not the process, so paying a few hundred milliseconds at announcement time is the
- * better trade. It is also the only shape that works from a broadcast receiver.
+ * An engine is created per announcement and shut down again. It used to be shut down on a fixed
+ * 2.6-second timer, which cut the sentence off mid-word whenever initialisation was slow — the reason
+ * the spoken time did not always match what it said it would. It now waits for the engine to report
+ * that it finished, with a ceiling so a broken engine cannot hold the service open.
  */
 object TimeVoice {
 
-    /** Speaks the current time and returns once the engine has been started and handed the text. */
-    suspend fun announce(context: Context) {
-        val phrase = phrase(ZonedDateTime.now())
-        val engine = createEngine(context) ?: return
-        engine.setLanguage(Locale.getDefault())
-        runCatching {
-            engine.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "chime-time-${System.currentTimeMillis()}")
-        }
-        // Speak is asynchronous; give it time to finish before the caller shuts the engine down.
-        delay(2600)
-        runCatching { engine.stop() }
-        runCatching { engine.shutdown() }
+    /**
+     * Speaks the current time and returns once the sentence has been spoken.
+     *
+     * [hour24] must be the same choice the clock face is using. It used to be dropped on the floor
+     * here, so a phone set to 24-hour still heard "half past seven in the evening" — the spoken time
+     * disagreeing with the number above it.
+     */
+    suspend fun announce(context: Context, hour24: Boolean) {
+        speak(context, phrase(ZonedDateTime.now(), hour24))
     }
 
-    /** Reads the time once for a preview button, so the user can hear it before relying on it. */
-    suspend fun preview(context: Context, millis: Long) {
-        val phrase = phrase(java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneId.systemDefault()))
-        val engine = createEngine(context) ?: return
-        engine.setLanguage(Locale.getDefault())
-        runCatching { engine.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "chime-preview") }
-        delay(2600)
-        runCatching { engine.stop() }
-        runCatching { engine.shutdown() }
+    /** Reads a specific time, for the preview button in settings. */
+    suspend fun preview(context: Context, millis: Long, hour24: Boolean) {
+        val time = java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneId.systemDefault())
+        speak(context, phrase(time, hour24))
     }
 
     /**
-     * The spoken form of [time].
+     * Reads the clock face aloud.
      *
-     * Minutes are read as past/to the hour, which is how a person says a time out loud, and the hour
-     * is read as a clock reads it — twelve, not zero, so midnight is "twelve o'clock" and not
-     * "zero hundred".
+     * [hour24] only changes the hour phrase: in 12-hour style the hour is always read as a clock
+     * hour, and in 24-hour style "seventeen hundred" is how the number reads, so the phrase follows
+     * the same setting the clock face does.
      */
-    fun phrase(time: ZonedDateTime): String = phraseFor(time.toLocalTime())
+    fun phrase(time: ZonedDateTime, hour24: Boolean = false): String = phraseFor(time.toLocalTime(), hour24)
 
-    fun phraseFor(time: LocalTime): String {
-        val hour24 = time.hour
-        val clockHour = if (hour24 % 12 == 0) 12 else hour24 % 12
-        val nextHour = if (clockHour == 12) 1 else clockHour + 1
+    fun phraseFor(time: LocalTime, hour24: Boolean = false): String {
         val minute = time.minute
+        if (hour24) {
+            return when (minute) {
+                0 -> "It's ${time.hour} hundred hours"
+                else -> "It's ${time.hour} ${minute.toString().padStart(2, '0')}"
+            }
+        }
+        val hour24Value = time.hour
+        val clockHour = if (hour24Value % 12 == 0) 12 else hour24Value % 12
+        val nextHour = if (clockHour == 12) 1 else clockHour + 1
         val partOfDay = when {
-            hour24 < 12 -> "in the morning"
-            hour24 < 18 -> "in the afternoon"
+            hour24Value < 12 -> "in the morning"
+            hour24Value < 18 -> "in the afternoon"
             else -> "in the evening"
         }
         return when (minute) {
@@ -75,16 +76,47 @@ object TimeVoice {
         }
     }
 
+    private suspend fun speak(context: Context, phrase: String) {
+        val engine = createEngine(context) ?: return
+        engine.setLanguage(Locale.getDefault())
+        val finished = CompletableDeferred<Unit>()
+        engine.setOnUtteranceProgressListener(
+            object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) = Unit
+
+                override fun onDone(utteranceId: String?) {
+                    finished.complete(Unit)
+                }
+
+                @Deprecated("Required by the platform listener; the error code overload is used instead.")
+                override fun onError(utteranceId: String?) {
+                    finished.complete(Unit)
+                }
+
+                override fun onError(utteranceId: String?, errorCode: Int) {
+                    finished.complete(Unit)
+                }
+            }
+        )
+        runCatching {
+            engine.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "chime-time")
+        }
+        // A ceiling, not a timer: normally this returns the instant the last word lands.
+        withTimeoutOrNull(20_000) { finished.await() }
+        runCatching { engine.stop() }
+        runCatching { engine.shutdown() }
+    }
+
     private suspend fun createEngine(context: Context): TextToSpeech? {
-        // The engine only calls back on its own thread, so the initialisation is bridged with a
-        // polling wait rather than a callback the caller would have to be structured around.
+        // The engine only calls back on its own thread, so initialisation is bridged with a polling
+        // wait rather than a callback the caller would have to be structured around.
         var ready = false
         var failed = false
         val engine = TextToSpeech(context.applicationContext) { status ->
             if (status == TextToSpeech.SUCCESS) ready = true else failed = true
         }
         var waited = 0
-        while (!ready && !failed && waited < 2500) {
+        while (!ready && !failed && waited < 3000) {
             delay(50)
             waited += 50
         }

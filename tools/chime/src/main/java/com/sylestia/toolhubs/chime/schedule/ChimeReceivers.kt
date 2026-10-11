@@ -45,23 +45,37 @@ class ChimeReceiver : BroadcastReceiver() {
 
             ACTION_BELL -> {
                 val settings = store.settings()
-                // The clock reads the wall clock, not the request: a strike delayed by Doze must not
-                // be counted at the wrong hour.
-                val hour = ZonedDateTime.now().hour
+                // The hour comes from the intent, filled in from the moment the strike was armed for.
+                // Reading the wall clock here instead is what made the count drift: an alarm that
+                // landed a moment early struck once too few.
+                val armedHour = intent.getIntExtra(EXTRA_HOUR, -1)
+                val hour = if (armedHour in 0..23) armedHour else ZonedDateTime.now().hour
                 if (settings.isQuietHour(hour)) {
                     scheduler.scheduleNextBell()
                     return
                 }
-                val strikes = com.sylestia.toolhubs.chime.ChimeTimes.strikesFor(hour)
-                val speak = settings.announceTime
-                if (!BellService.start(context, strikes, speak)) {
+                // The count was decided when the strike was armed, because only the arm-time knows
+                // whether this hour counts itself out or is a single chime from the set-times list.
+                val armedStrikes = intent.getIntExtra(
+                    EXTRA_STRIKES,
+                    com.sylestia.toolhubs.chime.ChimeTimes.strikesFor(hour),
+                )
+                val strikes = if (settings.bellEnabled) armedStrikes else 0
+                val speak = settings.speakTime
+                val hour24 = intent.getBooleanExtra(EXTRA_HOUR24, false)
+                if (strikes <= 0 && !speak) {
+                    // Nothing is switched on, so arming the next one costs nothing but a wake-up.
+                    scheduler.scheduleNextBell()
+                    return
+                }
+                if (!BellService.start(context, strikes, speak, hour24)) {
                     // The start was refused, so ring inside the broadcast window rather than lose the
                     // chime. A twelve-strike chime may not finish; a missed hour is worse than a cut one.
                     val pending = goAsync()
                     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
                     scope.launch {
                         runCatching { BellVoice.strike(context, strikes) }
-                        if (speak) runCatching { TimeVoice.announce(context) }
+                        if (speak) runCatching { TimeVoice.announce(context, hour24) }
                         pending.finish()
                     }
                 }
@@ -102,6 +116,12 @@ class ChimeReceiver : BroadcastReceiver() {
         const val EXTRA_KIND = "kind"
         const val EXTRA_ID = "id"
         const val EXTRA_SNOOZED = "snoozed"
+        /** The hour the strike was armed for, so a delayed chime still rings the right count. */
+        const val EXTRA_HOUR = "hour"
+        /** Strikes decided at arm time, so the count cannot follow a late-running hour. */
+        const val EXTRA_STRIKES = "strikes"
+        const val EXTRA_SPEAK = "speak"
+        const val EXTRA_HOUR24 = "hour24"
     }
 }
 

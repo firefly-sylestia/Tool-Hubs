@@ -30,9 +30,10 @@ class BellService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val strikes = intent?.getIntExtra(EXTRA_STRIKES, 1) ?: 1
         val speak = intent?.getBooleanExtra(EXTRA_SPEAK, false) ?: false
+        val hour24 = intent?.getBooleanExtra(EXTRA_HOUR24, false) ?: false
         scope.launch {
             runCatching { BellVoice.strike(this@BellService, strikes) }
-            if (speak) runCatching { TimeVoice.announce(this@BellService) }
+            if (speak) runCatching { TimeVoice.announce(this@BellService, hour24) }
             stopSelf(startId)
         }
         return START_NOT_STICKY
@@ -46,13 +47,15 @@ class BellService : Service() {
     companion object {
         const val EXTRA_STRIKES = "strikes"
         const val EXTRA_SPEAK = "speak"
+        const val EXTRA_HOUR24 = "hour24"
 
         /** Returns false when the system refused the start, so the caller can ring in-line instead. */
-        fun start(context: Context, strikes: Int, speak: Boolean): Boolean = runCatching {
+        fun start(context: Context, strikes: Int, speak: Boolean, hour24: Boolean): Boolean = runCatching {
             context.startService(
                 Intent(context, BellService::class.java).apply {
                     putExtra(EXTRA_STRIKES, strikes)
                     putExtra(EXTRA_SPEAK, speak)
+                    putExtra(EXTRA_HOUR24, hour24)
                 }
             )
             true

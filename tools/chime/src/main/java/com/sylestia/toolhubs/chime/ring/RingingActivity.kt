@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.Snooze
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.sylestia.toolhubs.designsystem.ToolHubsTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -91,7 +92,7 @@ class RingingActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this) { }
 
         setContent {
-            MaterialTheme {
+            ToolHubsTheme {
                 RingingScreen(
                     due = due,
                     onSnooze = { answer(ChimeActionReceiver.ACTION_SNOOZE) },

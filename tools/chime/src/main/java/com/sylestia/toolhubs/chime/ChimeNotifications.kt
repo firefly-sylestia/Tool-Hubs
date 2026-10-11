@@ -144,9 +144,12 @@ object ChimeNotifications {
                 )
             )
         val kind = if (due.kind == DueItem.Kind.ALARM) "Alarm" else "Reminder"
+        // The countdown follows the same clock style as everything else; hard-coding 24-hour here is
+        // how a 12-hour phone ended up with "Next up at 18:30" under a clock that said 6:30 PM.
+        val hour24 = ChimeFormat.use24Hour(context, ChimeStore(context).settings().use24Hour)
         return builder
             .setContentTitle("$kind · ${due.title}".trim())
-            .setContentText("Next up at ${ChimeFormat.clock(due.triggerAt)}")
+            .setContentText("Next up at ${ChimeFormat.clock(due.triggerAt, hour24)}")
             .setWhen(due.triggerAt)
             .setShowWhen(true)
             .setUsesChronometer(true)
@@ -164,17 +167,27 @@ object ChimeNotifications {
     }
 }
 
-/** Small shared formatters so the clock, the notification and the ringing screen agree. */
+/**
+ * Small shared formatters so the clock, the notification and the ringing screen agree.
+ *
+ * The clock style is a stored preference that may be "follow the device", which is a third answer
+ * rather than a default for one of the other two — a phone that flips to 24-hour style while
+ * travelling should take Chime with it.
+ */
 object ChimeFormat {
 
-    fun clock(millis: Long): String = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-        .format(java.util.Date(millis))
+    fun use24Hour(context: Context, preference: Boolean?): Boolean =
+        preference ?: android.text.format.DateFormat.is24HourFormat(context)
 
-    fun clockWithSeconds(millis: Long): String =
-        java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
-            .format(java.util.Date(millis))
+    fun clock(millis: Long, hour24: Boolean = true): String =
+        pattern(if (hour24) "HH:mm" else "h:mm a", millis)
 
-    fun longDate(millis: Long): String =
-        java.text.SimpleDateFormat("EEE d MMM", java.util.Locale.getDefault())
+    fun clockWithSeconds(millis: Long, hour24: Boolean = true): String =
+        pattern(if (hour24) "HH:mm:ss" else "h:mm:ss a", millis)
+
+    fun longDate(millis: Long): String = pattern("EEE d MMM", millis)
+
+    private fun pattern(pattern: String, millis: Long): String =
+        java.text.SimpleDateFormat(pattern, java.util.Locale.getDefault())
             .format(java.util.Date(millis))
 }

@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.sylestia.toolhubs.designsystem.ToolHubsTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -62,9 +63,11 @@ class ScanDismissActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val expected = intent.getStringExtra(EXTRA_CODE)
         val anyCode = intent.getBooleanExtra(EXTRA_ANY_CODE, false)
+        val register = intent.getBooleanExtra(EXTRA_REGISTER, false)
         setContent {
-            MaterialTheme {
+            ToolHubsTheme {
                 ScannerScreen(
+                    register = register,
                     expectedCode = expected.takeUnless { anyCode },
                     onMatch = { value ->
                         setResult(
@@ -86,17 +89,36 @@ class ScanDismissActivity : ComponentActivity() {
         const val EXTRA_CODE = "code"
         const val EXTRA_ANY_CODE = "any_code"
         const val EXTRA_SCANNED = "scanned"
+        const val EXTRA_REGISTER = "register"
 
         fun intent(context: Context, code: String?, anyCode: Boolean): Intent =
             Intent(context, ScanDismissActivity::class.java).apply {
                 putExtra(EXTRA_CODE, code)
                 putExtra(EXTRA_ANY_CODE, anyCode)
             }
+
+        /**
+         * Captures a code to keep, rather than checking one to dismiss.
+         *
+         * Registering the code by scanning it is the point: a code typed from memory at the desk is
+         * a code nobody can reproduce at the door, and this returns whatever the camera read so the
+         * alarm can compare the same bytes later.
+         */
+        fun registerIntent(context: Context): Intent =
+            Intent(context, ScanDismissActivity::class.java).apply {
+                putExtra(EXTRA_ANY_CODE, true)
+                putExtra(EXTRA_REGISTER, true)
+            }
     }
 }
 
 @Composable
-private fun ScannerScreen(expectedCode: String?, onMatch: (String) -> Unit, onCancel: () -> Unit) {
+private fun ScannerScreen(
+    register: Boolean,
+    expectedCode: String?,
+    onMatch: (String) -> Unit,
+    onCancel: () -> Unit,
+) {
     val context = LocalContext.current
     var granted by remember {
         mutableStateOf(
@@ -128,7 +150,7 @@ private fun ScannerScreen(expectedCode: String?, onMatch: (String) -> Unit, onCa
                     if (ok) onMatch(clean) else mismatch = clean
                 },
             )
-            ScannerFrame(expectedCode, seen, mismatch, onCancel)
+            ScannerFrame(register, expectedCode, seen, mismatch, onCancel)
         } else {
             Column(
                 Modifier.fillMaxSize().padding(32.dp),
@@ -136,7 +158,11 @@ private fun ScannerScreen(expectedCode: String?, onMatch: (String) -> Unit, onCa
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    "Chime needs the camera to read the code that dismisses this alarm.",
+                    if (register) {
+                        "Chime needs the camera to read the code you want to keep."
+                    } else {
+                        "Chime needs the camera to read the code that dismisses this alarm."
+                    },
                     color = Color.White,
                     textAlign = TextAlign.Center,
                 )
@@ -154,6 +180,7 @@ private fun ScannerScreen(expectedCode: String?, onMatch: (String) -> Unit, onCa
 
 @Composable
 private fun ScannerFrame(
+    register: Boolean,
     expectedCode: String?,
     seen: String?,
     mismatch: String?,
@@ -166,17 +193,17 @@ private fun ScannerFrame(
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                "Scan to dismiss",
+                if (register) "Scan the code to keep" else "Scan to dismiss",
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
                 fontSize = 22.sp,
                 modifier = Modifier.padding(top = 40.dp),
             )
             Text(
-                if (expectedCode == null) {
-                    "Any barcode or QR code will do for this alarm."
-                } else {
-                    "This alarm only accepts the code you saved with it."
+                when {
+                    register -> "Point the camera at the barcode or QR code this alarm should accept."
+                    expectedCode == null -> "Any barcode or QR code will do for this alarm."
+                    else -> "This alarm only accepts the code you saved with it."
                 },
                 color = Color(0xFF8FA3BF),
                 fontSize = 13.sp,
@@ -206,18 +233,13 @@ private fun ScannerFrame(
             seen?.takeIf { mismatch == null }?.let {
                 Text("Read: ${it.take(28)}", color = Color(0xFF8FA3BF), fontSize = 12.sp)
             }
-            Text(
-                "Dismiss by hand",
-                color = Color(0xFF6FE3C4),
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .padding(top = 18.dp)
-                    .fillMaxWidth(),
-                textAlign = TextAlign.Center,
-                fontSize = 15.sp,
-            )
             androidx.compose.material3.TextButton(onClick = onCancel) {
-                Text("Back to the alarm", color = Color(0xFF8FA3BF), fontSize = 13.sp)
+                Text(
+                    if (register) "Back without a code" else "Back to the alarm",
+                    color = Color(0xFF6FE3C4),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                )
             }
         }
     }

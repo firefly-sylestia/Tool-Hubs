@@ -1,10 +1,15 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.sylestia.toolhubs.chime
 
 import android.Manifest
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
+import android.app.NotificationManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -16,29 +21,47 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Event
+import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.QrCodeScanner
+import androidx.compose.material.icons.rounded.RecordVoiceOver
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,28 +69,65 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.sylestia.toolhubs.chime.bell.BellVoice
 import com.sylestia.toolhubs.chime.bell.TimeVoice
+import com.sylestia.toolhubs.chime.ring.ScanDismissActivity
 import com.sylestia.toolhubs.chime.schedule.ChimeScheduler
+import com.sylestia.toolhubs.designsystem.ToolHubsTheme
 import com.sylestia.toolhubs.ui.HubBackdrop
+import com.sylestia.toolhubs.ui.HubBottomNav
+import com.sylestia.toolhubs.ui.HubEmptyState
 import com.sylestia.toolhubs.ui.HubGlassCard
+import com.sylestia.toolhubs.ui.HubHeroHeader
+import com.sylestia.toolhubs.ui.HubIconChip
+import com.sylestia.toolhubs.ui.HubNavItem
+import com.sylestia.toolhubs.ui.HubPill
 import com.sylestia.toolhubs.ui.HubPrimaryButton
 import com.sylestia.toolhubs.ui.HubQuietButton
+import com.sylestia.toolhubs.ui.HubReveal
+import com.sylestia.toolhubs.ui.HubSectionTitle
 import com.sylestia.toolhubs.ui.HubSegmented
+import com.sylestia.toolhubs.ui.HubStatTile
+import com.sylestia.toolhubs.ui.HubToggleRow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+
+/*
+ * Chime's home screen.
+ *
+ * Everything here is built from `:core:ui` and painted by `:core:designsystem`, because the first
+ * version used raw Material 3 widgets and looked like a different product standing next to Network
+ * Switcher: grey system bars, letter-instead-of-icon tabs and platform dialogs. The rules this file
+ * follows, in order of how often they were broken:
+ *
+ *  - one theme, no bare `MaterialTheme {}` root;
+ *  - every screen is a header plus a scrolling column of glass cards on the same 18dp gutter;
+ *  - a row that holds a label and a control gives the control a fixed width and the label the
+ *    remaining space, so nothing jitters as the value changes;
+ *  - 12- or 24-hour style is threaded through every string the app renders, including the bell and
+ *    the spoken time.
+ */
 
 class MainActivity : ComponentActivity() {
 
@@ -75,19 +135,19 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         ChimeNotifications.ensureChannels(this)
         setContent {
-            MaterialTheme {
+            ToolHubsTheme {
                 ChimeApp()
             }
         }
     }
 }
 
-private enum class ChimeTab(val label: String) {
-    CLOCK("Clock"),
-    ALARMS("Alarms"),
-    REMINDERS("Reminders"),
-    SETTINGS("Settings"),
-}
+private val ChimeTabs = listOf(
+    HubNavItem(Icons.Rounded.AccessTime, "Clock"),
+    HubNavItem(Icons.Rounded.Alarm, "Alarms"),
+    HubNavItem(Icons.Rounded.NotificationsActive, "Reminders"),
+    HubNavItem(Icons.Rounded.Tune, "Settings"),
+)
 
 @Composable
 private fun ChimeApp() {
@@ -102,7 +162,12 @@ private fun ChimeApp() {
     var settings by remember { mutableStateOf(store.settings()) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    // Re-reads the store whenever something changed, and every second for the clock face.
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { revision++ }
+
+    // Re-reads the store whenever something changed, and every second for the clock face and the
+    // permission rows, which can be changed outside the app while this screen is on top of them.
     LaunchedEffect(revision) {
         alarms = store.alarms()
         reminders = store.reminders()
@@ -110,71 +175,70 @@ private fun ChimeApp() {
         scheduler.refreshNextUp()
     }
     LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= 33 && !ChimeNotifications.canPost(context)) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
         while (true) {
-            delay(1000)
+            delay(1_000)
             now = System.currentTimeMillis()
         }
     }
 
-    val notificationPermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
-
-    LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT >= 33 && !ChimeNotifications.canPost(context)) {
-            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
+    val hour24 = ChimeFormat.use24Hour(context, settings.use24Hour)
+    val refresh = { revision++ }
+    val saveSettings: (ChimeSettings) -> Unit = { changed ->
+        store.saveSettings(changed)
+        scheduler.scheduleNextBell()
+        refresh()
     }
 
     HubBackdrop {
-        Scaffold(
-            containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        androidx.compose.material3.Scaffold(
+            containerColor = Color.Transparent,
+            // Each page adds its own insets, so the scaffold must not add them a second time.
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
-                NavigationBar {
-                    ChimeTab.entries.forEachIndexed { index, entry ->
-                        NavigationBarItem(
-                            selected = tab == index,
-                            onClick = { tab = index },
-                            icon = {
-                                Text(entry.label.take(1), fontWeight = FontWeight.Black)
-                            },
-                            label = { Text(entry.label, fontSize = 10.sp) },
-                        )
-                    }
-                }
+                HubBottomNav(items = ChimeTabs, selectedIndex = tab, onSelect = { tab = it })
             },
         ) { padding ->
-            Column(Modifier.fillMaxSize().padding(padding)) {
-                when (ChimeTab.entries[tab]) {
-                    ChimeTab.CLOCK -> ClockScreen(
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                when (tab) {
+                    0 -> ClockPage(
+                        context = context,
                         settings = settings,
                         now = now,
+                        hour24 = hour24,
                         nextUp = scheduler.nextUp(now),
-                        onSpeakPreview = { millis -> TimeVoice.preview(context, millis) },
-                        onSettings = { changed -> store.saveSettings(changed); revision++ },
+                        onSettings = saveSettings,
+                        onSpeak = { millis -> TimeVoice.preview(context, millis, hour24) },
                     )
 
-                    ChimeTab.ALARMS -> AlarmsScreen(
+                    1 -> AlarmsPage(
                         alarms = alarms,
                         settings = settings,
-                        onChanged = { revision++ },
+                        hour24 = hour24,
                         store = store,
                         scheduler = scheduler,
+                        onChanged = refresh,
                     )
 
-                    ChimeTab.REMINDERS -> RemindersScreen(
+                    2 -> RemindersPage(
                         reminders = reminders,
                         settings = settings,
+                        hour24 = hour24,
                         store = store,
                         scheduler = scheduler,
-                        onChanged = { revision++ },
+                        onChanged = refresh,
                     )
 
-                    ChimeTab.SETTINGS -> SettingsScreen(
+                    else -> SettingsPage(
+                        context = context,
                         settings = settings,
+                        hour24 = hour24,
                         store = store,
                         scheduler = scheduler,
-                        onChanged = { revision++ },
+                        onSettings = saveSettings,
+                        onChanged = refresh,
                     )
                 }
             }
@@ -182,76 +246,105 @@ private fun ChimeApp() {
     }
 }
 
+// ── page 1: the clock ────────────────────────────────────────────────────────────────────────────
+
 @Composable
-private fun ClockScreen(
+private fun ClockPage(
+    context: Context,
     settings: ChimeSettings,
     now: Long,
+    hour24: Boolean,
     nextUp: DueItem?,
-    onSpeakPreview: suspend (Long) -> Unit,
     onSettings: (ChimeSettings) -> Unit,
+    onSpeak: suspend (Long) -> Unit,
 ) {
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
     val zone = remember { ZoneId.systemDefault() }
-    val zoned = ZonedDateTime.ofInstant(Instant.ofEpochMilli(now), zone)
-    val hourNow = zoned.hour
+    var bellSheet by remember { mutableStateOf(false) }
 
-    LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 18.dp),
-    ) {
-        item {
+    val zoned = ZonedDateTime.ofInstant(Instant.ofEpochMilli(now), zone)
+    val quiet = settings.isQuietHour(zoned.hour)
+
+    PageColumn {
+        HubHeroHeader(
+            kicker = "Chime",
+            title = "Clock",
+            subtitle = ChimeFormat.longDate(now) + " · " + (
+                if (quiet) "quiet until ${clockLabel(settings.quietToHour, 0, hour24)}"
+                else "the bell strikes ${ChimeTimes.strikesFor(zoned.hour)} times on the hour"
+                ),
+            icon = Icons.Rounded.AccessTime,
+        )
+
+        HubReveal(0) {
             HubGlassCard(accent = MaterialTheme.colorScheme.tertiary) {
                 Text(
-                    ChimeFormat.clockWithSeconds(now),
-                    fontSize = 52.sp,
+                    ChimeFormat.clockWithSeconds(now, hour24),
+                    fontSize = 54.sp,
                     fontWeight = FontWeight.Black,
+                    maxLines = 1,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
+                Spacer(Modifier.height(4.dp))
                 Text(
                     ChimeFormat.longDate(now),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 14.sp,
                 )
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    if (settings.isQuietHour(hourNow)) {
-                        "Quiet hours: the bell stays silent until ${"%02d:00".format(settings.quietToHour)}."
-                    } else {
-                        "The bell strikes ${ChimeTimes.strikesFor(hourNow)} times at " +
-                            "${(hourNow + 1) % 24}:00."
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp,
-                )
                 Spacer(Modifier.height(14.dp))
-                HubQuietButton(
-                    text = "Speak the time now",
-                    onClick = { scope.launch { onSpeakPreview(now) } },
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    HubStatTile(
+                        label = "Next hour",
+                        value = clockLabel((zoned.hour + 1) % 24, 0, hour24),
+                        accent = MaterialTheme.colorScheme.primary,
+                    )
+                    HubStatTile(
+                        label = "Strikes",
+                        value = if (quiet) "Silent" else ChimeTimes.strikesFor(zoned.hour).toString(),
+                        accent = if (quiet) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    HubQuietButton(
+                        text = "Speak the time",
+                        icon = Icons.Rounded.RecordVoiceOver,
+                        modifier = Modifier.weight(1f),
+                        onClick = { scope.launch { onSpeak(now) } },
+                    )
+                    HubQuietButton(
+                        text = "Test the bell",
+                        icon = Icons.Rounded.MusicNote,
+                        modifier = Modifier.weight(1f),
+                        onClick = { scope.launch { BellVoice.strike(context, 3) } },
+                    )
+                }
             }
         }
 
-        item {
+        HubReveal(1) {
             HubGlassCard {
-                Text("Next up", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                CardHead(Icons.Rounded.Schedule, "Next up")
                 if (nextUp == null) {
                     Text(
-                        "Nothing is scheduled yet. Add an alarm or a reminder.",
+                        "Nothing is scheduled yet. Add an alarm or a reminder and it will appear here.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
-                        modifier = Modifier.padding(top = 6.dp),
+                        modifier = Modifier.padding(top = 8.dp),
                     )
                 } else {
                     Text(
-                        "${nextUp.title} · ${ChimeFormat.clock(nextUp.triggerAt)}",
+                        nextUp.title,
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(top = 6.dp),
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 8.dp),
                     )
                     Text(
-                        "${ChimeTimes.untilLabel(nextUp.triggerAt, now)} · ${nextUp.subtitle}",
+                        "${ChimeFormat.clock(nextUp.triggerAt, hour24)} · " +
+                            "${ChimeTimes.untilLabel(nextUp.triggerAt, now)} · ${nextUp.subtitle}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
                     )
@@ -259,85 +352,163 @@ private fun ClockScreen(
             }
         }
 
-        item {
+        HubReveal(2) {
             HubGlassCard {
-                Text("Pendulum bell", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                CardHead(Icons.Rounded.MusicNote, "The clock itself")
                 Text(
-                    "Strikes the hour as many times as the hour, and stays silent through quiet hours. " +
-                        "Set times rings only when you chose them.",
+                    "The bell and the spoken time are separate switches: strike only, speak only, or " +
+                        "both. The schedule below decides when either happens.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
-                    modifier = Modifier.padding(vertical = 6.dp),
+                    modifier = Modifier.padding(top = 6.dp),
                 )
+                Spacer(Modifier.height(12.dp))
                 HubSegmented(
                     options = listOf("Off", "Every hour", "Set times"),
                     selectedIndex = settings.bellMode.ordinal,
                     onSelect = { index ->
                         val mode = BellMode.entries[index]
-                        onSettings(settings.copy(bellMode = mode))
+                        onSettings(
+                            settings.copy(
+                                bellMode = mode,
+                                // "Set times" with nothing chosen would be silently dead, so the
+                                // first time it is opened it offers a sensible hour to remove.
+                                bellTimes = if (mode == BellMode.SET_TIMES && settings.bellTimes.isEmpty()) {
+                                    listOf(8 * 60)
+                                } else {
+                                    settings.bellTimes
+                                },
+                            )
+                        )
                     },
                 )
-                Spacer(Modifier.height(10.dp))
-                BellTimesRow(settings, onSettings)
-            }
-        }
-    }
-}
-
-@Composable
-private fun BellTimesRow(settings: ChimeSettings, onSettings: (ChimeSettings) -> Unit) {
-    val context = LocalContext.current
-    Column {
-        Text(
-            if (settings.bellTimes.isEmpty()) {
-                "No set times yet."
-            } else {
-                "Rings at " + settings.bellTimes.sorted().joinToString(", ") { ChimeTimes.minuteLabel(it) }
-            },
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 12.sp,
-        )
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            HubQuietButton(
-                text = "Add a time",
-                modifier = Modifier.weight(1f),
-                onClick = {
-                    TimePickerDialog(
-                        context,
-                        { _, hour, minute ->
-                            onSettings(
-                                settings.copy(
-                                    bellMode = if (settings.bellMode == BellMode.OFF) {
-                                        BellMode.SET_TIMES
-                                    } else {
-                                        settings.bellMode
-                                    },
-                                    bellTimes = (settings.bellTimes + hour * 60 + minute).distinct().sorted(),
-                                )
-                            )
-                        },
-                        8,
-                        0,
-                        true,
-                    ).show()
-                },
-            )
-            if (settings.bellTimes.isNotEmpty()) {
-                HubQuietButton(
-                    text = "Clear",
-                    modifier = Modifier.weight(1f),
-                    onClick = { onSettings(settings.copy(bellTimes = emptyList())) },
+                Spacer(Modifier.height(6.dp))
+                HubToggleRow(
+                    title = "Strike the bell",
+                    subtitle = "A pendulum strike for each hour, or a single chime at a set time.",
+                    checked = settings.bellEnabled,
+                    onCheckedChange = { onSettings(settings.copy(bellEnabled = it)) },
                 )
+                HubToggleRow(
+                    title = "Speak the time",
+                    subtitle = "Says the time out loud, in words rather than digits.",
+                    checked = settings.speakTime,
+                    onCheckedChange = { onSettings(settings.copy(speakTime = it)) },
+                )
+                if (!settings.bellEnabled && !settings.speakTime) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Both are off, so the clock is silent whatever the schedule says.",
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 12.sp,
+                    )
+                }
+                if (settings.bellMode == BellMode.SET_TIMES) {
+                    Spacer(Modifier.height(12.dp))
+                    HubSectionTitle("Rings at")
+                    Spacer(Modifier.height(8.dp))
+                    if (settings.bellTimes.isEmpty()) {
+                        Text(
+                            "No times yet.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                        )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            settings.bellTimes.sorted().forEach { minuteOfDay ->
+                                BellTimeRow(
+                                    label = clockLabel(minuteOfDay / 60, minuteOfDay % 60, hour24),
+                                    onRemove = {
+                                        onSettings(settings.copy(bellTimes = settings.bellTimes - minuteOfDay))
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        HubQuietButton(
+                            text = "Add a time",
+                            icon = Icons.Rounded.Add,
+                            modifier = Modifier.weight(1f),
+                            onClick = { bellSheet = true },
+                        )
+                        if (settings.bellTimes.isNotEmpty()) {
+                            HubQuietButton(
+                                text = "Clear all",
+                                icon = Icons.Rounded.Delete,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSettings(settings.copy(bellTimes = emptyList())) },
+                            )
+                        }
+                    }
+                }
             }
         }
+    }
+
+    if (bellSheet) {
+        ChimeTimeSheet(
+            title = "Add a ring time",
+            initialHour = 8,
+            initialMinute = 0,
+            hour24 = hour24,
+            onDismiss = { bellSheet = false },
+            onConfirm = { hour, minute ->
+                val entry = hour * 60 + minute
+                onSettings(
+                    settings.copy(
+                        bellTimes = (settings.bellTimes + entry).distinct().sorted(),
+                        bellMode = if (settings.bellMode == BellMode.OFF) BellMode.SET_TIMES else settings.bellMode,
+                    )
+                )
+                bellSheet = false
+            },
+        )
     }
 }
 
 @Composable
-private fun AlarmsScreen(
+private fun BellTimeRow(label: String, onRemove: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Rounded.MusicNote,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.tertiary,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            label,
+            Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp,
+        )
+        Text(
+            "Remove",
+            color = MaterialTheme.colorScheme.primary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.clickable(onClick = onRemove).padding(4.dp),
+        )
+    }
+}
+
+// ── page 2: alarms ───────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun AlarmsPage(
     alarms: List<AlarmItem>,
     settings: ChimeSettings,
+    hour24: Boolean,
     store: ChimeStore,
     scheduler: ChimeScheduler,
     onChanged: () -> Unit,
@@ -345,60 +516,69 @@ private fun AlarmsScreen(
     var editing by remember { mutableStateOf<AlarmItem?>(null) }
     var creating by remember { mutableStateOf(false) }
 
-    Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            Modifier.fillMaxSize().padding(horizontal = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 18.dp),
-        ) {
-            item {
+    PageColumn {
+        HubHeroHeader(
+            kicker = "Chime",
+            title = "Alarms",
+            subtitle = when (alarms.count { it.enabled }) {
+                0 -> "Nothing armed. Add one and it wakes the screen itself."
+                1 -> "One alarm armed."
+                else -> "${alarms.count { it.enabled }} alarms armed."
+            },
+            icon = Icons.Rounded.Alarm,
+        )
+
+        if (alarms.isEmpty()) {
+            HubReveal(0) {
                 HubGlassCard {
-                    Text("Alarms", fontWeight = FontWeight.Black, fontSize = 22.sp)
-                    Text(
-                        "Dismiss with a button, a shake streak or a scanned code.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
+                    HubEmptyState(
+                        title = "No alarms yet",
+                        message = "An alarm rings full screen and can be answered with a button, a " +
+                            "shake or a scannable code.",
+                        icon = Icons.Rounded.Alarm,
                     )
                 }
             }
-            items(alarms, key = { it.id }) { alarm ->
+        }
+
+        alarms.forEachIndexed { index, alarm ->
+            HubReveal(index + 1) {
                 HubGlassCard(
                     accent = if (alarm.enabled) MaterialTheme.colorScheme.tertiary else null,
+                    contentPadding = 16.dp,
                     onClick = { editing = alarm },
                 ) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(
-                                alarm.timeLabel(),
-                                fontSize = 32.sp,
+                                alarm.timeLabel(hour24),
+                                fontSize = 34.sp,
                                 fontWeight = FontWeight.Black,
+                                maxLines = 1,
                                 color = if (alarm.enabled) {
                                     MaterialTheme.colorScheme.onSurface
                                 } else {
                                     MaterialTheme.colorScheme.onSurfaceVariant
                                 },
                             )
-                            Text(
-                                listOfNotNull(
-                                    alarm.label.takeIf { it.isNotBlank() },
-                                    alarm.dayLabel(),
-                                    dismissLabel(alarm.dismissMode),
-                                ).joinToString(" · "),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp,
-                            )
-                            val next = scheduler.nextAlarmTrigger(alarm)
-                            if (alarm.enabled && next != null) {
+                            if (alarm.label.isNotBlank()) {
                                 Text(
-                                    "Next ${ChimeFormat.longDate(next)} ${ChimeFormat.clock(next)}",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 11.sp,
+                                    alarm.label,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                HubPill(alarm.dayLabel(), active = alarm.enabled)
+                                HubPill(dismissLabel(alarm.dismissMode, alarm.scanCode), active = false)
+                                HubPill("${alarm.snoozeMinutes}m snooze", active = false)
+                            }
                         }
+                        Spacer(Modifier.width(12.dp))
                         Switch(
                             checked = alarm.enabled,
                             onCheckedChange = { on ->
@@ -407,590 +587,1074 @@ private fun AlarmsScreen(
                                 else scheduler.cancel(DueItem.Kind.ALARM, alarm.id)
                                 onChanged()
                             },
+                            colors = hubSwitchColors(),
                         )
+                    }
+                    val next = scheduler.nextAlarmTrigger(alarm)
+                    if (alarm.enabled && next != null) {
+                        Spacer(Modifier.height(10.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Rounded.Schedule,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(14.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "Next ${ChimeFormat.longDate(next)} at ${ChimeFormat.clock(next, hour24)}",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp,
+                            )
+                        }
                     }
                 }
             }
-            item {
-                HubPrimaryButton(
-                    text = "Add an alarm",
-                    icon = Icons.Rounded.Add,
-                    onClick = { creating = true },
-                )
-            }
         }
 
-        if (creating || editing != null) {
-            AlarmEditor(
-                initial = editing,
-                settings = settings,
-                onDismiss = { creating = false; editing = null },
-                onSave = { item ->
-                    store.saveAlarm(item)
-                    scheduler.scheduleAlarm(item)
-                    creating = false
-                    editing = null
-                    onChanged()
-                },
-                onDelete = { item ->
-                    store.deleteAlarm(item.id)
-                    scheduler.cancel(DueItem.Kind.ALARM, item.id)
-                    editing = null
-                    onChanged()
-                },
+        HubReveal(alarms.size + 1) {
+            HubPrimaryButton(
+                text = "Add an alarm",
+                icon = Icons.Rounded.Add,
+                onClick = { creating = true },
             )
         }
     }
-}
 
-private fun dismissLabel(mode: DismissMode): String = when (mode) {
-    DismissMode.BUTTON -> "Button"
-    DismissMode.SHAKE -> "Shake"
-    DismissMode.SCAN -> "Scan"
-    DismissMode.SHAKE_OR_SCAN -> "Shake or scan"
+    if (creating || editing != null) {
+        AlarmEditor(
+            initial = editing,
+            settings = settings,
+            hour24 = hour24,
+            onDismiss = { creating = false; editing = null },
+            onSave = { item ->
+                store.saveAlarm(item)
+                scheduler.scheduleAlarm(item)
+                creating = false
+                editing = null
+                onChanged()
+            },
+            onDelete = { item ->
+                store.deleteAlarm(item.id)
+                scheduler.cancel(DueItem.Kind.ALARM, item.id)
+                editing = null
+                onChanged()
+            },
+        )
+    }
 }
 
 @Composable
 private fun AlarmEditor(
     initial: AlarmItem?,
     settings: ChimeSettings,
+    hour24: Boolean,
     onDismiss: () -> Unit,
     onSave: (AlarmItem) -> Unit,
     onDelete: (AlarmItem) -> Unit,
 ) {
-    val context = LocalContext.current
     var hour by remember { mutableIntStateOf(initial?.hour ?: 7) }
     var minute by remember { mutableIntStateOf(initial?.minute ?: 0) }
     var label by remember { mutableStateOf(initial?.label ?: "") }
     var days by remember { mutableStateOf(initial?.days ?: emptySet<Int>()) }
     var mode by remember { mutableIntStateOf((initial?.dismissMode ?: settings.defaultDismissMode).ordinal) }
-    var scanCode by remember { mutableStateOf(initial?.scanCode ?: "") }
+    var scanCode by remember { mutableStateOf(initial?.scanCode) }
     var vibrate by remember { mutableStateOf(initial?.vibrate ?: true) }
     var snooze by remember { mutableIntStateOf(initial?.snoozeMinutes ?: settings.defaultSnoozeMinutes) }
+    var timeSheet by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "New alarm" else "Edit alarm") },
-        confirmButton = {
-            TextButton(onClick = {
+    val needsScan = DismissMode.entries[mode] == DismissMode.SCAN ||
+        DismissMode.entries[mode] == DismissMode.SHAKE_OR_SCAN
+
+    val scanLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val scanned = result.data?.getStringExtra(ScanDismissActivity.EXTRA_SCANNED)
+        if (result.resultCode == android.app.Activity.RESULT_OK && !scanned.isNullOrBlank()) {
+            scanCode = scanned
+        }
+    }
+
+    EditorSheet(
+        title = if (initial == null) "New alarm" else "Edit alarm",
+        onDismiss = onDismiss,
+    ) {
+        TimeRow(
+            label = "Time",
+            value = clockLabel(hour, minute, hour24),
+            onClick = { timeSheet = true },
+        )
+        Spacer(Modifier.height(12.dp))
+        HubField(value = label, onValueChange = { label = it }, label = "Label (optional)")
+        Spacer(Modifier.height(16.dp))
+        HubSectionTitle("Repeat")
+        Spacer(Modifier.height(8.dp))
+        DayStrip(days = days, onToggle = { value -> days = if (value in days) days - value else days + value })
+        Spacer(Modifier.height(8.dp))
+        Text(
+            alarmRepeatSummary(days),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+        )
+        Spacer(Modifier.height(16.dp))
+        HubSectionTitle("Dismiss with")
+        Spacer(Modifier.height(8.dp))
+        HubSegmented(
+            options = listOf("Button", "Shake", "Scan", "Either"),
+            selectedIndex = mode,
+            onSelect = { mode = it },
+        )
+        if (needsScan) {
+            Spacer(Modifier.height(12.dp))
+            ScanCodeCard(
+                code = scanCode,
+                onScan = { scanLauncher.launch(ScanDismissActivity.registerIntent(context)) },
+                onClear = { scanCode = null },
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+        HubToggleRow(
+            title = "Vibrate",
+            subtitle = "Pulses in step with the ringing, on top of the sound.",
+            checked = vibrate,
+            onCheckedChange = { vibrate = it },
+        )
+        StepperRow(
+            title = "Snooze length",
+            value = "$snooze min",
+            onMinus = { snooze = (snooze - 1).coerceAtLeast(1) },
+            onPlus = { snooze = (snooze + 1).coerceAtMost(60) },
+        )
+        Spacer(Modifier.height(18.dp))
+        HubPrimaryButton(
+            text = if (initial == null) "Add the alarm" else "Save changes",
+            icon = Icons.Rounded.Alarm,
+            onClick = {
                 onSave(
                     AlarmItem(
                         id = initial?.id ?: System.currentTimeMillis(),
                         hour = hour,
                         minute = minute,
-                        label = label,
+                        label = label.trim(),
                         days = days,
                         enabled = true,
                         dismissMode = DismissMode.entries[mode],
-                        scanCode = scanCode.ifBlank { null },
+                        scanCode = if (needsScan) scanCode else null,
                         snoozeMinutes = snooze,
                         vibrate = vibrate,
                     )
                 )
-            }) { Text("Save") }
-        },
-        dismissButton = {
-            Row {
-                if (initial != null) {
-                    TextButton(onClick = { onDelete(initial) }) { Text("Delete") }
-                }
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-            }
-        },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("%02d:%02d".format(hour, minute), fontSize = 34.sp, fontWeight = FontWeight.Black)
-                    HubQuietButton(
-                        text = "Change",
-                        onClick = {
-                            TimePickerDialog(context, { _, h, m -> hour = h; minute = m }, hour, minute, true).show()
-                        },
-                    )
-                }
-                OutlinedTextField(
-                    value = label,
-                    onValueChange = { label = it },
-                    label = { Text("Label") },
-                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                )
-                Spacer(Modifier.height(10.dp))
-                Text("Repeat", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    DayOfWeek.entries.forEach { day ->
-                        val active = day.value in days
-                        Box(
-                            Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (active) {
-                                        MaterialTheme.colorScheme.tertiary
-                                    } else {
-                                        MaterialTheme.colorScheme.surfaceContainerHigh
-                                    }
-                                )
-                                .clickable {
-                                    days = if (active) days - day.value else days + day.value
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                day.name.take(1),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (active) {
-                                    MaterialTheme.colorScheme.onTertiary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
-                        }
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                Text("Dismiss with", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                HubSegmented(
-                    options = listOf("Button", "Shake", "Scan", "Either"),
-                    selectedIndex = mode,
-                    onSelect = { mode = it },
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-                if (DismissMode.entries[mode] == DismissMode.SCAN || DismissMode.entries[mode] == DismissMode.SHAKE_OR_SCAN) {
-                    OutlinedTextField(
-                        value = scanCode,
-                        onValueChange = { scanCode = it },
-                        label = { Text("Code to accept (blank accepts any)") },
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Vibrate", modifier = Modifier.weight(1f), fontSize = 14.sp)
-                    Switch(checked = vibrate, onCheckedChange = { vibrate = it })
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Snooze ${snooze} min", modifier = Modifier.weight(1f), fontSize = 14.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        HubQuietButton(text = "−", onClick = { snooze = (snooze - 1).coerceAtLeast(1) })
-                        HubQuietButton(text = "+", onClick = { snooze = (snooze + 1).coerceAtMost(60) })
-                    }
-                }
-            }
-        },
-    )
+            },
+        )
+        if (initial != null) {
+            Spacer(Modifier.height(10.dp))
+            HubQuietButton(
+                text = "Delete this alarm",
+                icon = Icons.Rounded.Delete,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { onDelete(initial) },
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+
+    if (timeSheet) {
+        ChimeTimeSheet(
+            title = "Alarm time",
+            initialHour = hour,
+            initialMinute = minute,
+            hour24 = hour24,
+            onDismiss = { timeSheet = false },
+            onConfirm = { h, m -> hour = h; minute = m; timeSheet = false },
+        )
+    }
 }
 
+/**
+ * The code that has to be scanned before the alarm gives up.
+ *
+ * It is captured by pointing the camera at the sticker, not by typing its text on a phone held in
+ * the same hand as the alarm: registering the code from memory is what produced codes nobody could
+ * reproduce at 06:30, and the scanned value is what the alarm compares against later.
+ */
 @Composable
-private fun RemindersScreen(
+private fun ScanCodeCard(code: String?, onScan: () -> Unit, onClear: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(16.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Rounded.QrCodeScanner,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                if (code == null) "Any code will do" else "Locked to one code",
+                Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+            )
+        }
+        Text(
+            if (code == null) {
+                "Point the camera at a barcode or QR code and it becomes the one this alarm accepts."
+            } else {
+                "Read: $code"
+            },
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            HubQuietButton(
+                text = if (code == null) "Scan a code" else "Scan again",
+                icon = Icons.Rounded.CameraAlt,
+                modifier = Modifier.weight(1f),
+                onClick = onScan,
+            )
+            if (code != null) {
+                HubQuietButton(
+                    text = "Accept any",
+                    modifier = Modifier.weight(1f),
+                    onClick = onClear,
+                )
+            }
+        }
+    }
+}
+
+// ── page 3: reminders ────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun RemindersPage(
     reminders: List<ReminderItem>,
     settings: ChimeSettings,
+    hour24: Boolean,
     store: ChimeStore,
     scheduler: ChimeScheduler,
     onChanged: () -> Unit,
 ) {
+    var editing by remember { mutableStateOf<ReminderItem?>(null) }
     var creating by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
-    Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            Modifier.fillMaxSize().padding(horizontal = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 18.dp),
-        ) {
-            item {
-                HubGlassCard {
-                    Text("Reminders", fontWeight = FontWeight.Black, fontSize = 22.sp)
-                    Text(
-                        "A reminder takes over the screen when it arrives, exactly like an alarm, " +
-                            "but it can be answered without getting up.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
-                    )
-                }
-            }
-            if (reminders.isEmpty()) {
-                item {
-                    HubGlassCard {
-                        Text(
-                            "Nothing here yet.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 13.sp,
-                        )
-                    }
-                }
-            }
-            items(reminders, key = { it.id }) { reminder ->
-                HubGlassCard(accent = if (reminder.enabled) MaterialTheme.colorScheme.primary else null) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                reminder.title,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 17.sp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                "${reminder.repeatLabel()} · " +
-                                    "${ChimeFormat.longDate(reminder.atMillis)} " +
-                                    ChimeFormat.clock(reminder.atMillis) +
-                                    " · ${dismissLabel(reminder.dismissMode)}",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp,
-                            )
-                            if (reminder.note.isNotBlank()) {
-                                Text(
-                                    reminder.note,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 12.sp,
-                                )
-                            }
-                        }
-                        Switch(
-                            checked = reminder.enabled,
-                            onCheckedChange = { on ->
-                                store.setReminderEnabled(reminder.id, on)
-                                if (on) {
-                                    scheduler.scheduleReminder(reminder.copy(enabled = true))
-                                } else {
-                                    scheduler.cancel(DueItem.Kind.REMINDER, reminder.id)
-                                }
-                                onChanged()
-                            },
-                        )
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    HubQuietButton(
-                        text = "Delete",
-                        onClick = {
-                            store.deleteReminder(reminder.id)
-                            scheduler.cancel(DueItem.Kind.REMINDER, reminder.id)
-                            onChanged()
-                        },
-                    )
-                }
-            }
-            item {
-                HubPrimaryButton(
-                    text = "Add a reminder",
-                    icon = Icons.Rounded.Add,
-                    onClick = { creating = true },
+    PageColumn {
+        HubHeroHeader(
+            kicker = "Chime",
+            title = "Reminders",
+            subtitle = if (canUseFullScreen(context)) {
+                "A reminder takes over the screen exactly like an alarm, whenever it arrives."
+            } else {
+                "Full-screen alerts are switched off, so a reminder arrives as a banner for now."
+            },
+            icon = Icons.Rounded.NotificationsActive,
+        )
+
+        if (!canUseFullScreen(context)) {
+            HubReveal(0) {
+                PermissionCard(
+                    icon = Icons.Rounded.Fullscreen,
+                    title = "Reminders can't take the screen yet",
+                    message = "Android is holding back full-screen alerts for Chime, so a reminder " +
+                        "shows up as a banner. Allowing it makes a reminder behave like an alarm.",
+                    actionLabel = "Allow full-screen alerts",
+                    onAction = { openFullScreenSettings(context) },
                 )
             }
         }
 
-        if (creating) {
-            ReminderEditor(
-                settings = settings,
-                onDismiss = { creating = false },
-                onSave = { item ->
-                    store.saveReminder(item)
-                    scheduler.scheduleReminder(item)
-                    creating = false
-                    onChanged()
-                },
+        if (reminders.isEmpty()) {
+            HubReveal(1) {
+                HubGlassCard {
+                    HubEmptyState(
+                        title = "No reminders yet",
+                        message = "A reminder is a one-off or repeating nudge that needs an answer, " +
+                            "not a nap.",
+                        icon = Icons.Rounded.NotificationsActive,
+                    )
+                }
+            }
+        }
+
+        reminders.forEachIndexed { index, reminder ->
+            HubReveal(index + 2) {
+                HubGlassCard(
+                    accent = if (reminder.enabled) MaterialTheme.colorScheme.primary else null,
+                    contentPadding = 16.dp,
+                    onClick = { editing = reminder },
+                ) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                reminder.title,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 18.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                "${ChimeFormat.longDate(reminder.atMillis)} · " +
+                                    ChimeFormat.clock(reminder.atMillis, hour24),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                HubPill(reminder.repeatLabel(), active = reminder.enabled)
+                                HubPill(dismissLabel(reminder.dismissMode, reminder.scanCode), active = false)
+                            }
+                            if (reminder.note.isNotBlank()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    reminder.note,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 12.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Switch(
+                            checked = reminder.enabled,
+                            onCheckedChange = { on ->
+                                store.setReminderEnabled(reminder.id, on)
+                                if (on) scheduler.scheduleReminder(reminder.copy(enabled = true))
+                                else scheduler.cancel(DueItem.Kind.REMINDER, reminder.id)
+                                onChanged()
+                            },
+                            colors = hubSwitchColors(),
+                        )
+                    }
+                }
+            }
+        }
+
+        HubReveal(reminders.size + 2) {
+            HubPrimaryButton(
+                text = "Add a reminder",
+                icon = Icons.Rounded.Add,
+                onClick = { creating = true },
             )
         }
+    }
+
+    if (creating || editing != null) {
+        ReminderEditor(
+            initial = editing,
+            settings = settings,
+            hour24 = hour24,
+            onDismiss = { creating = false; editing = null },
+            onSave = { item ->
+                store.saveReminder(item)
+                scheduler.scheduleReminder(item)
+                creating = false
+                editing = null
+                onChanged()
+            },
+            onDelete = { item ->
+                store.deleteReminder(item.id)
+                scheduler.cancel(DueItem.Kind.REMINDER, item.id)
+                editing = null
+                onChanged()
+            },
+        )
     }
 }
 
 @Composable
 private fun ReminderEditor(
+    initial: ReminderItem?,
     settings: ChimeSettings,
+    hour24: Boolean,
     onDismiss: () -> Unit,
     onSave: (ReminderItem) -> Unit,
+    onDelete: (ReminderItem) -> Unit,
 ) {
-    val context = LocalContext.current
-    var title by remember { mutableStateOf("") }
-    var note by remember { mutableStateOf("") }
-    var atMillis by remember { mutableLongStateOf(System.currentTimeMillis() + 60 * 60_000L) }
-    var repeatIndex by remember { mutableIntStateOf(0) }
-    var modeIndex by remember { mutableIntStateOf(settings.defaultDismissMode.ordinal) }
+    val zone = remember { ZoneId.systemDefault() }
+    var title by remember { mutableStateOf(initial?.title ?: "") }
+    var note by remember { mutableStateOf(initial?.note ?: "") }
+    var atMillis by remember {
+        mutableLongStateOf(initial?.atMillis ?: (System.currentTimeMillis() + 60 * 60_000L))
+    }
+    var repeatIndex by remember { mutableIntStateOf((initial?.repeat ?: RepeatRule.ONCE).ordinal) }
+    var modeIndex by remember {
+        mutableIntStateOf((initial?.dismissMode ?: settings.defaultDismissMode).ordinal)
+    }
+    var dateSheet by remember { mutableStateOf(false) }
+    var timeSheet by remember { mutableStateOf(false) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("New reminder") },
-        confirmButton = {
-            TextButton(onClick = {
+    val moment = ZonedDateTime.ofInstant(Instant.ofEpochMilli(atMillis), zone)
+    val needsScan = DismissMode.entries[modeIndex] == DismissMode.SCAN ||
+        DismissMode.entries[modeIndex] == DismissMode.SHAKE_OR_SCAN
+
+    EditorSheet(
+        title = if (initial == null) "New reminder" else "Edit reminder",
+        onDismiss = onDismiss,
+    ) {
+        HubField(value = title, onValueChange = { title = it }, label = "What is it for?")
+        Spacer(Modifier.height(10.dp))
+        HubField(value = note, onValueChange = { note = it }, label = "Note (optional)")
+        Spacer(Modifier.height(16.dp))
+        HubSectionTitle("When")
+        Spacer(Modifier.height(8.dp))
+        TimeRow(
+            label = "Date",
+            value = moment.format(DateTimeFormatter.ofPattern("EEE d MMM yyyy", Locale.getDefault())),
+            onClick = { dateSheet = true },
+        )
+        Spacer(Modifier.height(8.dp))
+        TimeRow(
+            label = "Time",
+            value = clockLabel(moment.hour, moment.minute, hour24),
+            onClick = { timeSheet = true },
+        )
+        Spacer(Modifier.height(16.dp))
+        HubSectionTitle("Repeat")
+        Spacer(Modifier.height(8.dp))
+        HubSegmented(
+            options = listOf("Once", "Daily", "Weekly"),
+            selectedIndex = repeatIndex,
+            onSelect = { repeatIndex = it },
+        )
+        Spacer(Modifier.height(16.dp))
+        HubSectionTitle("Dismiss with")
+        Spacer(Modifier.height(8.dp))
+        HubSegmented(
+            options = listOf("Button", "Shake", "Scan", "Either"),
+            selectedIndex = modeIndex,
+            onSelect = { modeIndex = it },
+        )
+        Spacer(Modifier.height(18.dp))
+        HubPrimaryButton(
+            text = if (initial == null) "Add the reminder" else "Save changes",
+            icon = Icons.Rounded.Check,
+            onClick = {
                 onSave(
                     ReminderItem(
-                        id = System.currentTimeMillis(),
-                        title = title.ifBlank { "Reminder" },
-                        note = note,
+                        id = initial?.id ?: System.currentTimeMillis(),
+                        title = title.trim().ifBlank { "Reminder" },
+                        note = note.trim(),
                         atMillis = atMillis,
                         repeat = RepeatRule.entries[repeatIndex],
                         enabled = true,
                         dismissMode = DismissMode.entries[modeIndex],
-                        scanCode = null,
-                        snoozeMinutes = settings.defaultSnoozeMinutes,
+                        scanCode = if (needsScan) initial?.scanCode else null,
+                        snoozeMinutes = initial?.snoozeMinutes ?: settings.defaultSnoozeMinutes,
                     )
                 )
-            }) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("What is it for?") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = { note = it },
-                    label = { Text("Note") },
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                )
-                Spacer(Modifier.height(10.dp))
+            },
+        )
+        if (initial != null) {
+            Spacer(Modifier.height(10.dp))
+            HubQuietButton(
+                text = "Delete this reminder",
+                icon = Icons.Rounded.Delete,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { onDelete(initial) },
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+
+    if (dateSheet) {
+        ChimeDateSheet(
+            title = "Reminder date",
+            initial = moment.toLocalDate(),
+            onDismiss = { dateSheet = false },
+            onConfirm = { date -> atMillis = withDate(atMillis, date, zone); dateSheet = false },
+        )
+    }
+    if (timeSheet) {
+        ChimeTimeSheet(
+            title = "Reminder time",
+            initialHour = moment.hour,
+            initialMinute = moment.minute,
+            hour24 = hour24,
+            onDismiss = { timeSheet = false },
+            onConfirm = { hour, minute -> atMillis = withTime(atMillis, hour, minute, zone); timeSheet = false },
+        )
+    }
+}
+
+/** Keeps the date's own zone: converting through UTC here is how a reminder lands a day early. */
+private fun withDate(millis: Long, date: LocalDate, zone: ZoneId): Long {
+    val current = ZonedDateTime.ofInstant(Instant.ofEpochMilli(millis), zone)
+    return date.atTime(current.toLocalTime()).atZone(zone).toInstant().toEpochMilli()
+}
+
+private fun withTime(millis: Long, hour: Int, minute: Int, zone: ZoneId): Long =
+    ZonedDateTime.ofInstant(Instant.ofEpochMilli(millis), zone)
+        .withHour(hour)
+        .withMinute(minute)
+        .withSecond(0)
+        .withNano(0)
+        .toInstant()
+        .toEpochMilli()
+
+// ── page 4: settings ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun SettingsPage(
+    context: Context,
+    settings: ChimeSettings,
+    hour24: Boolean,
+    store: ChimeStore,
+    scheduler: ChimeScheduler,
+    onSettings: (ChimeSettings) -> Unit,
+    onChanged: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val notifications = ChimeNotifications.canPost(context)
+    val fullScreen = canUseFullScreen(context)
+    val camera = androidx.core.content.ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.CAMERA,
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    val exact = scheduler.canScheduleExact()
+
+    var quietFrom by remember { mutableStateOf(false) }
+    var quietTo by remember { mutableStateOf(false) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { onChanged() }
+
+    PageColumn {
+        HubHeroHeader(
+            kicker = "Chime",
+            title = "Settings",
+            subtitle = "Clock style, the bell and the spoken time, and the permissions Chime needs.",
+            icon = Icons.Rounded.Tune,
+        )
+
+        HubReveal(0) {
+            HubGlassCard {
+                CardHead(Icons.Rounded.AccessTime, "Clock style")
                 Text(
-                    "${ChimeFormat.longDate(atMillis)} · ${ChimeFormat.clock(atMillis)}",
-                    fontWeight = FontWeight.Bold,
+                    "Applies to the clock face, every alarm and reminder, and the spoken time.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 6.dp),
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                    HubQuietButton(text = "Pick date", onClick = {
-                        val zone = ZoneId.systemDefault()
-                        val current = ZonedDateTime.ofInstant(Instant.ofEpochMilli(atMillis), zone)
-                        DatePickerDialog(
-                            context,
-                            { _, year, month, day ->
-                                atMillis = current
-                                    .withYear(year)
-                                    .withMonth(month + 1)
-                                    .withDayOfMonth(day)
-                                    .toInstant()
-                                    .toEpochMilli()
-                            },
-                            current.year,
-                            current.monthValue - 1,
-                            current.dayOfMonth,
-                        ).show()
-                    })
-                    HubQuietButton(text = "Pick time", onClick = {
-                        val zone = ZoneId.systemDefault()
-                        val current = ZonedDateTime.ofInstant(Instant.ofEpochMilli(atMillis), zone)
-                        TimePickerDialog(
-                            context,
-                            { _, hour, minute ->
-                                atMillis = current
-                                    .withHour(hour)
-                                    .withMinute(minute)
-                                    .withSecond(0)
-                                    .toInstant()
-                                    .toEpochMilli()
-                            },
-                            current.hour,
-                            current.minute,
-                            true,
-                        ).show()
-                    })
-                }
                 Spacer(Modifier.height(12.dp))
-                Text("Repeat", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 HubSegmented(
-                    options = listOf("Once", "Daily", "Weekly"),
-                    selectedIndex = repeatIndex,
-                    onSelect = { repeatIndex = it },
+                    options = listOf("System", "12-hour", "24-hour"),
+                    selectedIndex = when (settings.use24Hour) {
+                        null -> 0
+                        false -> 1
+                        true -> 2
+                    },
+                    onSelect = { index ->
+                        onSettings(
+                            settings.copy(
+                                use24Hour = when (index) {
+                                    0 -> null
+                                    1 -> false
+                                    else -> true
+                                }
+                            )
+                        )
+                    },
                 )
-                Spacer(Modifier.height(10.dp))
-                Text("Dismiss with", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                HubSegmented(
-                    options = listOf("Button", "Shake", "Scan", "Either"),
-                    selectedIndex = modeIndex,
-                    onSelect = { modeIndex = it },
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Currently showing ${if (hour24) "24-hour" else "12-hour"} times.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
                 )
             }
-        },
-    )
+        }
+
+        HubReveal(1) {
+            HubGlassCard {
+                CardHead(Icons.Rounded.MusicNote, "Bell and voice")
+                HubToggleRow(
+                    title = "Strike the bell",
+                    subtitle = "A synthesized pendulum strike, not a recording.",
+                    checked = settings.bellEnabled,
+                    onCheckedChange = { onSettings(settings.copy(bellEnabled = it)) },
+                )
+                HubToggleRow(
+                    title = "Speak the time",
+                    subtitle = "Says the time in words, following the clock style above.",
+                    checked = settings.speakTime,
+                    onCheckedChange = { onSettings(settings.copy(speakTime = it)) },
+                )
+                Spacer(Modifier.height(12.dp))
+                HubSectionTitle("Quiet hours")
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Inside this window the bell stays silent and the time is not spoken, so an " +
+                        "hourly clock cannot wake anyone up.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                )
+                Spacer(Modifier.height(6.dp))
+                HubToggleRow(
+                    title = "Enabled",
+                    checked = settings.quietHoursEnabled,
+                    onCheckedChange = { onSettings(settings.copy(quietHoursEnabled = it)) },
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    HubQuietButton(
+                        text = "From ${clockLabel(settings.quietFromHour, 0, hour24)}",
+                        modifier = Modifier.weight(1f),
+                        onClick = { quietFrom = true },
+                    )
+                    HubQuietButton(
+                        text = "To ${clockLabel(settings.quietToHour, 0, hour24)}",
+                        modifier = Modifier.weight(1f),
+                        onClick = { quietTo = true },
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+                HubQuietButton(
+                    text = "Test what is switched on",
+                    icon = Icons.Rounded.GraphicEq,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        scope.launch {
+                            if (settings.bellEnabled) {
+                                BellVoice.strike(context, ChimeTimes.strikesFor(LocalTime.now().hour))
+                            }
+                            if (settings.speakTime) {
+                                TimeVoice.preview(context, System.currentTimeMillis(), hour24)
+                            }
+                        }
+                    },
+                )
+                if (!settings.bellEnabled && !settings.speakTime) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Both switches are off, so the test is silent.",
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+        }
+
+        HubReveal(2) {
+            HubGlassCard {
+                CardHead(Icons.Rounded.Bolt, "Ringing")
+                HubSliderRow(
+                    title = "Volume ramp",
+                    valueLabel = "${settings.rampSeconds}s",
+                    value = settings.rampSeconds.toFloat(),
+                    range = 0f..120f,
+                    steps = 23,
+                    onValueChange = { onSettings(settings.copy(rampSeconds = it.toInt())) },
+                )
+                StepperRow(
+                    title = "Stop ringing after",
+                    value = "${settings.ringTimeoutMinutes} min",
+                    onMinus = {
+                        onSettings(settings.copy(ringTimeoutMinutes = (settings.ringTimeoutMinutes - 1).coerceAtLeast(1)))
+                    },
+                    onPlus = {
+                        onSettings(settings.copy(ringTimeoutMinutes = (settings.ringTimeoutMinutes + 1).coerceAtMost(60)))
+                    },
+                )
+                StepperRow(
+                    title = "Default snooze",
+                    value = "${settings.defaultSnoozeMinutes} min",
+                    onMinus = {
+                        onSettings(settings.copy(defaultSnoozeMinutes = (settings.defaultSnoozeMinutes - 1).coerceAtLeast(1)))
+                    },
+                    onPlus = {
+                        onSettings(settings.copy(defaultSnoozeMinutes = (settings.defaultSnoozeMinutes + 1).coerceAtMost(60)))
+                    },
+                )
+                Spacer(Modifier.height(8.dp))
+                HubSectionTitle("New items dismiss with")
+                Spacer(Modifier.height(8.dp))
+                HubSegmented(
+                    options = listOf("Button", "Shake", "Scan", "Either"),
+                    selectedIndex = settings.defaultDismissMode.ordinal,
+                    onSelect = { index ->
+                        onSettings(settings.copy(defaultDismissMode = DismissMode.entries[index]))
+                    },
+                )
+            }
+        }
+
+        HubReveal(3) {
+            HubGlassCard {
+                CardHead(Icons.Rounded.Notifications, "Alerts and permissions")
+                PermissionRow(
+                    title = "Notifications",
+                    detail = if (notifications) {
+                        "Allowed. The alarm notification and the countdown can be posted."
+                    } else {
+                        "Blocked. Without this, an alarm cannot tell you anything at all."
+                    },
+                    ok = notifications,
+                    actionLabel = if (notifications) null else "Allow",
+                    onAction = {
+                        if (Build.VERSION.SDK_INT >= 33) {
+                            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            openAppNotificationSettings(context)
+                        }
+                    },
+                )
+                HubToggleRow(
+                    title = "Full-screen alarms",
+                    subtitle = if (fullScreen) {
+                        "Allowed. A ringing alarm takes the screen, even when it is locked."
+                    } else {
+                        "Off. Android is showing choruses as banners instead of taking the screen."
+                    },
+                    checked = fullScreen,
+                    onCheckedChange = { openFullScreenSettings(context) },
+                )
+                PermissionRow(
+                    title = "Exact alarms",
+                    detail = if (exact) {
+                        "Allowed. An alarm rings at the minute you set."
+                    } else {
+                        "Withheld. Alarms still ring, but they can drift by a few minutes."
+                    },
+                    ok = exact,
+                    actionLabel = if (exact) null else "Allow",
+                    onAction = { openExactAlarmSettings(context) },
+                )
+                PermissionRow(
+                    title = "Camera",
+                    detail = if (camera) {
+                        "Allowed. A scan can dismiss an alarm."
+                    } else {
+                        "Not granted, so scan-to-dismiss and registering a code cannot work yet."
+                    },
+                    ok = camera,
+                    actionLabel = if (camera) null else "Allow",
+                    onAction = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                )
+            }
+        }
+
+        HubReveal(4) {
+            HubGlassCard {
+                CardHead(Icons.Rounded.Event, "About")
+                Text(
+                    "Chime ${BuildConfig.VERSION_NAME}: alarms, reminders and a chiming clock, with " +
+                        "no account and no network.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+        }
+    }
+
+    if (quietFrom) {
+        ChimeTimeSheet(
+            title = "Quiet hours start",
+            initialHour = settings.quietFromHour,
+            initialMinute = 0,
+            hour24 = hour24,
+            onDismiss = { quietFrom = false },
+            onConfirm = { hour, _ ->
+                store.saveSettings(settings.copy(quietFromHour = hour))
+                scheduler.scheduleNextBell()
+                quietFrom = false
+                onChanged()
+            },
+        )
+    }
+    if (quietTo) {
+        ChimeTimeSheet(
+            title = "Quiet hours end",
+            initialHour = settings.quietToHour,
+            initialMinute = 0,
+            hour24 = hour24,
+            onDismiss = { quietTo = false },
+            onConfirm = { hour, _ ->
+                store.saveSettings(settings.copy(quietToHour = hour))
+                scheduler.scheduleNextBell()
+                quietTo = false
+                onChanged()
+            },
+        )
+    }
 }
 
 @Composable
-private fun SettingsScreen(
-    settings: ChimeSettings,
-    store: ChimeStore,
-    scheduler: ChimeScheduler,
-    onChanged: () -> Unit,
+private fun PermissionCard(
+    icon: ImageVector,
+    title: String,
+    message: String,
+    actionLabel: String,
+    onAction: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    HubGlassCard(accent = MaterialTheme.colorScheme.error) {
+        CardHead(icon, title, accent = MaterialTheme.colorScheme.error)
+        Text(
+            message,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        Spacer(Modifier.height(12.dp))
+        HubPrimaryButton(text = actionLabel, icon = icon, onClick = onAction)
+    }
+}
 
-    LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 18.dp),
+@Composable
+private fun PermissionRow(
+    title: String,
+    detail: String,
+    ok: Boolean,
+    actionLabel: String?,
+    onAction: () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 10.dp)) {
+            Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text(
+                detail,
+                color = if (ok) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                fontSize = 11.sp,
+            )
+        }
+        if (actionLabel != null) {
+            HubQuietButton(text = actionLabel, onClick = onAction)
+        } else {
+            HubPill("On", active = true)
+        }
+    }
+}
+
+// ── shared pieces ────────────────────────────────────────────────────────────────────────────────
+
+/** The one gutter and rhythm every page uses, so cards line up across tabs. */
+@Composable
+private fun PageColumn(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .statusBarsPadding()
+            .padding(horizontal = 18.dp)
+            .padding(top = 20.dp, bottom = 26.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        content = content,
+    )
+}
+
+/** Card heading with its own icon, which is what stops a wall of cards becoming a wall of text. */
+@Composable
+private fun CardHead(icon: ImageVector, title: String, accent: Color = MaterialTheme.colorScheme.primary) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        HubIconChip(icon, accent = accent)
+        Spacer(Modifier.width(12.dp))
+        HubSectionTitle(title, Modifier.weight(1f))
+    }
+}
+
+/** A labelled value that opens a picker when tapped. */
+@Composable
+private fun TimeRow(label: String, value: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        item {
-            HubGlassCard {
-                Text("Quiet hours", fontWeight = FontWeight.Black, fontSize = 20.sp)
-                Text(
-                    "The bell and the spoken time stay silent inside this window. It is on by " +
-                        "default so an hourly clock cannot wake anyone up.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                )
-                Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Enabled", modifier = Modifier.weight(1f))
-                    Switch(
-                        checked = settings.quietHoursEnabled,
-                        onCheckedChange = {
-                            store.saveSettings(settings.copy(quietHoursEnabled = it))
-                            scheduler.scheduleNextBell()
-                            onChanged()
-                        },
+        Text(
+            label,
+            Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 13.sp,
+        )
+        Text(
+            value,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.Black,
+            fontSize = 18.sp,
+        )
+    }
+}
+
+/** Label on the left, a fixed-width control on the right: the row must not jitter as it changes. */
+@Composable
+private fun StepperRow(title: String, value: String, onMinus: () -> Unit, onPlus: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+        Spacer(Modifier.width(10.dp))
+        HubQuietButton(text = "−", onClick = onMinus)
+        Text(
+            value,
+            Modifier.widthIn(min = 54.dp),
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Black,
+            fontSize = 14.sp,
+            textAlign = TextAlign.Center,
+        )
+        HubQuietButton(text = "+", onClick = onPlus)
+    }
+}
+
+@Composable
+private fun DayStrip(days: Set<Int>, onToggle: (Int) -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        DayOfWeek.entries.forEach { day ->
+            val active = day.value in days
+            Box(
+                Modifier
+                    .weight(1f)
+                    .aspectRatio(1f)
+                    .clip(CircleShape)
+                    .background(
+                        if (active) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceContainerHigh
                     )
-                }
+                    .clickable { onToggle(day.value) },
+                contentAlignment = Alignment.Center,
+            ) {
                 Text(
-                    settings.quietWindowLabel(),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    day.name.take(1),
                     fontSize = 13.sp,
+                    fontWeight = FontWeight.Black,
+                    color = if (active) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                    HubQuietButton(text = "From", onClick = {
-                        TimePickerDialog(
-                            context,
-                            { _, hour, _ ->
-                                store.saveSettings(settings.copy(quietFromHour = hour))
-                                scheduler.scheduleNextBell()
-                                onChanged()
-                            },
-                            settings.quietFromHour,
-                            0,
-                            true,
-                        ).show()
-                    })
-                    HubQuietButton(text = "To", onClick = {
-                        TimePickerDialog(
-                            context,
-                            { _, hour, _ ->
-                                store.saveSettings(settings.copy(quietToHour = hour))
-                                scheduler.scheduleNextBell()
-                                onChanged()
-                            },
-                            settings.quietToHour,
-                            0,
-                            true,
-                        ).show()
-                    })
-                }
             }
         }
+    }
+}
 
-        item {
-            HubGlassCard {
-                Text("When a bell rings", fontWeight = FontWeight.Black, fontSize = 20.sp)
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Speak the time", fontSize = 14.sp)
-                        Text(
-                            "Says the time out loud with each strike, in words rather than digits.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.sp,
-                        )
-                    }
-                    Switch(
-                        checked = settings.announceTime,
-                        onCheckedChange = {
-                            store.saveSettings(
-                                settings.copy(
-                                    announceTime = it,
-                                    bellMode = if (it && settings.bellMode == BellMode.OFF) {
-                                        BellMode.HOURLY
-                                    } else {
-                                        settings.bellMode
-                                    },
-                                )
-                            )
-                            scheduler.scheduleNextBell()
-                            onChanged()
-                        },
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Volume ramp", modifier = Modifier.weight(1f), fontSize = 14.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        HubQuietButton(text = "−", onClick = {
-                            store.saveSettings(settings.copy(rampSeconds = (settings.rampSeconds - 5).coerceAtLeast(0)))
-                            onChanged()
-                        })
-                        Text("${settings.rampSeconds}s", fontSize = 14.sp)
-                        HubQuietButton(text = "+", onClick = {
-                            store.saveSettings(settings.copy(rampSeconds = (settings.rampSeconds + 5).coerceAtMost(120)))
-                            onChanged()
-                        })
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Stop ringing after", modifier = Modifier.weight(1f), fontSize = 14.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        HubQuietButton(text = "−", onClick = {
-                            store.saveSettings(
-                                settings.copy(ringTimeoutMinutes = (settings.ringTimeoutMinutes - 1).coerceAtLeast(1))
-                            )
-                            onChanged()
-                        })
-                        Text("${settings.ringTimeoutMinutes}m", fontSize = 14.sp)
-                        HubQuietButton(text = "+", onClick = {
-                            store.saveSettings(
-                                settings.copy(ringTimeoutMinutes = (settings.ringTimeoutMinutes + 1).coerceAtMost(60))
-                            )
-                            onChanged()
-                        })
-                    }
-                }
-            }
-        }
+@Composable
+private fun HubField(value: String, onValueChange: (String) -> Unit, label: String) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label, fontSize = 12.sp) },
+        singleLine = false,
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth(),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+            focusedLabelColor = MaterialTheme.colorScheme.primary,
+            unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            cursorColor = MaterialTheme.colorScheme.primary,
+            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+        ),
+    )
+}
 
-        item {
-            HubGlassCard {
-                Text("Exact alarms", fontWeight = FontWeight.Black, fontSize = 20.sp)
-                val exact = scheduler.canScheduleExact()
-                Text(
-                    if (exact) {
-                        "Exact alarms are available, so an alarm rings at the minute you set."
-                    } else {
-                        "Android is withholding exact alarms, so they can drift by a few minutes."
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                )
-                if (!exact) {
-                    Spacer(Modifier.height(10.dp))
-                    HubPrimaryButton(text = "Open alarm settings", onClick = {
-                        if (Build.VERSION.SDK_INT >= 31) {
-                            runCatching {
-                                context.startActivity(
-                                    android.content.Intent(
-                                        android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM
-                                    )
-                                )
-                            }
-                        }
-                    })
-                }
-                Spacer(Modifier.height(10.dp))
-                HubQuietButton(
-                    text = "Test the bell and the spoken time",
-                    onClick = {
-                        scope.launch {
-                            com.sylestia.toolhubs.chime.bell.BellVoice.strike(context, 3)
-                            TimeVoice.preview(context, System.currentTimeMillis())
-                        }
-                    },
-                )
-            }
+/** The editor body for alarms and reminders: one sheet, one scroll, one gutter. */
+@Composable
+private fun EditorSheet(
+    title: String,
+    onDismiss: () -> Unit,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(horizontal = 22.dp)
+                .padding(bottom = 22.dp),
+        ) {
+            HubSectionTitle(title)
+            Spacer(Modifier.height(14.dp))
+            content()
         }
+    }
+}
 
-        item {
-            HubGlassCard {
-                Text("About", fontWeight = FontWeight.Black, fontSize = 20.sp)
-                Text(
-                    "Chime ${com.sylestia.toolhubs.chime.BuildConfig.VERSION_NAME} — alarms, reminders " +
-                        "and a chiming clock.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                )
-            }
-        }
+@Composable
+private fun hubSwitchColors() = SwitchDefaults.colors(
+    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+    checkedTrackColor = MaterialTheme.colorScheme.primary,
+    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+    uncheckedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+)
+
+// ── formatting and platform helpers ──────────────────────────────────────────────────────────────
+
+/** A wall-clock time in the user's own style, for values that never were a timestamp. */
+private fun clockLabel(hour: Int, minute: Int, hour24: Boolean): String = if (hour24) {
+    "%02d:%02d".format(hour, minute)
+} else {
+    val clockHour = if (hour % 12 == 0) 12 else hour % 12
+    "%d:%02d %s".format(clockHour, minute, if (hour < 12) "AM" else "PM")
+}
+
+private fun dismissLabel(mode: DismissMode, scanCode: String?): String = when (mode) {
+    DismissMode.BUTTON -> "Tap to dismiss"
+    DismissMode.SHAKE -> "Shake to dismiss"
+    DismissMode.SCAN -> if (scanCode == null) "Scan anything" else "Scan to dismiss"
+    DismissMode.SHAKE_OR_SCAN -> "Shake or scan"
+}
+
+private fun alarmRepeatSummary(days: Set<Int>): String = when {
+    days.isEmpty() -> "Rings once, the next time this clock time comes round."
+    days.size == 7 -> "Rings every day."
+    days == setOf(1, 2, 3, 4, 5) -> "Rings on weekdays."
+    days == setOf(6, 7) -> "Rings at the weekend."
+    else -> "Rings on the days you picked."
+}
+
+/** Android 14 keeps full-screen alerts behind a special grant that has to be checked, not assumed. */
+private fun canUseFullScreen(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < 34) return true
+    val manager = context.getSystemService(NotificationManager::class.java) ?: return false
+    return manager.canUseFullScreenIntent()
+}
+
+/** The ringing screen only exists while the full-screen grant does, so send people to it. */
+private fun openFullScreenSettings(context: Context) {
+    if (Build.VERSION.SDK_INT < 34) return
+    runCatching {
+        context.startActivity(
+            Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT)
+                .setData(Uri.parse("package:${context.packageName}"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+}
+
+private fun openAppNotificationSettings(context: Context) {
+    runCatching {
+        context.startActivity(
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+}
+
+private fun openExactAlarmSettings(context: Context) {
+    if (Build.VERSION.SDK_INT < 31) return
+    runCatching {
+        context.startActivity(
+            Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                .setData(Uri.parse("package:${context.packageName}"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
     }
 }

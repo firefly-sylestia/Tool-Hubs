@@ -121,12 +121,24 @@ class ChimeScheduler(private val context: Context) {
 
     // ------------------------------------------------------------------ bells
 
-    /** Arms the next pendulum strike, or disarms it when the bell is off or every time is quiet. */
+    /** Arms the next pendulum strike, or disarms it when the clock is off or every time is quiet. */
     fun scheduleNextBell() {
-        val pending = bellIntent()
-        manager?.cancel(pending)
         val settings = store.settings()
+        manager?.cancel(bellIntent(-1, 0, false, false))
         val next = nextBellAt(settings, ZonedDateTime.now()) ?: return
+        // Both the strike count and the hour travel with the intent. Reading the clock inside the
+        // receiver instead is how a clock ends up ringing six times at seven o'clock: the alarm can
+        // land a moment early or late, and the count would follow the wrong hour.
+        //
+        // A time from the "set times" list is a single chime, not a clock face. Someone who picked
+        // 08:30 asked for a chime at half past eight, not eight strikes.
+        val strikes = if (settings.bellMode == BellMode.SET_TIMES) {
+            1
+        } else {
+            ChimeTimes.strikesFor(next.hour)
+        }
+        val hour24 = settings.use24Hour ?: android.text.format.DateFormat.is24HourFormat(context)
+        val pending = bellIntent(next.hour, strikes, settings.speakTime, hour24)
         runCatching {
             manager?.setExactAndAllowWhileIdle(
                 AlarmManager.RTC_WAKEUP,
@@ -144,7 +156,7 @@ class ChimeScheduler(private val context: Context) {
         }
     }
 
-    fun cancelBell() = manager?.cancel(bellIntent())
+    fun cancelBell() = manager?.cancel(bellIntent(-1, 0, false, false))
 
     // ------------------------------------------------------------------ reads
 
@@ -188,8 +200,8 @@ class ChimeScheduler(private val context: Context) {
     private fun dueItem(item: AlarmItem, triggerAt: Long) = DueItem(
         kind = DueItem.Kind.ALARM,
         id = item.id,
-        title = item.label.ifBlank { "Alarm ${item.timeLabel()}" },
-        subtitle = "${item.timeLabel()} · ${item.dayLabel()}",
+        title = item.label.ifBlank { "Alarm ${item.timeLabel(use24Hour())}" },
+        subtitle = "${item.timeLabel(use24Hour())} · ${item.dayLabel()}",
         triggerAt = triggerAt,
         dismissMode = item.dismissMode,
         scanCode = item.scanCode,
@@ -218,15 +230,25 @@ class ChimeScheduler(private val context: Context) {
     private fun zonedNow(): ZonedDateTime = Instant.now().atZone(ZoneId.systemDefault())
 
     /**
+     * The clock style in force right now: the user's own choice, or the device's when it is "follow
+     * the system". Every string the app writes outside a composable has to ask this, or a 12-hour
+     * phone gets 24-hour notifications beside its 12-hour clock face.
+     */
+    private fun use24Hour(): Boolean =
+        store.settings().use24Hour ?: android.text.format.DateFormat.is24HourFormat(context)
+
+    /**
      * The next strike the bell is allowed to make.
      *
      * Quiet hours are applied here rather than at ring time so the phone is genuinely not woken:
      * a strike that would land inside the window is skipped and the next allowed one armed instead.
      */
     private fun nextBellAt(settings: ChimeSettings, from: ZonedDateTime): ZonedDateTime? {
-        if (settings.bellMode == BellMode.OFF) return null
+        // A spoken time with the bell switched off still needs a cadence, and for a clock the hour
+        // is the only one that makes sense.
+        if (settings.bellMode == BellMode.OFF && !settings.speakTime) return null
         val candidates: Sequence<ZonedDateTime> = when (settings.bellMode) {
-            BellMode.HOURLY -> generateSequence(from.truncatedTo(ChronoUnit.HOURS).plusHours(1)) {
+            BellMode.OFF, BellMode.HOURLY -> generateSequence(from.truncatedTo(ChronoUnit.HOURS).plusHours(1)) {
                 it.plusHours(1)
             }
             BellMode.SET_TIMES -> sequence {
@@ -263,9 +285,13 @@ class ChimeScheduler(private val context: Context) {
         )
     }
 
-    private fun bellIntent(): PendingIntent {
+    private fun bellIntent(hour: Int, strikes: Int, speak: Boolean, hour24: Boolean): PendingIntent {
         val intent = Intent(context, ChimeReceiver::class.java).apply {
             action = ChimeReceiver.ACTION_BELL
+            putExtra(ChimeReceiver.EXTRA_HOUR, hour)
+            putExtra(ChimeReceiver.EXTRA_STRIKES, strikes)
+            putExtra(ChimeReceiver.EXTRA_SPEAK, speak)
+            putExtra(ChimeReceiver.EXTRA_HOUR24, hour24)
         }
         return PendingIntent.getBroadcast(
             context,
