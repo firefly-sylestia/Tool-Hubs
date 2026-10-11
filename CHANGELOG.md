@@ -10,6 +10,47 @@ Each entry corresponds to the `versionName` in
 [`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts). See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [0.11.0]
+
+### Added
+- Live graph on the Watch page: switchable Speed / Data / Latency / Signal over a 1, 5, 15 or 30
+  minute window, with drag-to-inspect. Speed and traffic come from the watcher; latency and signal are
+  sampled only while the screen is open, and the card says so instead of drawing a gap as if the radio
+  had been quiet. Where no sample was taken the line breaks and goes dashed rather than being joined up.
+- Network Health score on the Watch page. It is weighted from 5G uptime, LTE fallbacks, radio
+  stability, recovery success and recovery speed, and flagged data, and it shows every factor with the
+  evidence behind it. A factor with no evidence is dropped and the rest are re-weighted, so a fresh
+  install is not scored as broken; below that threshold it reports Collecting rather than a number.
+- Recovery analytics on the Data page: success rate, average, fastest and slowest confirmed recovery,
+  current and longest failure streak, fallback count and time, longest single fallback, 5G uptime,
+  longest 5G session, radio changes per hour, and a seven-day breakdown. Fastest, slowest and the
+  longest failure streak are now recorded by the watcher; previously only a mean existed, which hid
+  both the recovery that took a minute and the streak that never ended.
+- "Why did it change?" on the Watch page. The last radio transition is explained in words with its
+  evidence listed. A data-SIM move or a recovery the app triggered itself is reported as **recorded**;
+  everything the modem never reports is reported as **likely** and says so, because Android exposes no
+  reason for a re-selection.
+
+### Changed
+- The Activity page was rebuilt around an interactive incident timeline: 24 hourly bars stacked by
+  kind, tap or drag an hour to filter the list to exactly that hour, severity colouring, and an
+  incident detail that opens in place as a recorded BEFORE → EVENT → ACTION → AFTER sequence. Filters
+  grew from four to six (All / Success / Failed / Network / SIM / Recovery), and tapping an event
+  expands it instead of doing nothing.
+- The obsolete "feature recommendations" card, which was recommending features that now exist, was
+  replaced with advice that names a switch that actually exists and is based on the whole log rather
+  than the current filter.
+- The usage timeline was rebuilt: 1 hour / 6 hours / 24 hours / 7 days ranges, bars stacked as 4G
+  under 5G, 4G-vs-5G comparison for the whole range, and a busiest-bucket figure. Tapping a bar opens
+  the exact one-minute intervals it was built from, with the fake/excluded rows still listed so a
+  correction can be undone. The old chart only compressed minutes into a line and left the exact
+  records in a separate list with no link between them.
+
+### Notes
+- Added the `INTERNET` permission. It is used for one thing: the live latency graph measures a single
+  TCP handshake to a public resolver while the Watch screen is open. Nothing is uploaded, and the
+  probe stops as soon as the screen is closed.
+
 ## [0.10.0]
 
 ### Fixed

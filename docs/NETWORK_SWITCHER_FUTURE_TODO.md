@@ -16,35 +16,44 @@ This document records the planned user-facing redesign and feature roadmap. Thes
 - [ ] Move History under Data instead of keeping it as a separate bottom-nav destination.
 
 ## 2. Watch / Network Command Center
-- [ ] Large 4G/5G/unknown state.
-- [ ] Live download/upload speed.
-- [ ] Live latency.
-- [ ] Signal strength.
-- [ ] Current SIM/data subscription.
-- [ ] Session duration.
-- [ ] Last transition and recovery result.
-- [ ] Compact health summary.
+- [x] Large 4G/5G/unknown state.
+- [x] Live speed (aggregate). Upload and download are not shown separately: the app's plausibility
+      rules and its reconciliation work on the summed counter, and splitting them would double the
+      accounting surface for no stated use.
+- [x] Live latency (TCP handshake round trip, not ICMP — Android allows an unprivileged app no ping).
+- [x] Signal strength (Android's 0–4 level, plus RSRP as evidence on the why-did-it-change card).
+- [x] Current SIM/data subscription (settings, and the failover status in the notification).
+- [ ] Session duration — the Data page shows accumulated 5G time and fallback time, but no live
+      "this session has lasted N minutes" counter.
+- [x] Last transition and recovery result.
+- [x] Compact health summary.
 
 ### Live graph
-- [ ] Switchable Speed / Ping / Signal / Data metrics.
-- [ ] 10s / 1m / 5m / 30m ranges.
-- [ ] Smooth, restrained animation.
-- [ ] Clearly distinguish live samples from historical data.
+- [x] Switchable Speed / Data / Latency / Signal metrics.
+- [x] 1m / 5m / 15m / 30m ranges. The 10-second range was dropped: the watcher samples once a
+      second, so a 10-second window is a handful of samples and reads as noise rather than signal.
+- [ ] Smooth, restrained animation — the graph redraws on each sample with an animated accent, but
+      there is no per-point interpolation between frames.
+- [x] Clearly distinguish live samples from historical data: a contiguous run is drawn solid, and a
+      break in the ring buffer is drawn dashed and dim rather than joined up.
 
 ## 3. Network Health
-- [ ] Explainable health score based on 5G uptime, LTE fallbacks, recovery success, signal stability, latency, failures, and data anomalies.
-- [ ] Categories: Excellent / Good / Fair / Poor.
-- [ ] Show the factors behind the score.
+- [x] Explainable health score based on 5G uptime, LTE fallbacks, recovery success and speed, radio
+      stability and flagged data anomalies. Latency is not in the score: it is only measured while the
+      Watch screen is open, so it would score a phone on how often its owner looked at it.
+- [x] Categories: Excellent / Good / Fair / Poor.
+- [x] Show the factors behind the score, with their points, weights and evidence, and drop factors
+      that have no evidence instead of scoring them zero.
 
 ## 4. 5G Stability
-- [ ] 5G uptime.
-- [ ] LTE fallback count.
-- [ ] Successful/failed recoveries.
-- [ ] Longest 5G session.
-- [ ] Longest LTE fallback.
-- [ ] Recovery success rate.
-- [ ] Average/fastest/slowest recovery time.
-- [ ] Daily/weekly trend.
+- [x] 5G uptime.
+- [x] LTE fallback count.
+- [x] Successful/failed recoveries.
+- [x] Longest 5G session.
+- [x] Longest LTE fallback.
+- [x] Recovery success rate.
+- [x] Average/fastest/slowest recovery time.
+- [x] Daily/weekly trend (seven days, from the retained log).
 
 ## 5. Network Session Timeline
 - [ ] Visual timeline for 5G, LTE, SIM changes, recovery attempts, calls, thermal state changes, and manual actions.
@@ -53,39 +62,46 @@ This document records the planned user-facing redesign and feature roadmap. Thes
 - [ ] Group repeated transitions.
 
 ## 6. "Why did my network change?"
-- [ ] Human-readable likely reason for significant transitions.
-- [ ] Possible causes: weak signal, reselection, no service, thermal condition, SIM/data change, manual action, recovery action, unknown.
-- [ ] Explicitly label inferred causes as **likely**.
-- [ ] Show supporting signal, speed, thermal, duration, and recovery data.
+- [x] Human-readable likely reason for the most recent significant transition.
+- [x] Possible causes covered: no service, coverage/reselection, a data-SIM move, a Wi-Fi failover and
+      the app's own recovery action. Thermal state is not covered: the watcher records no thermal
+      reading, so it cannot be evidence, and guessing it would be exactly the kind of claim this
+      section is meant to avoid.
+- [x] Inferred causes are labelled **likely**; causes the app's own log proves are labelled **recorded**.
+- [x] Supporting data shown: previous and new state, exact time, signal level, RSRP, recovery attempts
+      in the preceding two minutes, and the fallback count over the preceding hour.
 
 ## 7. Activity / Incident Center
-- [ ] Evolve Events into a graph-first activity/incident screen.
-- [ ] Keep duplicate grouping.
-- [ ] Expand repeated groups.
-- [ ] 24-hour activity timeline.
-- [ ] Filters: All / Success / Failed / Network / SIM / Recovery.
-- [ ] Severity and incident counts.
-- [ ] Preserve export/clear history.
+- [x] Evolve Events into a graph-first activity/incident screen.
+- [x] Keep duplicate grouping.
+- [x] Expand repeated groups (tap to open the incident detail in place).
+- [x] 24-hour activity timeline, hourly, stacked by kind.
+- [x] Filters: All / Success / Failed / Network / SIM / Recovery, plus a selectable hour.
+- [x] Severity and incident counts, including hours with failures.
+- [x] Preserve export/clear history.
 
 ## 8. Incident Detail
-- [ ] Exact timestamp.
-- [ ] Network before/after.
-- [ ] Signal, speed, latency, thermal state.
-- [ ] SIM/data subscription.
-- [ ] Action taken.
-- [ ] Result.
-- [ ] Recovery duration.
-- [ ] Present as a visual sequence rather than a raw log.
+- [x] Exact timestamp.
+- [x] Network before/after.
+- [ ] Signal, speed, latency, thermal state **at the time of the event**. The watcher never stored a
+      per-event snapshot of any of these, so the detail view shows the recorded sequence instead of
+      values it would have to invent. Adding the snapshots means writing them at event time first.
+- [x] SIM/data subscription (via the data-SIM events around the change).
+- [x] Action taken.
+- [x] Result.
+- [x] Recovery duration (group span).
+- [x] Present as a visual sequence rather than a raw log.
 
 ## 9. Data redesign
-- [ ] Time-machine style usage dashboard.
-- [ ] Daily 4G/5G totals.
-- [ ] Usage timeline.
-- [ ] 4G vs 5G comparison.
-- [ ] 6h / 24h / 7d / longer ranges.
-- [ ] Tap any graph point for the exact interval.
-- [ ] Show start/end, network, bytes, peak speed, suspicious/fake state.
-- [ ] Preserve manual fake/exclusion controls.
+- [x] Time-machine style usage dashboard.
+- [x] Daily 4G/5G totals.
+- [x] Usage timeline.
+- [x] 4G vs 5G comparison for the selected range.
+- [x] 1h / 6h / 24h / 7d ranges. Nothing longer: interval history is capped at 14 days on disk, so a
+      longer window would silently drop its own oldest data.
+- [x] Tap any graph point (bar) for the exact intervals behind it.
+- [x] Show start/end, network, bytes, peak speed, suspicious/fake state.
+- [x] Preserve manual fake/exclusion controls.
 
 ## 10. Smarter fake-spike detection
 - [ ] Keep the hard ceiling for impossible readings.
@@ -171,13 +187,14 @@ Each explanation answers: what it is, whether the current value is good/bad, and
 - [ ] Make Safe Mode prominent.
 
 ## 20. Recovery Analytics
-- [ ] Attempts.
-- [ ] Successes/failures.
-- [ ] Success rate.
-- [ ] Average/fastest/slowest recovery.
-- [ ] Failure streaks.
-- [ ] Cooldown/retry statistics.
-- [ ] Trend over time.
+- [x] Attempts.
+- [x] Successes/failures.
+- [x] Success rate.
+- [x] Average/fastest/slowest recovery.
+- [x] Failure streaks (current and longest).
+- [ ] Cooldown/retry statistics — the live cooldown countdown is shown, but no history of how often
+      the breaker opened or how many retries each cooldown needed.
+- [x] Trend over time (seven days).
 
 ## 21. Weekly Network Report
 - [ ] 5G uptime.

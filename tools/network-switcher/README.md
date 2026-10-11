@@ -38,6 +38,29 @@ It talks to the telephony stack through [Shizuku](https://shizuku.rikka.app/) �
 - Minute-level interval history with fake/excluded interval review.
 - Events page with a timeline graph and duplicate grouping.
 
+### Live dashboard
+- A live graph on the Watch page with four metrics (speed, traffic, latency, signal) and four windows
+  (1, 5, 15, 30 minutes), drag-to-inspect. Speed and traffic are sampled by the watcher; latency and
+  signal only while the screen is open, and the card says which. Windows with no sample are drawn as a
+  break, never joined up into a line that looks like a quiet period.
+- Network Health: a weighted, explainable score over 5G uptime, LTE fallbacks, radio stability,
+  recovery success and speed, and flagged data. Every factor, its weight and its evidence are shown,
+  and factors without evidence are dropped and the rest re-weighted instead of scoring zero.
+- Recovery analytics: success rate, average/fastest/slowest confirmed recovery, current and longest
+  failure streak, fallback count and time, longest fallback, 5G uptime, longest 5G session, radio
+  churn per hour and a seven-day breakdown.
+- "Why did it change?": the last radio transition explained in words, with its evidence and a
+  confidence label. Causes the app recorded itself are labelled *recorded*; everything the modem never
+  reports is labelled *likely*, because Android exposes no reason for a re-selection.
+
+### Activity and usage timelines
+- The Activity page groups the log into 24 hourly buckets, draws them as a stacked incident timeline
+  and filters the list to the hour you pick. Filters cover All / Success / Failed / Network / SIM /
+  Recovery, and tapping an event opens a recorded BEFORE → EVENT → ACTION → AFTER sequence.
+- The usage timeline offers 1 hour / 6 hours / 24 hours / 7 days, stacks 4G under 5G, compares the two
+  for the whole range, and opens the exact one-minute intervals behind any bar. Intervals marked fake
+  stay listed so a correction can be undone.
+
 ### Plausibility filtering
 Android's mobile counters are an aggregate observation, not a carrier billing record, and they can
 leap upward when the interface set changes without ever going backwards. Three rules keep impossible
@@ -77,10 +100,10 @@ The app has four bottom-navigation tabs plus a settings page that is pushed on t
 
 | Page | Icon | Contents |
 | --- | --- | --- |
-| Watch | `NetworkCheck` | Live radio state, speed, signal and session telemetry |
-| Events | `Timeline` | Transition/incident timeline with duplicate grouping |
-| Data | `DataUsage` | Today, live speed, 4G warning meter, 7-day history |
-| History | `History` | Minute-level interval review and fake-interval controls |
+| Watch | `NetworkCheck` | Live radio state, live graph (speed/traffic/latency/signal), health score, why-it-changed, session telemetry |
+| Events | `Timeline` | Interactive 24-hour incident timeline, six filters, expandable incident detail |
+| Data | `DataUsage` | Today, live speed, recovery analytics, 4G warning meter, 7-day history |
+| History | `History` | Usage timeline with bar-to-interval drill-down and fake-interval controls |
 | Settings | gear in the page header | Appearance, recovery, privileged access, SIM choice, data guard, diagnostics |
 
 The tab bar keeps every slot the same width and slides one accent pill between them, so a tap is a
@@ -102,6 +125,9 @@ All source lives in `src/main/java/com/sylestia/toolhubs/networkswitcher/`.
 | `NetworkReconnectTileService.kt` | Quick Settings tile |
 | `NetworkUsageTracker.kt` | Traffic/speed sampling and 4G/5G attribution |
 | `UsageHistoryStore.kt` | Bounded minute-level history persisted to disk |
+| `LiveTelemetry.kt` | Process-wide ring buffer for the live graphs, plus the latency probe |
+| `NetworkInsights.kt` | Health score, recovery analytics and the likely-cause explanations |
+| `NetworkGraphs.kt` | The interactive live, incident and usage-timeline graphs |
 | `SwitcherNav.kt` | Module-local bottom navigation, scroll-reactive page header and settings header |
 | `SwitcherBackdrop.kt` | Module-local animated backdrop (orbiting light, drifting grid and particles) |
 | `ShizukuHealth.kt` | Shizuku readiness state machine, exception-safe |
@@ -111,9 +137,13 @@ All source lives in `src/main/java/com/sylestia/toolhubs/networkswitcher/`.
 
 ## Permissions
 
-`READ_PHONE_STATE`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE` (+ `_SPECIAL_USE`),
-`POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, plus a
-Shizuku provider entry.
+`READ_PHONE_STATE`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `FOREGROUND_SERVICE` (+
+`_SPECIAL_USE`), `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`,
+`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, plus a Shizuku provider entry.
+
+`INTERNET` is used for exactly one thing: the live latency graph measures a single TCP handshake to a
+public resolver while the Watch screen is open. Nothing is uploaded, no other code path touches the
+network, and the probe stops when the screen closes.
 
 ## Requirements
 
@@ -131,6 +161,11 @@ Shizuku provider entry.
 - Some OEMs restrict boot foreground-service starts and battery-optimisation exemptions; the app can
   guide users but cannot guarantee the exemption.
 - Network causes are sometimes inferred and are labelled as likely, never stated as fact.
+- The latency graph measures a TCP handshake, not an ICMP ping: Android gives an unprivileged app no
+  ICMP echo, so the two are not the same measurement and the card says so.
+- Live latency and signal history exists only for the time the Watch screen was open. Speed and
+  traffic history is extended by the watcher, but it lives in memory for the half hour the graphs
+  cover — older traffic is in the persisted minute intervals on the History page.
 
 ## Building
 

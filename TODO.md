@@ -1,6 +1,71 @@
 # Tool Hubs delivery checklist
 
-## Data accuracy, warnings & SIM failover — latest pass
+## Observability pass — live graph, health, explanations, timeline redesigns
+
+### Live graph (Watch)
+- [x] New `LiveTelemetry` ring buffer (in memory, ~30 minutes at the watcher's cadence), fed by the
+      usage tracker for speed and byte deltas. A gap in the buffer is drawn as a break in the line,
+      never joined up, so "the watcher was off" cannot look like "the network was quiet".
+- [x] Four metrics: Speed, Data, Latency, Signal. Speed buckets keep the fastest sample so a brief
+      peak is not averaged away; Data buckets sum the observed byte deltas.
+- [x] Four windows: 1 / 5 / 15 / 30 minutes, with drag-to-inspect and a crosshair that shares one
+      bucket index with the readout above it.
+- [x] Latency is a real TCP handshake to a public resolver, measured only while the screen is open,
+      and labelled as a round trip rather than a ping. Signal is Android's 0–4 level, labelled as a
+      coarse bucket rather than a dBm value.
+
+### Network health and recovery analytics
+- [x] Explainable health score with per-factor points, weights and evidence, graded
+      Excellent / Good / Fair / Poor.
+- [x] Factors without evidence are dropped and the remaining weights renormalised, so a fresh install
+      reports "Collecting" instead of a fabricated score.
+- [x] Recovery analytics: attempts, successes, failures, success rate, average, fastest, slowest,
+      current and longest failure streak, fallback count and duration, longest single fallback, 5G
+      uptime, longest 5G session, radio churn per hour, and a seven-day breakdown.
+- [x] The watcher now records fastest/slowest confirmed recovery and the longest failure streak; it
+      previously stored only a mean, which hid both extremes.
+
+### "Why did it change?"
+- [x] The most recent radio transition is explained in words with its evidence listed and a
+      confidence label: **recorded** when the app's own log proves it (a data-SIM move, a recovery it
+      triggered), **likely** when it is inference.
+- [x] Supporting rows: previous and new state, exact time, signal level, RSRP when available,
+      recovery attempts in the preceding two minutes and the 12-hour fallback count.
+- [x] The card states plainly that Android does not report the modem's reason for a re-selection.
+
+### Activity page redesign
+- [x] Replaced the hourly bar sparkline with an interactive incident timeline: hourly buckets stacked
+      by kind, severity colouring, tap or drag to select an hour, and a clear-hour-filter action.
+- [x] Six filters (All / Success / Failed / Network / SIM / Recovery) as a scrollable chip row, since
+      six options do not fit a segmented control. The hour filter is applied before the type filter.
+- [x] Recorded incident detail that opens in place as BEFORE → EVENT → ACTION → AFTER, showing exact
+      timestamps, the group span and the next event in the log. Per-event signal/thermal snapshots are
+      not shown because the watcher never stored them; inventing them would be worse than omitting them.
+- [x] Page-level stats for events, groups, failures, recovery events and hours with failures.
+- [x] The obsolete "feature recommendations" card, which recommended features that now exist, was
+      replaced with advice that names a switch that exists and reads the whole log, not the filter.
+
+### Usage timeline redesign
+- [x] Ranges are now 1 hour / 6 hours / 24 hours / 7 days (previously 6h / 24h / 7d with a 15-minute
+      hidden bucket size).
+- [x] Bars are stacked as 4G under 5G, with a 4G-vs-5G comparison and busiest-bucket figure for the
+      whole range.
+- [x] Tapping or dragging a bar opens the exact one-minute intervals it was built from; the previous
+      chart compressed minutes into a line and left the exact records in an unconnected list.
+- [x] Fake intervals are excluded from the totals but still listed, so marking a row fake does not hide
+      it from the user who just marked it and needs to undo it.
+
+### Packaging
+- [x] Added `INTERNET` for the latency probe only, with the reason stated in the manifest and README.
+- [x] Version bumped to `versionCode 15` / `versionName 0.11.0`.
+
+### Not done in this pass
+The remaining roadmap items (Smart Modes, visual automation rules, Safe Mode, Diagnostics and
+Explain-this panels, Network Test, SIM comparison, weekly report, Network Story) are untouched and
+still listed in `docs/NETWORK_SWITCHER_FUTURE_TODO.md`.
+
+
+## Data accuracy, warnings & SIM failover — previous pass
 
 ### Observed traffic & speed
 - [x] The dashboard reads *today's* bucket instead of the lifetime total, so the 4G/5G figures reset
