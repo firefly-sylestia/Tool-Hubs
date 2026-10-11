@@ -264,13 +264,13 @@ class NetworkUsageTracker(context: Context) {
     private fun ensureSessionBaseline(total: Long) {
         // The in-memory value doubles as a cache so the common path costs no preference read.
         if (sessionStartTotal >= 0L && total >= sessionStartTotal) return
-        val stored = prefs().getLong(KEY_SESSION_START_TOTAL, -1L)
+        val stored = prefs.getLong(KEY_SESSION_START_TOTAL, -1L)
         if (stored >= 0L && total >= stored) {
             sessionStartTotal = stored
             return
         }
         sessionStartTotal = total
-        prefs().edit()
+        prefs.edit()
             .putLong(KEY_SESSION_START_TOTAL, total)
             .putLong(KEY_SESSION_START_AT, System.currentTimeMillis())
             .putLong(KEY_SESSION_LTE, 0L)
@@ -393,6 +393,16 @@ class NetworkUsageTracker(context: Context) {
         intervalBytes = 0L
         intervalPeakBps = 0L
     }
+
+    /**
+     * Which of today's counters a reset clears.
+     *
+     * Declared in the class rather than in the companion object on purpose: a classifier nested in a
+     * companion object is not reachable as `NetworkUsageTracker.ResetScope`, so the callers in the UI
+     * could not name it at all. Companion *values* resolve through the class name; nested *classes*
+     * do not.
+     */
+    enum class ResetScope { ALL, LTE, FIVE_G, PEAK }
 
     companion object {
         const val LTE_LABEL = "4G / LTE"
@@ -572,9 +582,6 @@ class NetworkUsageTracker(context: Context) {
             bytes >= 1_024L -> String.format(Locale.US, "%.0f KB", bytes / 1_024f)
             else -> "$bytes B"
         }
-
-        /** Which of today's counters a reset clears. */
-        enum class ResetScope { ALL, LTE, FIVE_G, PEAK }
 
         /**
          * Clears today's buckets.

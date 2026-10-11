@@ -108,7 +108,7 @@ private val RADIO_LABELS = mapOf(
 fun radioLabelOf(network: String): String? = RADIO_LABELS[network]
 
 /** Every change of radio state in the retained log, in order. */
-fun radioTransitions(entries: List<HistoryEntry>, now: Long): List<Transition> {
+internal fun radioTransitions(entries: List<HistoryEntry>, now: Long): List<Transition> {
     val ordered = entries.filter { it.timestamp <= now }.sortedBy { it.timestamp }
     val result = mutableListOf<Transition>()
     var previous: String? = null
@@ -174,7 +174,7 @@ fun signalDescription(level: Int): String = when (level) {
  * not punished for missing history. `null` means less than a third of the model had any evidence,
  * and the UI shows a collecting state rather than a made-up number.
  */
-fun networkHealth(
+internal fun networkHealth(
     entries: List<HistoryEntry>,
     store: SharedPreferences,
     intervals: List<UsageInterval>,
@@ -287,7 +287,7 @@ fun networkHealth(
     return NetworkHealth(score, gradeFor(score), summary, known, observedMs)
 }
 
-fun recoveryStats(
+internal fun recoveryStats(
     entries: List<HistoryEntry>,
     store: SharedPreferences,
     sinceAt: Long,
@@ -368,11 +368,10 @@ private fun dailyRecoveryTrend(
  * triggered itself happened in the same window, that is recorded fact, and it is reported as such.
  * Everything else is presented as the most likely explanation, with the evidence listed underneath.
  */
-fun explainLastChange(
+internal fun explainLastChange(
     entries: List<HistoryEntry>,
     store: SharedPreferences,
     signalLevel: Int,
-    rsrp: Int,
     now: Long = System.currentTimeMillis(),
 ): LikelyCause? {
     val last = radioTransitions(entries, now).lastOrNull { it.at >= now - CAUSE_LOOKBACK_MS } ?: return null
@@ -381,7 +380,6 @@ fun explainLastChange(
         CauseEvidence("When", formatTimestamp(last.at)),
     )
     if (signalLevel in 0..4) evidence += CauseEvidence("Signal", signalDescription(signalLevel))
-    if (rsrp < 0) evidence += CauseEvidence("RSRP", rsrp.toString() + " dBm")
 
     val nearby = entries.filter { kotlin.math.abs(it.timestamp - last.at) <= 180_000L }
     val simMoves = nearby.count { it.type == "sim_failover" }

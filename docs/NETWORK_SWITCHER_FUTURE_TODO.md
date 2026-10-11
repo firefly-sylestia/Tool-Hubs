@@ -21,7 +21,9 @@ This document records the planned user-facing redesign and feature roadmap. Thes
       rules and its reconciliation work on the summed counter, and splitting them would double the
       accounting surface for no stated use.
 - [x] Live latency (TCP handshake round trip, not ICMP — Android allows an unprivileged app no ping).
-- [x] Signal strength (Android's 0–4 level, plus RSRP as evidence on the why-did-it-change card).
+- [x] Signal strength (Android's 0–4 level). RSRP is *not* shown: `SignalStrength.cellSignalStrength`
+      does not resolve against this project's compile SDK, so the why-did-it-change card reads the
+      0–4 level instead of a dBm figure. Listed under Diagnostics as still open.
 - [x] Current SIM/data subscription (settings, and the failover status in the notification).
 - [ ] Session duration — the Data page shows accumulated 5G time and fallback time, but no live
       "this session has lasted N minutes" counter.
@@ -68,8 +70,8 @@ This document records the planned user-facing redesign and feature roadmap. Thes
       reading, so it cannot be evidence, and guessing it would be exactly the kind of claim this
       section is meant to avoid.
 - [x] Inferred causes are labelled **likely**; causes the app's own log proves are labelled **recorded**.
-- [x] Supporting data shown: previous and new state, exact time, signal level, RSRP, recovery attempts
-      in the preceding two minutes, and the fallback count over the preceding hour.
+- [x] Supporting data shown: previous and new state, exact time, signal level, recovery attempts in
+      the preceding two minutes, and the fallback count over the preceding hour.
 
 ## 7. Activity / Incident Center
 - [x] Evolve Events into a graph-first activity/incident screen.

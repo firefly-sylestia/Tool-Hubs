@@ -264,13 +264,6 @@ class MainActivity : ComponentActivity() {
         return runCatching { telephony.signalStrength?.level ?: -1 }.getOrDefault(-1)
     }
 
-    /** RSRP in dBm, or [Int.MIN_VALUE] when unavailable. RSRP is always negative. */
-    fun rsrp(): Int {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return Int.MIN_VALUE
-        return runCatching { telephony.signalStrength?.cellSignalStrength?.rsrp ?: Int.MIN_VALUE }
-            .getOrDefault(Int.MIN_VALUE)
-    }
-
     /** The label the live samples should be stamped with, read straight from the radio watcher. */
     fun liveLabel(): String = runCatching { radioWatcher?.snapshot()?.label }.getOrNull() ?: "Unknown"
 
@@ -3391,7 +3384,7 @@ private fun WhyChangedCard(context: MainActivity) {
 
     val now = System.currentTimeMillis()
     val cause = tick.let {
-        explainLastChange(entries, store, context.signalLevel(), context.rsrp(), now)
+        explainLastChange(entries, store, context.signalLevel(), now)
     } ?: return
 
     val recorded = cause.confidence == "Recorded"

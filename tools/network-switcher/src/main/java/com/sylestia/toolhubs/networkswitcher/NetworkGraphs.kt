@@ -342,6 +342,10 @@ fun IncidentGraph(
     val simColor = MaterialTheme.colorScheme.primary
     val otherColor = MaterialTheme.colorScheme.onSurfaceVariant
     val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
+    // Read outside the draw lambda on purpose: a theme lookup is a @Composable call, and the
+    // Canvas block is not a composable scope.
+    val selectionFillColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
+    val selectionLineColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
 
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -428,13 +432,13 @@ fun IncidentGraph(
                 selectedIndex?.let { index ->
                     val left = inset + slot * index
                     drawRoundRect(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
+                        color = selectionFillColor,
                         topLeft = Offset(left, inset),
                         size = Size(slot, chartHeight),
                         cornerRadius = CornerRadius(8.dp.toPx()),
                     )
                     drawLine(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+                        color = selectionLineColor,
                         start = Offset(left + slot / 2f, inset),
                         end = Offset(left + slot / 2f, baseline),
                         strokeWidth = 1.5f,
@@ -506,6 +510,8 @@ fun UsageTimelineGraph(
     val lteColor = MaterialTheme.colorScheme.tertiary
     val cautionColor = MaterialTheme.colorScheme.error
     val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
+    // Hoisted for the same reason as in IncidentGraph: no theme lookups inside the Canvas.
+    val selectionFillColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
 
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -601,7 +607,7 @@ fun UsageTimelineGraph(
                 selectedIndex?.let { index ->
                     val left = inset + slot * index
                     drawRoundRect(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
+                        color = selectionFillColor,
                         topLeft = Offset(left, inset),
                         size = Size(slot, chartHeight),
                         cornerRadius = CornerRadius(8.dp.toPx()),

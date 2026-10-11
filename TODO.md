@@ -29,8 +29,8 @@
 - [x] The most recent radio transition is explained in words with its evidence listed and a
       confidence label: **recorded** when the app's own log proves it (a data-SIM move, a recovery it
       triggered), **likely** when it is inference.
-- [x] Supporting rows: previous and new state, exact time, signal level, RSRP when available,
-      recovery attempts in the preceding two minutes and the 12-hour fallback count.
+- [x] Supporting rows: previous and new state, exact time, signal level, recovery attempts in the
+      preceding two minutes and the 12-hour fallback count.
 - [x] The card states plainly that Android does not report the modem's reason for a re-selection.
 
 ### Activity page redesign
