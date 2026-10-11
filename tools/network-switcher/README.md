@@ -38,15 +38,32 @@ It talks to the telephony stack through [Shizuku](https://shizuku.rikka.app/) �
 - Minute-level interval history with fake/excluded interval review.
 - Events page with a timeline graph and duplicate grouping.
 
+### Plausibility filtering
+Android's mobile counters are an aggregate observation, not a carrier billing record, and they can
+leap upward when the interface set changes without ever going backwards. Three rules keep impossible
+figures off the screen:
+
+- A sampling window shorter than half a second is never turned into a rate. The watcher ticks once a
+  second, so a much shorter window means the sample was re-scheduled, and dividing a burst by a few
+  milliseconds is what used to produce gigabit-per-second "spikes".
+- A rate above `NetworkUsageTracker.MAX_PLAUSIBLE_BPS` is a counter discontinuity, not traffic. Its
+  bytes are excluded, the speed peak is left untouched, and the watcher records a visible event.
+- Rates between `SUSPECT_SPIKE_BPS` and the ceiling are still counted — they are possible on fast 5G —
+  but are flagged so they appear in the History review list.
+
 ### Controls
-- Foreground watcher service with an ongoing notification showing the radio and watcher state.
+- Foreground watcher service with an ongoing notification showing the radio and watcher state, the
+  live cooldown countdown, the failed-attempt count, the Shizuku state and a contextual action
+  (Pause, Resume, or Retry now). Entering a cooldown also posts a one-off alert.
+- Watcher status is composed from state in one place, so a settings refresh or a Shizuku reconnect
+  cannot hide an active cooldown from the notification or the app.
 - Quick Settings tile to toggle the watcher.
 - Restores the enabled state across reboots and app updates.
 - Light/dark appearance control with a night-qualified window theme.
 
 ## Screens
 
-The app is a five-page bottom-navigation hub:
+The app has four bottom-navigation tabs plus a settings page that is pushed on top of them:
 
 | Page | Icon | Contents |
 | --- | --- | --- |
@@ -54,7 +71,13 @@ The app is a five-page bottom-navigation hub:
 | Events | `Timeline` | Transition/incident timeline with duplicate grouping |
 | Data | `DataUsage` | Today, live speed, 4G warning meter, 7-day history |
 | History | `History` | Minute-level interval review and fake-interval controls |
-| Tune | `Tune` | Automation, data guard and diagnostics |
+| Settings | gear in the page header | Appearance, recovery, privileged access, SIM choice, data guard, diagnostics |
+
+The tab bar keeps every slot the same width and slides one accent pill between them, so a tap is a
+single animation rather than a re-measure of the whole bar. Settings is deliberately *not* a tab: it
+is reached from the header button on any page, closes with the system back gesture, and hides the tab
+bar while open. `SwitcherNav.kt` owns this chrome and lives in the module rather than in `:core:ui`,
+because the shared `HubBottomNav` is still used by the frozen tools.
 
 ## Architecture
 
@@ -69,6 +92,7 @@ All source lives in `src/main/java/com/sylestia/toolhubs/networkswitcher/`.
 | `NetworkReconnectTileService.kt` | Quick Settings tile |
 | `NetworkUsageTracker.kt` | Traffic/speed sampling and 4G/5G attribution |
 | `UsageHistoryStore.kt` | Bounded minute-level history persisted to disk |
+| `SwitcherNav.kt` | Module-local bottom navigation, page header and settings header |
 | `ShizukuHealth.kt` | Shizuku readiness state machine, exception-safe |
 | `NetworkSwitcherBridge.kt` | Binds the Shizuku user service |
 | `NetworkModeService.kt` | `INetworkModeService` implementation running under Shizuku |

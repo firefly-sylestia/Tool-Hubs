@@ -2133,7 +2133,12 @@ private fun SettingsPage(
     }
 
     fun refreshWatcher() {
-        if (store.getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)) context.startWatcher()
+        if (!store.getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)) return
+        // Never resume a watcher the user paused. ACTION_START clears the paused flag, so tweaking a
+        // slider used to silently restart recovery behind the user's back; the setting now applies
+        // on the next resume instead.
+        if (store.getBoolean(AutoReconnectService.PREF_PAUSED, false)) return
+        context.startWatcher()
     }
 
     Column(

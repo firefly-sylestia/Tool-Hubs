@@ -285,6 +285,9 @@ class AutoReconnectService : Service() {
             ACTION_RESUME -> {
                 paused = false
                 prefs().edit().putBoolean(PREF_PAUSED, false).apply()
+                // Settings changed while the watcher was paused only reach the loop on a reload.
+                reloadSettings()
+                createRadioWatcher()
                 requestReset("Manual retry requested")
                 ShizukuHealthMonitor.refresh()
                 publishState(currentNetworkLabel(), statusText())
@@ -561,6 +564,11 @@ class AutoReconnectService : Service() {
      * failure, so the attempt budget and the long back-off are left untouched.
      */
     private fun onEnvironmentFailure(result: String) {
+        // The privileged bridge failed before the modem was ever asked to do anything, so this is not
+        // a radio failure: give the attempt back. Three transient bind errors inside the burst window
+        // used to trip `attemptTimes.size >= maxAttempts`, which parked recovery on the full cooldown
+        // even though nothing was wrong with the network.
+        if (attemptTimes.isNotEmpty()) attemptTimes.removeLast()
         nextAttemptAt = SystemClock.elapsedRealtime() + ENVIRONMENT_RETRY_DELAY_MS
         persistRetryState()
         recordHistory("4G / LTE", "Reconnect skipped: $result", "failed")
