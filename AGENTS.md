@@ -49,6 +49,9 @@ Rules:
   - `versionCode` is a monotonically increasing integer and must go up with every bump.
 - Use a dedicated commit for the bump when the change and the bump are separate concerns, matching
   the existing history convention: `Bump Network Switcher to 0.7.3`.
+- **No AI co-author trailers.** Never add a `Co-Authored-By:` line for Codebuff, another assistant
+  or a model to a commit message, and never rewrite an existing commit to add one — the trailer
+  survives in `git log` forever. History attributes the change to the person who made it.
 - The build file is the single source of truth for the version. Do not invent a version elsewhere.
 - Update [`CHANGELOG.md`](CHANGELOG.md) alongside a release/minor bump, and run the UI version
   display past a check if the app reads `BuildConfig.VERSION_NAME` anywhere.
