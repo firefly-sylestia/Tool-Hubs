@@ -10,6 +10,33 @@ Each entry corresponds to the `versionName` in
 [`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts). See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [0.10.0]
+
+### Fixed
+- The no-service SIM failover could never revert. It recorded nothing about which SIM the data came
+  from or that a failover was even in progress, so there was no code path back and the user stayed on
+  the backup SIM until they changed it by hand. The move is now recorded and handed back as soon as
+  the monitored SIM has service again.
+- The LTE failover only reverted when the monitored SIM reported 5G, which it cannot do while the
+  backup SIM holds the data connection — so again it never came back. Data is now handed back when
+  5G returns *or* after a few minutes regardless, and a timed hand-back suppresses the next outbound
+  switch so the two SIMs cannot trade the data connection every cooldown.
+- Backup-SIM failover now works on a phone with two SIMs and untouched settings. Both SIMs previously
+  had to be chosen explicitly, so the feature silently did nothing. The monitored SIM defaults to
+  whichever carries data and the backup to the other active SIM.
+- The notification no longer reads "monitoring 4G / LTE" throughout a failover. It states where the
+  data connection actually is, and carries a "Move data back" action for the case the automatic path
+  cannot cover.
+
+### Added
+- Wi-Fi failover: if the monitored radio stays on 4G or loses service, the Wi-Fi radio is raised so
+  the phone can auto-join a saved network, and turned back off once 5G returns. It goes through
+  Shizuku because apps have been barred from toggling Wi-Fi since Android 10, and the setting says
+  plainly that Android gives no way to pick the network.
+- Auto-correct on the counter-check card. It marks flagged spikes fake first, and only then trims the
+  totals to match the device counter, reporting exactly which of the two it did. It never silently
+  rewrites history, and it stays hidden while the books already balance.
+
 ## [0.9.0]
 
 ### Fixed
