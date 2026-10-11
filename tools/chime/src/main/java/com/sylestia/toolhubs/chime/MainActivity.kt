@@ -150,7 +150,7 @@ private fun ChimeApp() {
                         settings = settings,
                         now = now,
                         nextUp = scheduler.nextUp(now),
-                        onSpeakPreview = { TimeVoice.preview(it, now) },
+                        onSpeakPreview = { millis -> TimeVoice.preview(context, millis) },
                         onSettings = { changed -> store.saveSettings(changed); revision++ },
                     )
 

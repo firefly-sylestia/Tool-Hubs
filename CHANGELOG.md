@@ -10,6 +10,13 @@ Each entry corresponds to the `versionName` in
 [`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts). See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [Chime 0.1.1]
+
+### Fixed
+- The clock's "Speak the time now" button passed the timestamp where the text-to-speech call wants
+  a `Context`, so the module did not compile. Found by CI on the first tag build of Chime — which is
+  exactly what a tag build is for.
+
 ## [Chime 0.1.0]
 
 First release of Chime, the alarm, reminder and chiming-clock tool. Its version lives in
