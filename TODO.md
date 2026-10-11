@@ -1,5 +1,27 @@
 # Tool Hubs delivery checklist
 
+## Chime 0.2.0 — interface rebuild
+
+- [x] Rebuilt every Chime screen on `ToolHubsTheme` and the `:core:ui` kit. The app was rendering
+      inside a bare `MaterialTheme`, so it fell back to framework greys and platform dialogs; pages
+      are now one gutter of glass cards with icon-led headings and the app's own nav bar.
+- [x] Replaced `TimePickerDialog` / `DatePickerDialog` with Chime's own snapping wheel and calendar
+      bottom sheets, which follow the theme and the locale's first day of the week.
+- [x] Clinched clocks: a system / 12-hour / 24-hour choice threaded through the clock face, the
+      lists, the next-up card, both notifications and the spoken time.
+- [x] The bell and the spoken time are independent switches, so either or both can ring, and the
+      schedule (off / hourly / set times) decides when.
+- [x] Strike counts are decided at arm time and travel with the intent, and a "set time" is a single
+      chime rather than a count of the hour.
+- [x] Dismiss codes are scanned to register them instead of typed.
+- [x] Permission block for notifications, full-screen alarms, exact alarms and the camera, with
+      Android 14's `canUseFullScreenIntent()` checked rather than assumed.
+- [x] Version bumped to `versionCode 3` / `versionName 0.2.0`.
+
+### Still to verify on a device
+The 12/24-hour strings, the wheel snapping, the full-screen grant flow and the scan-to-register
+round trip need a device; CI only proves the module compiles.
+
 ## Observability pass — live graph, health, explanations, timeline redesigns
 
 ### Live graph (Watch)

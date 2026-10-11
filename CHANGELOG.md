@@ -10,6 +10,42 @@ Each entry corresponds to the `versionName` in
 [`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts). See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [Chime 0.2.0]
+
+### Changed
+- The whole interface is rebuilt on the shared Aurora theme and the `:core:ui` kit. Chime was still
+  rendering inside a bare `MaterialTheme`, so every screen fell back to framework greys and looked
+  like a different product beside Network Switcher. Screens are now one gutter, one card and one set
+  of icon-led headings, the tab bar is the app's own nav with real icons instead of letters, and the
+  editors are bottom sheets rather than small grey dialogs.
+- Time and date are now chosen on Chime's own snapping wheels and calendar. The platform
+  `TimePickerDialog` and `DatePickerDialog` ignored the theme entirely, which is what made the
+  add-alarm screen look like a system utility bolted into the app.
+- Alarms are list rows with their day, dismissal mode and snooze on labelled chips, a switch that
+  lines up with every other row, and the next trigger spelled out underneath.
+
+### Added
+- A 12- or 24-hour clock choice (system, 12-hour or 24-hour) that is threaded through the clock face,
+  the alarm and reminder lists, the next-up card, both notifications and the spoken time. It was
+  previously hard-coded to 24-hour everywhere outside the notification text.
+- The bell and the spoken time are separate switches, so the bell can strike alone, the time can be
+  spoken alone, or both can happen; the previous single toggle forced them together.
+- A code is now **scanned** to register it, instead of being typed. A text field asking for "the code
+  to accept" produced codes nobody could reproduce at the door; scanning the sticker captures exactly
+  the bytes the alarm will compare against later.
+- A permissions block that reports notifications, full-screen alarms, exact alarms and the camera,
+  each with the button that grants it. Android 14 keeps full-screen alerts behind a special grant, so
+  reminders that never took the screen are now explained rather than silently downgraded to banners.
+
+### Fixed
+- The strike count is decided when a chime is armed and travels with the intent, so a chime that
+  lands a moment early or late no longer rings the wrong number of times. A time from the "set times"
+  list is a single chime rather than a count of the hour.
+- The spoken time follows the clock style setting (it was always phrased the 12-hour way), and the
+  bell service is told which style to speak in rather than assuming one.
+- "Next up" notifications and alarm subtitles follow the chosen clock style instead of always
+  formatting in 24-hour style.
+
 ## [Chime 0.1.1]
 
 ### Fixed
