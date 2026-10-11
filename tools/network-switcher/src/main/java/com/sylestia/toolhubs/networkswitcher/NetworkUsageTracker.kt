@@ -49,6 +49,17 @@ data class DailyUsage(
  *
  * Each delta is deliberately attributed to the radio that was active during the interval, and bytes
  * observed while the network was unknown are dropped rather than assigned to 4G or 5G.
+ *
+ * A third rule was added after users kept seeing impossible figures on the Data page:
+ *
+ *  * **A rate has to be physically possible.** Aggregate mobile counters can leap upward when the
+ *    interface set changes (a RAT/SIM switch, a VPN appearing) without the counter ever going
+ *    backwards, so a reset check alone does not catch it. Anything faster than
+ *    [MAX_PLAUSIBLE_BPS] is treated as a counter discontinuity: the bytes are excluded, the speed
+ *    peak is not touched, and the burst is reported via [onImplausibleBurst] so it shows up in the
+ *    event history instead of being silently dropped. Sampling windows shorter than
+ *    [MIN_TRUSTED_WINDOW_MS] are never turned into a rate at all — dividing a burst by a few
+ *    milliseconds is what used to manufacture gigabit-per-second readings.
  */
 class NetworkUsageTracker(context: Context) {
     private val prefsContext = context.applicationContext
@@ -59,12 +70,17 @@ class NetworkUsageTracker(context: Context) {
     private var pending5G = 0L
 
     // Session-local baselines. Intentionally not restored from disk — see the class comment.
+    // Usage and speed share one window, so a single pair of baselines drives both.
     private var lastTotal = -1L
     private var lastNetwork: String? = null
     private var lastElapsed = -1L
-    private var lastSpeedTotal = -1L
-    private var lastSpeedElapsed = -1L
     private var lastSpeedPersistAt = 0L
+
+    /**
+     * Called when a burst is discarded as a counter discontinuity, so the watcher can surface it in
+     * the event history rather than dropping it silently. Invoked on the watcher thread.
+     */
+    var onImplausibleBurst: ((network: String, bytesPerSecond: Long) -> Unit)? = null
 
     // Current minute bucket. We keep one-minute intervals so the history screen can show exactly
     // when data moved without creating thousands of SharedPreferences writes.
@@ -100,55 +116,57 @@ class NetworkUsageTracker(context: Context) {
         if (counterReset || networkChanged) {
             flushInterval()
             persist(dayFormat.format(Date(nowWall)), nowWall)
-            lastTotal = total
-            lastElapsed = nowElapsed
-            lastSpeedTotal = total
-            lastSpeedElapsed = nowElapsed
-            lastNetwork = network
+            rebaseline(total, nowElapsed, network)
             return
         }
 
-        if (lastTotal >= 0L && lastElapsed >= 0L && nowElapsed > lastElapsed && total >= lastTotal) {
-            val delta = total - lastTotal
-            val intervalMs = nowElapsed - lastElapsed
-            val bytesPerSecond = delta * 1000L / intervalMs
-
-            // Keep suspicious bursts in the history so the user can inspect and mark
-            // the exact interval as fake. Only an extreme value beyond the tracking ceiling is
-            // treated as a counter discontinuity and excluded automatically.
-            if (bytesPerSecond <= MAX_TRACKABLE_BPS) {
-                when (lastNetwork) {
-                    LTE_LABEL -> pendingLte += delta
-                    FIVE_G_LABEL -> pending5G += delta
-                }
-                recordInterval(
-                    network = lastNetwork ?: network,
-                    bytes = delta,
-                    peakBps = bytesPerSecond,
-                    wall = nowWall,
-                )
-            }
+        val haveBaseline = lastTotal >= 0L && lastElapsed >= 0L && nowElapsed > lastElapsed && total >= lastTotal
+        if (!haveBaseline) {
+            rebaseline(total, nowElapsed, network)
+            return
         }
 
-        if (lastSpeedTotal >= 0L && lastSpeedElapsed >= 0L && nowElapsed > lastSpeedElapsed && total >= lastSpeedTotal) {
-            val intervalMs = nowElapsed - lastSpeedElapsed
-            val bytesPerSecond = (total - lastSpeedTotal) * 1000L / intervalMs
-            if (bytesPerSecond <= MAX_TRACKABLE_BPS) {
-                recordSpeed(bytesPerSecond, network, nowWall)
-            }
+        val delta = total - lastTotal
+        val intervalMs = nowElapsed - lastElapsed
+
+        // Too short to be a rate. Keep the baseline moving so the next window is honest, but do not
+        // credit these bytes to a radio, a minute bucket or the speed peak.
+        if (intervalMs < MIN_TRUSTED_WINDOW_MS) {
+            rebaseline(total, nowElapsed, network)
+            return
         }
 
-        lastSpeedTotal = total
-        lastSpeedElapsed = nowElapsed
+        val bytesPerSecond = delta * 1000L / intervalMs
+
+        // Faster than the link can physically go: a counter discontinuity, not traffic. Exclude the
+        // bytes, leave today's and the lifetime speed peak untouched, re-baseline, and let the
+        // watcher record a visible note so the user is told instead of silently losing data.
+        if (bytesPerSecond > MAX_PLAUSIBLE_BPS) {
+            flushInterval()
+            persist(dayFormat.format(Date(nowWall)), nowWall)
+            onImplausibleBurst?.invoke(lastNetwork ?: network, bytesPerSecond)
+            rebaseline(total, nowElapsed, network)
+            return
+        }
+
+        when (lastNetwork) {
+            LTE_LABEL -> pendingLte += delta
+            FIVE_G_LABEL -> pending5G += delta
+        }
+        recordInterval(
+            network = lastNetwork ?: network,
+            bytes = delta,
+            peakBps = bytesPerSecond,
+            wall = nowWall,
+        )
+        recordSpeed(bytesPerSecond, network, nowWall)
 
         val day = dayFormat.format(Date(nowWall))
         if (network != lastNetwork || nowWall - lastPersistAt >= PERSIST_EVERY_MS) {
             persist(day, nowWall)
         }
 
-        lastTotal = total
-        lastNetwork = network
-        lastElapsed = nowElapsed
+        rebaseline(total, nowElapsed, network)
     }
 
     /** Flush pending traffic and forget the counter baseline before an active phone call. */
@@ -174,8 +192,13 @@ class NetworkUsageTracker(context: Context) {
         lastTotal = -1L
         lastNetwork = null
         lastElapsed = -1L
-        lastSpeedTotal = -1L
-        lastSpeedElapsed = -1L
+    }
+
+    /** Moves every baseline to the current sample without crediting its bytes to anything. */
+    private fun rebaseline(total: Long, elapsed: Long, network: String) {
+        lastTotal = total
+        lastElapsed = elapsed
+        lastNetwork = network
     }
 
     /**
@@ -290,11 +313,26 @@ class NetworkUsageTracker(context: Context) {
         const val PERSIST_EVERY_MS = 30_000L
         private const val SPEED_PERSIST_MS = 2_000L
 
-        /** Above this, treat the counter jump as a discontinuity instead of real traffic. */
-        private const val MAX_TRACKABLE_BPS = 2L * 1024L * 1024L * 1024L
+        /**
+         * A sampling window shorter than this is never turned into a rate. The watcher ticks once a
+         * second, so a much shorter window means the sample was re-scheduled; dividing a counter
+         * jump by a few milliseconds is what used to manufacture gigabit-per-second "spikes".
+         */
+        private const val MIN_TRUSTED_WINDOW_MS = 500L
 
-        /** 500 MiB/s+ is suspicious and is shown for manual review instead of being hidden. */
-        const val SUSPECT_SPIKE_BPS = 500L * 1024L * 1024L
+        /**
+         * The most a phone's cellular link can plausibly move in one second. Deliberately far above
+         * real-world 5G (a few hundred Mbit/s, ~1.7 Gbit/s only in ideal mmWave conditions) and far
+         * below the multi-gigabyte leaps a counter discontinuity produces, so a burst past it is
+         * treated as a counter glitch rather than traffic.
+         */
+        const val MAX_PLAUSIBLE_BPS = 200L * 1024L * 1024L
+
+        /**
+         * Rates at or above this are still counted — they are possible on fast 5G — but are flagged
+         * so the interval appears in the History review list instead of passing unnoticed.
+         */
+        const val SUSPECT_SPIKE_BPS = 100L * 1024L * 1024L
 
         const val INTERVAL_MS = 60_000L
 
@@ -362,11 +400,11 @@ class NetworkUsageTracker(context: Context) {
                 todayFiveG = store.getLong("$KEY_5G_BYTES:$today", 0L).coerceAtLeast(0L),
                 lifetimeLte = store.getLong(KEY_LTE_BYTES, 0L),
                 lifetimeFiveG = store.getLong(KEY_5G_BYTES, 0L),
-                todayPeakBps = store.getLong("$KEY_PEAK_BPS:$today", 0L).coerceAtMost(MAX_TRACKABLE_BPS),
+                todayPeakBps = store.getLong("$KEY_PEAK_BPS:$today", 0L).coerceAtMost(MAX_PLAUSIBLE_BPS),
                 todayPeakAt = store.getLong("$KEY_PEAK_AT:$today", 0L),
                 todayPeakNetwork = store.getString("$KEY_PEAK_NETWORK:$today", null),
 
-                currentBps = store.getLong(KEY_CURRENT_BPS, 0L).coerceAtMost(MAX_TRACKABLE_BPS),
+                currentBps = store.getLong(KEY_CURRENT_BPS, 0L).coerceAtMost(MAX_PLAUSIBLE_BPS),
             )
         }
 
@@ -396,7 +434,7 @@ class NetworkUsageTracker(context: Context) {
                     label = labelFormatter.format(calendar.time),
                     lte = store.getLong("$KEY_LTE_BYTES:$stamp", 0L).coerceAtLeast(0L),
                     fiveG = store.getLong("$KEY_5G_BYTES:$stamp", 0L).coerceAtLeast(0L),
-                    peakBps = store.getLong("$KEY_PEAK_BPS:$stamp", 0L).coerceAtMost(MAX_TRACKABLE_BPS),
+                    peakBps = store.getLong("$KEY_PEAK_BPS:$stamp", 0L).coerceAtMost(MAX_PLAUSIBLE_BPS),
                 )
             }
         }
