@@ -100,6 +100,7 @@ import com.sylestia.toolhubs.ui.HubQuietButton
 import com.sylestia.toolhubs.ui.HubReveal
 import com.sylestia.toolhubs.ui.HubSectionTitle
 import com.sylestia.toolhubs.ui.HubSegmented
+import com.sylestia.toolhubs.ui.HubSliderRow
 import com.sylestia.toolhubs.ui.HubStatTile
 import com.sylestia.toolhubs.ui.HubToggleRow
 import kotlinx.coroutines.delay
@@ -185,7 +186,9 @@ private fun ChimeApp() {
     }
 
     val hour24 = ChimeFormat.use24Hour(context, settings.use24Hour)
-    val refresh = { revision++ }
+    // Declared with an explicit `() -> Unit` type: `{ revision++ }` on its own infers `() -> Int`
+    // from the last expression, and a `() -> Int` is not accepted where an `() -> Unit` is wanted.
+    val refresh: () -> Unit = { revision++ }
     val saveSettings: (ChimeSettings) -> Unit = { changed ->
         store.saveSettings(changed)
         scheduler.scheduleNextBell()
