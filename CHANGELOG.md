@@ -10,7 +10,7 @@ Each entry corresponds to the `versionName` in
 [`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts). See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
-## [Unreleased]
+## [0.7.3]
 
 - Redesigned the usage-history graph and added interval review.
 - Redesigned the Events page with a timeline graph and duplicate grouping.
