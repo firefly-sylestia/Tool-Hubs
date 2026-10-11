@@ -46,6 +46,7 @@ class AutoReconnectService : Service() {
         const val ACTION_STOP = "com.sylestia.toolhubs.networkswitcher.STOP"
         const val ACTION_PAUSE = "com.sylestia.toolhubs.networkswitcher.PAUSE"
         const val ACTION_RESUME = "com.sylestia.toolhubs.networkswitcher.RESUME"
+        const val ACTION_RETRY = "com.sylestia.toolhubs.networkswitcher.RETRY"
         const val CHANNEL_ID = "network_switcher"
         const val NOTIFICATION_ID = 501
         const val ALERT_CHANNEL_ID = "network_switcher_alerts"
@@ -130,6 +131,12 @@ class AutoReconnectService : Service() {
         const val ENVIRONMENT_RETRY_DELAY_MS = 15_000L
         const val ENVIRONMENT_NOTICE_INTERVAL_MS = 30_000L
 
+        /**
+         * How often the cooldown countdown is refreshed in the tray and in the app while recovery
+         * is parked. Without this the notification froze on the moment the cooldown started.
+         */
+        const val COOLDOWN_NOTICE_REFRESH_MS = 15_000L
+
         private const val TICK_MS = 1_000L
         private const val HEALTH_REFRESH_INTERVAL_MS = 2_000L
         private const val LOOP_ERROR_LOG_INTERVAL_MS = 60_000L
@@ -178,6 +185,7 @@ class AutoReconnectService : Service() {
     private var circuitOpen = false
     private var lastEnvironmentNoticeAt = 0L
     private var lastHealthRefreshAt = 0L
+    private var lastCooldownPublishAt = 0L
     private var lastLoopErrorAt = 0L
     private var noServiceSince = 0L
     private var lastLteWarningCheckAt = 0L
@@ -188,10 +196,10 @@ class AutoReconnectService : Service() {
 
     private val healthListener: (ShizukuHealth) -> Unit = { health ->
         // Becoming ready must never clear an existing retry/cooldown deadline. The watcher
-        // continues from the persisted deadline on its next tick. publishState() also refreshes
-        // the ongoing notification, so the tray and the app stay in step.
+        // continues from the persisted deadline on its next tick. The status is derived from state
+        // rather than written as a literal, so a recovered bridge cannot hide an active cooldown.
         if (health == ShizukuHealth.READY) {
-            publishState(currentLabel, "Shizuku ready · monitoring continues")
+            publishState(currentLabel, statusText())
         }
     }
 
@@ -206,6 +214,9 @@ class AutoReconnectService : Service() {
         telephony = baseTelephony
         bridge = NetworkSwitcherBridge(this)
         usageTracker = NetworkUsageTracker(this)
+        usageTracker.onImplausibleBurst = { network, bytesPerSecond ->
+            recordHistory(network, "Ignored an implausible traffic burst of " + formatBytes(bytesPerSecond) + "/s", "system")
+        }
 
         ShizukuHealthMonitor.install()
         ShizukuHealthMonitor.addListener(healthListener)
@@ -215,8 +226,9 @@ class AutoReconnectService : Service() {
         paused = prefs().getBoolean(PREF_PAUSED, false)
         createRadioWatcher()
         createChannel()
-        publishState(currentNetworkLabel(), "Starting background watcher…")
-        startForeground(NOTIFICATION_ID, buildNotification(currentNetworkLabel(), "Starting background watcher…"))
+        val startup = statusText()
+        publishState(currentNetworkLabel(), startup)
+        startForeground(NOTIFICATION_ID, buildNotification(currentNetworkLabel(), startup))
         foregroundStarted = true
         startWatcher()
     }
@@ -246,7 +258,8 @@ class AutoReconnectService : Service() {
                     recordHistory(currentLabel, "Background watcher resumed", "system")
                 }
 
-                publishState(currentNetworkLabel(), "Background watcher started")
+                // Derived, not literal: a settings refresh must never wipe a cooldown indicator.
+                publishState(currentNetworkLabel(), statusText())
             }
 
             ACTION_BOOT_START -> {
@@ -274,14 +287,22 @@ class AutoReconnectService : Service() {
                 prefs().edit().putBoolean(PREF_PAUSED, false).apply()
                 requestReset("Manual retry requested")
                 ShizukuHealthMonitor.refresh()
-                publishState(currentNetworkLabel(), statusForCurrent())
+                publishState(currentNetworkLabel(), statusText())
+            }
+
+            ACTION_RETRY -> {
+                // Clears the cooldown and the attempt budget without unpausing: the tray action is
+                // "try again now", not "resume automation".
+                requestReset("Retry requested from the status notification")
+                ShizukuHealthMonitor.refresh()
+                publishState(currentNetworkLabel(), statusText())
             }
         }
         return START_STICKY
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        if (prefs().getBoolean(PREF_AUTO_ENABLED, false)) updateOngoing(currentNetworkLabel(), statusForCurrent())
+        if (prefs().getBoolean(PREF_AUTO_ENABLED, false)) updateOngoing(currentNetworkLabel(), statusText())
         super.onTaskRemoved(rootIntent)
     }
 
@@ -427,11 +448,21 @@ class AutoReconnectService : Service() {
         } else {
             val note = health.describe() + " · recovery paused"
             recordHistory("Shizuku", note, "system")
-            publishState(currentLabel, note)
+            publishState(currentLabel, statusText())
+            // Tell the user the moment the privileged bridge stops working, instead of only
+            // showing it in the app where they may never look.
+            if (previous == ShizukuHealth.READY) postAlert("5G recovery paused", note)
         }
     }
 
     private suspend fun maybeRecover(radio: RadioState, now: Long) {
+        // Keep the countdown current while recovery is parked: the notification used to freeze on
+        // the instant the cooldown began, and the app read the same stale string.
+        if (circuitOpen && now < nextAttemptAt && now - lastCooldownPublishAt >= COOLDOWN_NOTICE_REFRESH_MS) {
+            lastCooldownPublishAt = now
+            publishState(radio.label, statusText(radio))
+        }
+
         // Probe once the cooldown elapses so a paused recovery is never permanent.
         if (circuitOpen && now >= nextAttemptAt) {
             circuitOpen = false
@@ -559,7 +590,13 @@ class AutoReconnectService : Service() {
         val attempts = maxOf(consecutiveFailures, attemptTimes.size)
         val summary = "Recovery paused after $attempts failed attempts"
         recordHistory("4G / LTE", "$summary · $detail", "failed")
-        publishState("4G / LTE", "$summary · retrying in ${formatInterval(recoveryCooldownMs)}", "$summary · $detail")
+        publishState("4G / LTE", "$summary · retrying in ${formatCountdown(recoveryCooldownMs)}", "$summary · $detail")
+        // A cooldown is a real state change the user asked to be told about, not just a line in the
+        // app they may never open.
+        postAlert(
+            "5G recovery paused",
+            "$summary.\n$detail\n\nRetrying automatically in ${formatInterval(recoveryCooldownMs)}. Open 5G Reconnect to retry now.",
+        )
     }
 
     private fun backoffFor(failures: Int): Long = when {
@@ -595,7 +632,7 @@ class AutoReconnectService : Service() {
             val detail = if (lastObservedNetwork == null) "Monitoring started" else "Network changed from $lastObservedNetwork"
             recordHistory(radio.label, detail, if (lastObservedNetwork == null) "system" else "network")
             lastObservedNetwork = radio.label
-            publishState(radio.label, statusFor(radio), detail)
+            publishState(radio.label, statusText(radio), detail)
         }
 
         if (!callPaused) usageTracker.sample(radio.label)
@@ -625,9 +662,43 @@ class AutoReconnectService : Service() {
         }
     }
 
-    private fun statusForCurrent(): String = runCatching {
-        radioWatcher?.snapshot()?.let { statusFor(it) }
-    }.getOrNull() ?: "Monitoring cellular state"
+    /**
+     * The single place that decides what the tray *and* the app say the watcher is doing.
+     *
+     * Every status publish goes through here. Several call sites used to write their own literal
+     * string — "Background watcher started", "Shizuku ready" — which overwrote an active cooldown
+     * message whenever a setting changed or Shizuku flickered. That is why recovery could be parked
+     * with no indicator anywhere. Composing the text from state keeps the cooldown visible until it
+     * actually ends.
+     */
+    private fun statusText(radio: RadioState? = null): String {
+        if (paused) return "Paused · tap Resume to continue"
+
+        val health = ShizukuHealthMonitor.state
+        if (health != ShizukuHealth.READY) return health.describe() + " · recovery paused"
+
+        if (circuitOpen) {
+            val attemptWord = if (consecutiveFailures == 1) "attempt" else "attempts"
+            val wait = remainingUntilNextAttemptMs()
+            val prefix = "Cooling down after $consecutiveFailures failed $attemptWord"
+            return if (wait > 0L) "$prefix · retrying in ${formatCountdown(wait)}" else "$prefix · probing now"
+        }
+
+        val state = radio ?: runCatching { radioWatcher?.snapshot() }.getOrNull()
+            ?: return "Monitoring cellular state"
+        val wait = remainingUntilNextAttemptMs()
+        if (wait > 0L && state.isLteFallback) return "4G / LTE detected · next attempt in ${formatCountdown(wait)}"
+        return statusFor(state)
+    }
+
+    /** Milliseconds before the next attempt may run, or 0 when one is allowed now. */
+    private fun remainingUntilNextAttemptMs(): Long {
+        val nowElapsed = SystemClock.elapsedRealtime()
+        if (nextAttemptAt > nowElapsed) return nextAttemptAt - nowElapsed
+        // Fall back to the persisted wall-clock deadline, which is also what the UI reads, so the
+        // tray and the app cannot disagree after a process restart.
+        return (prefs().getLong(PREF_NEXT_ATTEMPT_WALL, 0L) - System.currentTimeMillis()).coerceAtLeast(0L)
+    }
 
     private fun currentNetworkLabel(): String =
         runCatching { radioWatcher?.snapshot()?.label }.getOrNull() ?: "Unknown"
@@ -849,6 +920,18 @@ class AutoReconnectService : Service() {
         return if (seconds >= 60) "${seconds / 60} min" else "${seconds}s"
     }
 
+    /** `m:ss` (or `h:mm`) countdown, used wherever a wait is shown live. */
+    private fun formatCountdown(ms: Long): String {
+        val totalSeconds = (ms / 1_000L).coerceAtLeast(0L)
+        val minutes = totalSeconds / 60L
+        val seconds = totalSeconds % 60L
+        return if (minutes >= 60L) {
+            String.format(Locale.US, "%dh %02dm", minutes / 60L, minutes % 60L)
+        } else {
+            String.format(Locale.US, "%d:%02d", minutes, seconds)
+        }
+    }
+
     // ── notification ─────────────────────────────────────────────────────────────────────────────
 
     private fun createChannel() {
@@ -867,10 +950,29 @@ class AutoReconnectService : Service() {
 
     private fun buildNotification(network: String, status: String): Notification {
         val health = ShizukuHealthMonitor.state
+        val cooldownLeft = remainingUntilNextAttemptMs()
+        val coolingDown = circuitOpen && cooldownLeft > 0L
+
+        // The primary tray action follows the state: while parked, "Retry now" is the useful one.
+        val primaryAction = when {
+            coolingDown -> ACTION_RETRY
+            paused -> ACTION_RESUME
+            else -> ACTION_PAUSE
+        }
+        val primaryLabel = when {
+            coolingDown -> "Retry now"
+            paused -> "Resume"
+            else -> "Pause"
+        }
+        val primaryIcon = when {
+            coolingDown -> android.R.drawable.ic_menu_rotate
+            paused -> android.R.drawable.ic_media_play
+            else -> android.R.drawable.ic_media_pause
+        }
 
         val pauseIntent = PendingIntent.getService(
             this, 701,
-            Intent(this, AutoReconnectService::class.java).setAction(if (paused) ACTION_RESUME else ACTION_PAUSE),
+            Intent(this, AutoReconnectService::class.java).setAction(primaryAction),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val stopIntent = PendingIntent.getService(
@@ -891,12 +993,12 @@ class AutoReconnectService : Service() {
             .setShowWhen(false)
             .setContentTitle(notificationTitle(network))
             .setContentText(status)
-            .setSubText(notificationSubtitle())
-            .setStyle(NotificationCompat.BigTextStyle().bigText(status))
+            .setSubText(notificationSubtitle(health))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText(status)))
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .addAction(android.R.drawable.ic_media_pause, if (paused) "Resume" else "Pause", pauseIntent)
+            .addAction(primaryIcon, primaryLabel, pauseIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopIntent)
 
         if (health == ShizukuHealth.UNAVAILABLE || health == ShizukuHealth.SERVICE_DIED) {
@@ -911,10 +1013,15 @@ class AutoReconnectService : Service() {
         return builder.build()
     }
 
-    /** A short, unambiguous headline: what the radio is doing, plus whether the watcher is live. */
+    /**
+     * A short, unambiguous headline: what the radio is doing, plus whether the watcher is live.
+     * A cooldown outranks the radio label, because a parked recovery is the thing the user needs to
+     * know about.
+     */
     private fun notificationTitle(network: String): String {
         val state = when {
             paused -> "paused"
+            circuitOpen -> "cooling down"
             network == "5G" -> "on 5G"
             network == "4G / LTE" -> "on 4G"
             network == "Unknown" -> "no service"
@@ -923,10 +1030,24 @@ class AutoReconnectService : Service() {
         return "5G Reconnect · $state"
     }
 
-    private fun notificationSubtitle(): String = when {
+    private fun notificationSubtitle(health: ShizukuHealth): String = when {
+        health != ShizukuHealth.READY -> health.describe()
         paused -> "Tap Resume to keep watching"
+        circuitOpen -> "Cooling down · retries automatically"
         prefs().getBoolean(PREF_AUTO_ENABLED, false) -> "Watching in the background"
         else -> "Started manually"
+    }
+
+    /** The expanded tray text: the live status plus the facts that explain a stalled recovery. */
+    private fun expandedText(status: String): String {
+        val lines = mutableListOf(status)
+        val health = ShizukuHealthMonitor.state
+        if (health != ShizukuHealth.READY) lines += health.describe()
+        if (consecutiveFailures > 0) lines += "Failed attempts: $consecutiveFailures of $maxAttempts"
+        prefs().getString(PREF_LAST_EVENT_DETAIL, null)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { lines += it }
+        return lines.joinToString("\n")
     }
 
     /**
