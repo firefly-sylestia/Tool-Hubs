@@ -55,14 +55,16 @@ jobs:
           # Gradle caches reach gigabytes each and one is written per branch and per run, so they pile
           # up far past the artifacts. Keep the ten newest so ordinary builds stay warm and delete the
           # rest; a cache is only a download saved, never data.
-          # `--repo` is required here: this job has no checkout, so gh cannot infer the repository
-          # from a git remote and aborts with "failed to run git: not a git repository".
-          gh cache list --repo "$repo" --limit 100 --sort created_at --order desc \
-            --json id > "$RUNNER_TEMP/caches.json"
-          echo "caches before: $(gh api "repos/$repo/actions/cache/usage" --jq '.active_caches_count')"
-          jq -r '.[10:] | .[] | .id' "$RUNNER_TEMP/caches.json" | while read -r id; do
+          # The REST route, not `gh cache list`: that command scopes itself to the current branch,
+          # and this job has no checkout, so it reported a handful of caches and the whole step
+          # deleted nothing while claiming to have run. The API lists every ref, newest first.
+          gh api --paginate "repos/$repo/actions/caches?per_page=100" \
+            --jq '.actions_caches[] | .id' > "$RUNNER_TEMP/caches.txt"
+          total=$(wc -l < "$RUNNER_TEMP/caches.txt")
+          echo "caches found: $total (keeping the ten newest)"
+          tail -n +11 "$RUNNER_TEMP/caches.txt" | while read -r id; do
             [ -n "$id" ] || continue
-            gh cache delete "$id" --repo "$repo" > /dev/null \
+            gh api -X DELETE "repos/$repo/actions/caches/$id" > /dev/null \
               || echo "cache $id: already gone or not deletable"
           done
           gh api "repos/$repo/actions/cache/usage" \

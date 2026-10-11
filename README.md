@@ -37,6 +37,25 @@ all of that through a Compose dashboard. See
 architecture description, and [`docs/NETWORK_SWITCHER_FUTURE_TODO.md`](docs/NETWORK_SWITCHER_FUTURE_TODO.md)
 for the roadmap.
 
+## Chime (alarms, reminders, chiming clock)
+
+Chime is an alarm clock built around the two things a phone alarm usually gets wrong: getting out of
+bed, and keeping time without becoming a nuisance.
+
+- **Dismissal is a choice, not a tap.** An alarm can require a button, a shake streak, or a QR or
+  barcode scan — with an optional saved code so only *that* sticker dismisses it. The ring screen is
+  full-screen over the lock screen and cannot be swiped away.
+- **The clock strikes.** A synthesized pendulum bell rings the hour as many times as the hour, either
+  every hour or only at times you pick. Quiet hours (22:00–07:00 by default) keep it silent at night,
+  and the schedule is skipped rather than muted, so nothing wakes the phone in the first place.
+- **The time is spoken on request or with a strike**, in words — "it's twenty past seven" — because
+  engines read `07:20` as digits.
+- **Reminders share the same full-screen treatment**, and the next thing up is shown as a silent
+  countdown notification that ticks on the platform's own chronometer.
+
+The bell is generated in code (inharmonic partials rendered to PCM) rather than shipped as an audio
+file, and QR scanning runs on-device through CameraX and the bundled ML Kit barcode model.
+
 ## Building
 
 Requirements: JDK 17, the Android SDK with `compileSdk 37`, and Shizuku on the device for anything
@@ -44,6 +63,7 @@ that touches the radio.
 
 ```bash
 # Release APK for the currently active tool
+gradle :tools:chime:assembleRelease
 gradle :tools:network-switcher:assembleRelease
 
 # Debug APK during development

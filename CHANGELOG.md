@@ -10,6 +10,26 @@ Each entry corresponds to the `versionName` in
 [`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts). See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [Chime 0.1.0]
+
+First release of Chime, the alarm, reminder and chiming-clock tool. Its version lives in
+[`tools/chime/build.gradle.kts`](tools/chime/build.gradle.kts) and moves independently of Network
+Switcher.
+
+### Added
+- Alarms and reminders that take over the screen when they arrive, on top of the lock screen, with a
+  sound that ramps from near-silence and a vibration pattern rather than starting at full volume.
+- Four dismissal modes: a button, a shake streak (six shakes inside four seconds, gravity filtered
+  out so carrying the phone is not a shake), a scan, or either of the last two. A saved QR or barcode
+  value can be required, so only the code taped to the door dismisses that alarm. Snooze is offered in
+  every mode and shortens by a minute each time it is used.
+- A clock that strikes the hour on a synthesized pendulum bell — hourly, or only at chosen times —
+  with quiet hours on by default, and an optional spoken time phrased in words.
+- A silent countdown notification for the next alarm or reminder, driven by the platform chronometer
+  so it stays accurate without the app running in the background.
+- Snooze, dismiss and skip straight from the notification, and re-arming after a reboot, a clock
+  change or an app update.
+
 ## [0.11.1]
 
 ### Fixed
