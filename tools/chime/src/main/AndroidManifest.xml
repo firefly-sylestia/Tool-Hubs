@@ -1,0 +1,103 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      An alarm clock is the one app class Android still lets hold an exact alarm without asking:
+      USE_EXACT_ALARM is granted at install for apps whose core function is alarms, and
+      SCHEDULE_EXACT_ALARM is the revocable user-facing one. Both are declared so a device that
+      withholds one still schedules exactly; the scheduler degrades to setAlarmClock otherwise.
+    -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- The full-screen alarm has to take over the lock screen; without this the notification is it. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Only for the scan-to-dismiss camera screen. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+
+    <queries>
+        <!-- Android 11+ hides the text-to-speech engine from the app unless it is asked for here. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
+    <application
+        android:icon="@drawable/ic_chime"
+        android:label="@string/app_name"
+        android:theme="@style/ToolHubsTheme"
+        android:allowBackup="true">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <!--
+          Shown over the lock screen by the full-screen intent, and launched directly by the service
+          when the device is already awake. singleTask so two alarms cannot stack two ringing screens.
+        -->
+        <activity
+            android:name=".ring.RingingActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:taskAffinity=".ringing"
+            android:theme="@style/ChimeRingingTheme" />
+        <activity
+            android:name=".ring.ScanDismissActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:excludeFromRecents="true"
+            android:theme="@style/ChimeRingingTheme" />
+        <service
+            android:name=".ring.RingService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="mediaPlayback" />
+        <!--
+          The pendulum chime. Deliberately not a foreground service: it lives for a few seconds and
+          claiming a foreground type for it would put a permanent icon in the status bar.
+        -->
+        <service
+            android:name=".bell.BellService"
+            android:exported="false"
+            android:stopWithTask="true" />
+        <receiver
+            android:name=".schedule.ChimeReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.sylestia.toolhubs.chime.ACTION_RING" />
+                <action android:name="com.sylestia.toolhubs.chime.ACTION_BELL" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".schedule.ChimeActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.sylestia.toolhubs.chime.ACTION_SNOOZE" />
+                <action android:name="com.sylestia.toolhubs.chime.ACTION_DISMISS" />
+                <action android:name="com.sylestia.toolhubs.chime.ACTION_SKIP" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".schedule.ChimeBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
