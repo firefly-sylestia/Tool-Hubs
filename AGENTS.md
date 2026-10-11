@@ -6,12 +6,14 @@ silently picking one.
 
 ## 1. Scope
 
-- **Only work on `:tools:network-switcher` for now.** Everything else is out of scope until the
-  user says otherwise.
-- Do not edit `tools/calculator`, `tools/data-warden`, `tools/music-analyzer`,
-  `tools/music-visualizer`, or the `core/*` modules unless the user explicitly asks, and never just
-  to make an unrelated change compile.
-- Keep changes inside the Network Switcher module whenever a fix can live there.
+- **The active modules are `:tools:chime` and `:tools:network-switcher`.** Everything else is out of
+  scope until the user says otherwise.
+- Do not edit `tools/data-warden` or the `core/*` modules unless the user explicitly asks, and never
+  just to make an unrelated change compile. Data Warden is frozen and shares `core/*`, so a token
+  whose value changes restyles it too.
+- The calculator, Music Analyzer and Music Visualizer modules were deleted at the user's request. Do
+  not reintroduce them or copy their files back.
+- Keep a change inside the module it belongs to whenever the fix can live there.
 
 ## 2. Never build or compile in this environment
 
@@ -29,31 +31,34 @@ silently picking one.
 
 ## 3. Commit every change, and bump the version with it
 
-The version lives in [`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts):
+Each tool carries its own version, in its own module build file
+([`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts),
+[`tools/chime/build.gradle.kts`](tools/chime/build.gradle.kts)):
 
 ```kotlin
-versionCode = 10
-versionName = "0.7.2"
+versionCode = 15
+versionName = "0.11.1"
 ```
 
 Rules:
 
 - **Every change is committed.** Do not leave finished work uncommitted. Commit in small, logical
   steps as you go rather than one giant commit at the end.
-- **Every commit that changes Network Switcher ships a version bump**, following the existing
-  `0.MINOR.PATCH` style:
+- **Every commit that changes a tool's source ships a version bump for that tool**, following the
+  existing `0.MINOR.PATCH` style:
   - **Patch** (default): small fixes, polish, dependency/workflow tweaks.
     `0.7.2` → `0.7.3`, `versionCode` +1.
   - **Release / minor**: new user-facing features or a coordinated milestone.
     `0.7.x` → `0.8.0`, `versionCode` +1.
   - `versionCode` is a monotonically increasing integer and must go up with every bump.
 - Use a dedicated commit for the bump when the change and the bump are separate concerns, matching
-  the existing history convention: `Bump Network Switcher to 0.7.3`.
+  the existing history convention: `Bump Network Switcher to 0.11.2`, `Bump Chime to 0.1.1`.
 - **No AI attribution in commit messages at all.** Never add a `Co-Authored-By:` line for Codebuff,
   another assistant or a model, and never add the `🤖 Generated with Codebuff` footer either. Commit
   messages are the plain subject and body, nothing else — and do not rewrite existing commits to add
   or strip attribution. History attributes the change to the person who made it.
-- The build file is the single source of truth for the version. Do not invent a version elsewhere.
+- The module build file is the single source of truth for the version. Do not invent a version
+  elsewhere, and do not bump a module whose source did not change.
 - Update [`CHANGELOG.md`](CHANGELOG.md) alongside a release/minor bump, and run the UI version
   display past a check if the app reads `BuildConfig.VERSION_NAME` anywhere.
 
@@ -71,7 +76,8 @@ Rules:
 - Kotlin 2.2.20, Jetpack Compose (BOM `2026.08.00`), Material 3, AGP 9.1.1, JDK 17, `compileSdk 37`,
   `minSdk 26`. Follow [`gradle/libs.versions.toml`](gradle/libs.versions.toml) for dependencies —
   add a version there rather than hardcoding one in a module.
-- Keep source in `tools/network-switcher/src/main/java/com/sylestia/toolhubs/networkswitcher/`.
+- Keep each tool's source under `tools/<tool>/src/main/java/com/sylestia/toolhubs/<tool>/`
+  (`networkswitcher`, `chime`).
 - Match the surrounding code: existing naming, coroutine/dispatcher usage, file layout, and the
   shared design system in `:core:designsystem` / `:core:ui` instead of new one-off styles.
 - Prefer editing existing files over adding new ones. Add a new file only when it has a clear,

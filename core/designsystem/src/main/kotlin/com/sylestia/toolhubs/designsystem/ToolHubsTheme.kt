@@ -278,9 +278,10 @@ fun ToolHubsTheme(
 /* ------------------------------------------------------------------------------------------------
  * Legacy berry/cream tokens.
  *
- * The calculator, Data Warden and Music Analyzer still reference these, so their values are frozen
- * exactly as they were: introducing the Aurora palette must not restyle software that was not part
- * of this change. New code should read `MaterialTheme.colorScheme` or `MaterialTheme.hubAccents`.
+ * Data Warden still references these, so their values are frozen exactly as they were: introducing
+ * the Aurora palette must not restyle software that was not part of this change. (The calculator and
+ * Music tools that also used them have since been deleted.) New code should read
+ * `MaterialTheme.colorScheme` or `MaterialTheme.hubAccents`.
  * ---------------------------------------------------------------------------------------------- */
 
 val CurioRoseWood = Color(0xFFB6415D)

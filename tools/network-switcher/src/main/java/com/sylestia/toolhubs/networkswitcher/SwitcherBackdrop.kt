@@ -26,8 +26,9 @@ import com.sylestia.toolhubs.designsystem.hubAccents
 /*
  * Network Switcher's own backdrop.
  *
- * This is deliberately module-local. The shared HubBackdrop in `:core:ui` is still used by the
- * calculator, Data Warden and the Music tools, which are frozen and must render exactly as before.
+ * This is deliberately module-local. The shared HubBackdrop in `:core:ui` is still used by Data
+ * Warden, which is frozen and must render exactly as before. The calculator and Music tools that
+ * also used it have been deleted from the repository.
  *
  * Everything here is driven by continuous infinite transitions rather than one-off animations, so the
  * surface never settles: light orbits the upper third, a grid drifts upward forever, a particle field

@@ -8,11 +8,9 @@ primitives living in `core/`.
 
 | Module | App | Status |
 | --- | --- | --- |
+| `:tools:chime` | Chime — alarms, reminders and a chiming clock | **Active development** |
 | `:tools:network-switcher` | 5G Reconnect — network observability and automatic 5G recovery | **Active development** |
 | `:tools:data-warden` | Data Warden — mobile data protection | Frozen |
-| `:tools:calculator` | Calculator | Frozen |
-| `:tools:music-analyzer` | Music Analyzer | Frozen |
-| `:tools:music-visualizer` | Music Visualizer | Frozen |
 
 Shared code:
 
@@ -22,9 +20,10 @@ Shared code:
 | `:core:ui` | Reusable composables, navigation chrome and UI primitives |
 | `:core:common` | Small shared helpers used across tools |
 
-> **Current focus: `:tools:network-switcher` only.** The other tools are deliberately untouched —
-> their theme tokens, shared header and metric primitives are frozen at their existing values so
-> they keep behaving exactly as they did. See [`AGENTS.md`](AGENTS.md) for the working rules.
+> **Current focus: `:tools:chime` and `:tools:network-switcher`.** The calculator, Music Analyzer and
+> Music Visualizer apps have been removed from the repository, and Data Warden is left untouched —
+> the shared theme tokens, header and metric primitives keep their existing values so it goes on
+> rendering exactly as it did. See [`AGENTS.md`](AGENTS.md) for the working rules.
 
 ## Network Switcher (5G Reconnect)
 

@@ -186,8 +186,9 @@ fun HubReveal(index: Int = 0, modifier: Modifier = Modifier, content: @Composabl
 /**
  * Kicker + title block with the tool's mark in an aurora chip.
  *
- * This is the new Aurora header. [HubScreenHeader] is deliberately left untouched below because the
- * calculator, Data Warden and Music Analyzer were not part of this change and must not be restyled.
+ * This is the new Aurora header. [HubScreenHeader] is deliberately left untouched below because Data
+ * Warden still uses it and must not be restyled; the calculator and Music tools that also used it
+ * have since been deleted.
  */
 @Composable
 fun HubHeroHeader(

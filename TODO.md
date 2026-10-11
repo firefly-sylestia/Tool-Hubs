@@ -185,6 +185,7 @@ Documented rather than left as unfinished work:
       can guide users but cannot guarantee exemption.
 
 ## Deliberately untouched
-The calculator, Data Warden and Music Analyzer were outside the scope of this request. Their theme
-tokens, shared header and metric primitives are frozen at their previous values so they render and
-behave exactly as before.
+Data Warden was outside the scope of this request. Its theme tokens, shared header and metric
+primitives are frozen at their previous values so it renders and behaves exactly as before. The
+calculator, Music Analyzer and Music Visualizer modules have since been deleted from the repository
+at the user's request.

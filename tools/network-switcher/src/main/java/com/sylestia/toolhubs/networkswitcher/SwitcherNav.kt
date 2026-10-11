@@ -65,7 +65,8 @@ import com.sylestia.toolhubs.ui.HubNavItem
  * Network Switcher's own navigation chrome.
  *
  * This deliberately lives in the module rather than in `:core:ui`: the shared HubBottomNav is used
- * by the calculator, Data Warden and the Music tools, which are frozen and must not be restyled.
+ * by Data Warden, which is frozen and must not be restyled. (The calculator and Music tools that
+ * used it as well have been deleted from the repository.)
  */
 
 /**

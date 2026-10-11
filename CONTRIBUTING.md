@@ -5,12 +5,13 @@ Thanks for helping with Tool-Hubs. This document covers the versioning, release 
 
 ## Current scope
 
-`:tools:network-switcher` is the only module under active development. The calculator, Data Warden,
-Music Analyzer and Music Visualizer are frozen — their theme tokens, shared header and metric
-primitives are deliberately left untouched so they keep rendering and behaving exactly as before.
+`:tools:chime` and `:tools:network-switcher` are the modules under active development. Data Warden is
+frozen — its theme tokens, shared header and metric primitives are deliberately left untouched so it
+keeps rendering and behaving exactly as before. The calculator, Music Analyzer and Music Visualizer
+have been removed from the repository.
 
 The `core/*` modules are shared, so changes there affect every tool. Treat them as out of scope
-unless a Network Switcher change genuinely requires it.
+unless a change genuinely requires it.
 
 ## Where builds happen
 
@@ -37,19 +38,22 @@ otherwise so fork and pull-request builds still work.
 
 ## Versioning
 
-The version lives in [`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts)
-and is the single source of truth:
+Each tool carries its own version in its own module build file
+([`tools/chime/build.gradle.kts`](tools/chime/build.gradle.kts),
+[`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts)), and that file
+is the single source of truth for that tool:
 
 ```kotlin
 defaultConfig {
-    versionCode = 10
-    versionName = "0.7.2"
+    versionCode = 15
+    versionName = "0.11.1"
 }
 ```
 
 - `versionName` follows `0.MINOR.PATCH`.
 - `versionCode` is a monotonically increasing integer and must increase with every bump.
-- **Every change ships with a version bump.**
+- **Every change to a tool's source ships with a version bump for that tool.** A workflow-only or
+documentation-only commit does not need one.
   - **Patch** — the default for fixes, polish, docs and workflow tweaks:
     `0.7.2` → `0.7.3`, `versionCode` +1.
   - **Release / minor** — new user-facing features or a coordinated milestone:
