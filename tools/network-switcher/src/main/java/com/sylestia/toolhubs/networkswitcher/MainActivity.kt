@@ -47,6 +47,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -1146,26 +1147,59 @@ private fun EventsPage(context: Context, onOpenSettings: () -> Unit) {
         }
         Spacer(Modifier.height(12.dp))
 
+        /*
+         * These two rows live in a Column, not loose inside the reveal.
+         *
+         * HubReveal draws its content into a Box, and a Box lays several children on top of each
+         * other — so the two rows of stats were literally overlapping, which is what "the grouped /
+         * hours cards overlap" was. One child, laid out as a column of rows.
+         *
+         * The rows measure to their tallest tile and every tile fills that height, so a tile whose
+         * label wraps ("hours with failures") no longer stands taller than its neighbour.
+         */
         HubReveal(2) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                HubStatTile(
-                    if (hourStartAt == null) "Events · 24h" else "Events · hour",
-                    filtered.size.toString(),
-                    MaterialTheme.colorScheme.primary,
-                    Modifier.weight(1f),
-                )
-                HubStatTile("Grouped", groups.size.toString(), MaterialTheme.hubAccents.success, Modifier.weight(1f))
-                HubStatTile("Failed", failureCount.toString(), MaterialTheme.colorScheme.error, Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                HubStatTile("Recovery events", recoveryCount.toString(), MaterialTheme.colorScheme.secondary, Modifier.weight(1f))
-                HubStatTile(
-                    "Hours with failures",
-                    flaggedHours.toString(),
-                    if (flaggedHours == 0) MaterialTheme.hubAccents.success else MaterialTheme.hubAccents.warning,
-                    Modifier.weight(1f),
-                )
+            Column(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    HubStatTile(
+                        if (hourStartAt == null) "Events · 24h" else "Events · hour",
+                        filtered.size.toString(),
+                        MaterialTheme.colorScheme.primary,
+                        Modifier.weight(1f).fillMaxHeight(),
+                    )
+                    HubStatTile(
+                        "Grouped",
+                        groups.size.toString(),
+                        MaterialTheme.hubAccents.success,
+                        Modifier.weight(1f).fillMaxHeight(),
+                    )
+                    HubStatTile(
+                        "Failed",
+                        failureCount.toString(),
+                        MaterialTheme.colorScheme.error,
+                        Modifier.weight(1f).fillMaxHeight(),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    HubStatTile(
+                        "Recovery events",
+                        recoveryCount.toString(),
+                        MaterialTheme.colorScheme.secondary,
+                        Modifier.weight(1f).fillMaxHeight(),
+                    )
+                    HubStatTile(
+                        "Hours with failures",
+                        flaggedHours.toString(),
+                        if (flaggedHours == 0) MaterialTheme.hubAccents.success else MaterialTheme.hubAccents.warning,
+                        Modifier.weight(1f).fillMaxHeight(),
+                    )
+                }
             }
         }
         Spacer(Modifier.height(14.dp))

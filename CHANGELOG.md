@@ -30,6 +30,15 @@ Switcher.
 - Snooze, dismiss and skip straight from the notification, and re-arming after a reboot, a clock
   change or an app update.
 
+## [0.11.3]
+
+### Fixed
+- The two rows of stat tiles under the Activity timeline — Events, Grouped, Failed, Recovery events
+  and Hours with failures — were drawn on top of each other. `HubReveal` lays its content out in a
+  `Box`, and that block handed it three children, so the rows genuinely overlapped. They now sit in
+  one `Column`, and each row measures to its tallest tile so a wrapped label such as "Hours with
+  failures" no longer stands taller than the tile beside it.
+
 ## [0.11.2]
 
 ### Fixed
