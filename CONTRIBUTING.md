@@ -18,6 +18,13 @@ unless a Network Switcher change genuinely requires it.
 for every module on pushes to `main` and `dev`, on pull requests, and on manual dispatch, then
 uploads the APKs as artifacts (1-day retention).
 
+A `prune` job runs ahead of the build and deletes this repository's artifacts older than a day and
+all but the ten newest caches. Actions storage is one account-wide quota shared by every repository:
+an artefact bucket that is full fails the upload step on every module, and a Gradle cache bucket that
+is full reaches gigabytes, so neither is left to age out on its own. The prune job holds the only
+`actions: write` permission in the workflow; the build job stays `contents: read` because it checks
+out and runs repository code.
+
 There is no Gradle wrapper in the repository; CI pins Gradle `9.3.1` and JDK 17, and installs the
 Android SDK itself. Do not add wrapper files or a local toolchain as part of a change.
 

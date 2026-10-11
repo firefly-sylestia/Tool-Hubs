@@ -15,8 +15,52 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  prune:
+    name: Prune stale artifacts and caches
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Scoped to this job on purpose: only the prune steps need write access to the repository's own
+    # Actions data, and the build job checks out and runs repository code, so it must not have it.
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Delete artifacts and caches older than a day
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          repo="$GITHUB_REPOSITORY"
+
+          # Artifact storage is a small, account-wide quota, and its usage figure only refreshes every
+          # 6-12 hours, so waiting for the one-day retention to take effect is not enough: it stayed
+          # over quota, which failed the upload step on every module of every run.
+          gh api --paginate "repos/$repo/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select((.created_at | fromdateiso8601) < (now - 86400)) | .id' \
+            > "$RUNNER_TEMP/stale-artifacts.txt"
+          echo "artifacts older than a day: $(wc -l < "$RUNNER_TEMP/stale-artifacts.txt")"
+          while read -r id; do
+            [ -n "$id" ] || continue
+            gh api -X DELETE "repos/$repo/actions/artifacts/$id" > /dev/null || echo "artifact $id already gone"
+          done < "$RUNNER_TEMP/stale-artifacts.txt"
+
+          # Gradle caches reach gigabytes each and one is written per branch and per run, so they pile
+          # up far past the artifacts. Keep the ten newest so ordinary builds stay warm and delete the
+          # rest; a cache is only a download saved, never data.
+          gh cache list --limit 100 --sort created_at --order desc --json id,key,sizeInBytes \
+            > "$RUNNER_TEMP/caches.json"
+          total=$(gh api "repos/$repo/actions/cache/usage" --jq '.active_caches_count')
+          echo "caches before: $total"
+          jq -r '.[10:] | .[] | .id' "$RUNNER_TEMP/caches.json" | while read -r id; do
+            [ -n "$id" ] || continue
+            gh cache delete "$id" > /dev/null || echo "cache $id already gone"
+          done
+          gh api "repos/$repo/actions/cache/usage" \
+            --jq '"caches after: \(.active_caches_count), \(.active_caches_size_in_bytes / 1048576 | floor) MB"'
+
   build:
     name: Build ${{ matrix.name }} release APK
+    needs: prune
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
