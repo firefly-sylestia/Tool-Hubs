@@ -113,6 +113,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import kotlin.math.roundToInt
 import androidx.core.view.WindowCompat
@@ -526,7 +527,8 @@ private fun WatchPage(
             .padding(horizontal = 18.dp)
             .padding(top = 14.dp, bottom = 22.dp),
     ) {
-        HubReveal(0) {
+        // The header pins itself, so it has to paint above the cards that scroll underneath it.
+        HubReveal(0, Modifier.zIndex(1f)) {
             SwitcherHeader(
                 kicker = "5G Reconnect",
                 title = "Radio guardian",
@@ -1099,7 +1101,7 @@ private fun EventsPage(context: Context, onOpenSettings: () -> Unit) {
         Modifier.fillMaxSize().verticalScroll(scroll).statusBarsPadding()
             .padding(horizontal = 18.dp).padding(top = 14.dp, bottom = 22.dp),
     ) {
-        HubReveal(0) {
+        HubReveal(0, Modifier.zIndex(1f)) {
             SwitcherHeader(
                 kicker = "Activity",
                 title = "Network timeline",
@@ -1637,7 +1639,7 @@ private fun DataPage(
             .padding(horizontal = 18.dp)
             .padding(top = 14.dp, bottom = 22.dp),
     ) {
-        HubReveal(0) {
+        HubReveal(0, Modifier.zIndex(1f)) {
             SwitcherHeader(
                 kicker = "Usage",
                 title = "Observed traffic",
@@ -1871,7 +1873,7 @@ private fun UsageHistoryPage(context: MainActivity, onOpenSettings: () -> Unit) 
             .padding(horizontal = 18.dp)
             .padding(top = 14.dp, bottom = 22.dp),
     ) {
-        HubReveal(0) {
+        HubReveal(0, Modifier.zIndex(1f)) {
             SwitcherHeader(
                 kicker = "History",
                 title = "Usage timeline",
@@ -2566,7 +2568,7 @@ private fun SettingsPage(
             .padding(horizontal = 18.dp)
             .padding(top = 14.dp, bottom = 22.dp),
     ) {
-        HubReveal(0) { SettingsHeader(scrollState = scroll, onBack = onBack) }
+        HubReveal(0, Modifier.zIndex(1f)) { SettingsHeader(scrollState = scroll, onBack = onBack) }
 
         Spacer(Modifier.height(16.dp))
 

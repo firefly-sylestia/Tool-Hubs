@@ -28,11 +28,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -409,24 +412,65 @@ fun IncidentGraph(
                 buckets.forEachIndexed { index, bucket ->
                     if (bucket.total == 0) return@forEachIndexed
                     val left = inset + slot * index + (slot - barWidth) / 2f
-                    var drawn = 0f
-                    fun segment(count: Int, color: Color) {
-                        if (count <= 0) return
-                        val fraction = (count.toFloat() / scaleMax).coerceAtLeast(0.04f)
-                        val segmentHeight = chartHeight * fraction
-                        drawRoundRect(
-                            color = color,
-                            topLeft = Offset(left, baseline - drawn - segmentHeight),
-                            size = Size(barWidth, segmentHeight),
-                            cornerRadius = CornerRadius(barWidth / 3f),
-                        )
-                        drawn += segmentHeight
+
+                    /*
+                     * The whole bucket is measured first and then fitted to the plot.
+                     *
+                     * Sizing each segment on its own from count/scaleMax and simply stacking them is
+                     * what used to push a bar clean off the top of its own card: every non-zero count
+                     * was given a minimum visible height, so an hour holding one event of each kind
+                     * came out taller than the chart, and the overflowing bar read as cards overlapping.
+                     * A one-off count still has to be *visible* — a failure that cannot be seen is the
+                     * whole reason this graph exists — so the floor stays, and the stack is scaled down
+                     * to fit instead.
+                     */
+                    val counts = listOf(
+                        bucket.network,
+                        bucket.successes,
+                        bucket.other,
+                        bucket.sim,
+                        bucket.failures,
+                    )
+                    val colors = listOf(networkColor, successColor, otherColor, simColor, failureColor)
+                    val minSegment = 3.dp.toPx()
+                    val heights = counts.map { count ->
+                        if (count <= 0) 0f else (chartHeight * count / scaleMax).coerceAtLeast(minSegment)
                     }
-                    segment(bucket.network, networkColor)
-                    segment(bucket.successes, successColor)
-                    segment(bucket.other, otherColor)
-                    segment(bucket.sim, simColor)
-                    segment(bucket.failures, failureColor)
+                    val stack = heights.sum()
+                    val fit = if (stack > chartHeight) chartHeight / stack else 1f
+
+                    val fitted = heights.map { it * fit }
+                    val barHeight = fitted.sum().coerceAtMost(chartHeight)
+                    if (barHeight <= 0f) return@forEachIndexed
+
+                    /*
+                     * One capsule per bar, with flat boundaries between the segments.
+                     *
+                     * Rounding every segment separately made a stacked bar read as several small
+                     * cards balanced on top of each other, which is what "the cards overlap" turned
+                     * out to be. Clipping to a single rounded outline gives the bar one silhouette and
+                     * keeps the splits crisp inside it.
+                     */
+                    val bar = Path().apply {
+                        addRoundRect(
+                            RoundRect(
+                                rect = Rect(Offset(left, baseline - barHeight), Size(barWidth, barHeight)),
+                                cornerRadius = CornerRadius(barWidth / 3f),
+                            )
+                        )
+                    }
+                    clipPath(bar) {
+                        var offset = 0f
+                        fitted.forEachIndexed segment@{ segmentIndex, height ->
+                            if (height <= 0f) return@segment
+                            drawRect(
+                                color = colors[segmentIndex].copy(alpha = if (selectedIndex == null || selectedIndex == index) 1f else 0.42f),
+                                topLeft = Offset(left, baseline - offset - height),
+                                size = Size(barWidth, height),
+                            )
+                            offset += height
+                        }
+                    }
                 }
 
                 selectedIndex?.let { index ->
@@ -574,25 +618,40 @@ fun UsageTimelineGraph(
                 buckets.forEachIndexed { index, bucket ->
                     if (bucket.total <= 0L) return@forEachIndexed
                     val left = inset + slot * index + (slot - barWidth) / 2f
+                    // Fitted to the plot: the two segments are one bar, so they share one silhouette
+                    // rather than being two rounded capsules resting on each other.
                     val lteHeight = chartHeight * (bucket.lteBytes.toFloat() / scaleMax).coerceIn(0f, 1f)
                     val fiveGHeight = chartHeight * (bucket.fiveGBytes.toFloat() / scaleMax).coerceIn(0f, 1f)
                     val selectedBucket = index == selectedIndex
                     val alpha = if (selectedIndex == null || selectedBucket) 1f else 0.42f
-                    if (lteHeight > 0f) {
-                        drawRoundRect(
-                            color = lteColor.copy(alpha = alpha),
-                            topLeft = Offset(left, baseline - lteHeight),
-                            size = Size(barWidth, lteHeight),
-                            cornerRadius = CornerRadius(barWidth / 3f),
-                        )
-                    }
-                    if (fiveGHeight > 0f) {
-                        drawRoundRect(
-                            color = (if (bucket.suspicious) cautionColor else fiveGColor).copy(alpha = alpha),
-                            topLeft = Offset(left, baseline - lteHeight - fiveGHeight),
-                            size = Size(barWidth, fiveGHeight),
-                            cornerRadius = CornerRadius(barWidth / 3f),
-                        )
+                    val barHeight = (lteHeight + fiveGHeight).coerceAtMost(chartHeight)
+                    if (barHeight > 0f) {
+                        val fiveGPart = fiveGHeight.coerceAtMost(barHeight)
+                        val ltePart = (barHeight - fiveGPart).coerceAtLeast(0f)
+                        val bar = Path().apply {
+                            addRoundRect(
+                                RoundRect(
+                                    rect = Rect(Offset(left, baseline - barHeight), Size(barWidth, barHeight)),
+                                    cornerRadius = CornerRadius(barWidth / 3f),
+                                )
+                            )
+                        }
+                        clipPath(bar) {
+                            if (ltePart > 0f) {
+                                drawRect(
+                                    color = lteColor.copy(alpha = alpha),
+                                    topLeft = Offset(left, baseline - ltePart),
+                                    size = Size(barWidth, ltePart),
+                                )
+                            }
+                            if (fiveGPart > 0f) {
+                                drawRect(
+                                    color = (if (bucket.suspicious) cautionColor else fiveGColor).copy(alpha = alpha),
+                                    topLeft = Offset(left, baseline - ltePart - fiveGPart),
+                                    size = Size(barWidth, fiveGPart),
+                                )
+                            }
+                        }
                     }
                     if (bucket.suspicious) {
                         drawLine(

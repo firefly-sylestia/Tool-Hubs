@@ -39,12 +39,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
@@ -53,6 +58,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -228,9 +234,60 @@ fun SwitcherHeader(
     )
 
     val titleColor = lerp(scheme.onSurface, accents.auroraMid, 0.10f + 0.22f * glow)
-    val filament = if (collapse > 0.02f) collapse else 0.16f + 0.14f * glow
 
-    Column(Modifier.fillMaxWidth()) {
+    /*
+     * The rail.
+     *
+     * A page header that is the first child of a scrolling column leaves the screen with everything
+     * else, so this pins it: translating it down by exactly the scroll offset cancels the scroll and
+     * leaves the header where it started. What makes it read as a rail rather than a stuck header is
+     * the glass that grows behind it — at the top of the page there is no panel at all and the header
+     * is part of the content, and once you scroll, a frosted panel *bleeds past the header's own
+     * bounds* so the status-bar strip is covered too. Content keeps sliding underneath; it simply
+     * cannot be read there.
+     */
+    val pin = (scrollState?.value?.toFloat() ?: 0f).coerceAtLeast(0f)
+    // Measured in dp, not pixels: a raw pixel threshold would make the rail take three times as
+    // long to appear on a low-density screen as it does on a high-density one.
+    val barrierAt = with(LocalDensity.current) { 40.dp.toPx() }
+    val barrier = (pin / barrierAt).coerceIn(0f, 1f)
+    val railColor = scheme.surfaceContainer.copy(alpha = 0.92f * barrier)
+    val railProgress = scrollState?.let { state ->
+        if (state.maxValue > 0) (state.value.toFloat() / state.maxValue).coerceIn(0f, 1f) else 0f
+    } ?: 0f
+    // Idle, the filament breathes; pinned, it becomes the page's scroll position.
+    val filament = if (barrier > 0.02f) {
+        railProgress.coerceAtLeast(0.06f * barrier)
+    } else if (collapse > 0.02f) {
+        collapse
+    } else {
+        0.16f + 0.14f * glow
+    }
+    val scope = rememberCoroutineScope()
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .zIndex(1f)
+            .graphicsLayer { translationY = pin }
+            .drawBehind {
+                if (barrier > 0.01f) {
+                    val bleed = 64.dp.toPx()
+                    drawRect(
+                        color = railColor,
+                        topLeft = Offset(0f, -bleed),
+                        size = Size(size.width, size.height + bleed),
+                    )
+                }
+            }
+            // Tapping the pinned rail is a jump back to the top, which is the one affordance a long
+            // timeline is missing. It only exists once the rail does, so it cannot be hit by accident
+            // while the page is at rest.
+            .clickable(enabled = barrier > 0.6f) {
+                scrollState?.let { state -> scope.launch { state.animateScrollTo(0) } }
+            }
+            .padding(bottom = 10.dp * barrier),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (icon != null) {
                 SwitcherIconBadge(icon = icon, progress = collapse, sweep = sweep)
@@ -250,7 +307,8 @@ fun SwitcherHeader(
                 )
                 Text(
                     title,
-                    color = titleColor,
+                    // Legibility on the rail wins over the aurora tint once the panel is behind it.
+                    color = lerp(titleColor, scheme.onSurface, barrier),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.ExtraBold,
                     maxLines = 1,
@@ -319,7 +377,35 @@ fun SettingsHeader(scrollState: ScrollState? = null, onBack: () -> Unit) {
         label = "settings_sweep",
     )
 
-    Column(Modifier.fillMaxWidth()) {
+    // Same pinned rail as the page headers, so the settings page does not behave differently: the
+    // back affordance stays reachable however far down the diagnostics you are.
+    val pin = (scrollState?.value?.toFloat() ?: 0f).coerceAtLeast(0f)
+    // Measured in dp, not pixels: a raw pixel threshold would make the rail take three times as
+    // long to appear on a low-density screen as it does on a high-density one.
+    val barrierAt = with(LocalDensity.current) { 40.dp.toPx() }
+    val barrier = (pin / barrierAt).coerceIn(0f, 1f)
+    val railColor = scheme.surfaceContainer.copy(alpha = 0.92f * barrier)
+    val railProgress = scrollState?.let { state ->
+        if (state.maxValue > 0) (state.value.toFloat() / state.maxValue).coerceIn(0f, 1f) else 0f
+    } ?: 0f
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .zIndex(1f)
+            .graphicsLayer { translationY = pin }
+            .drawBehind {
+                if (barrier > 0.01f) {
+                    val bleed = 64.dp.toPx()
+                    drawRect(
+                        color = railColor,
+                        topLeft = Offset(0f, -bleed),
+                        size = Size(size.width, size.height + bleed),
+                    )
+                }
+            }
+            .padding(bottom = 10.dp * barrier),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             HubIconActionButton(icon = Icons.Rounded.ArrowBack, label = "Back", onClick = onBack)
             Spacer(Modifier.width(13.dp))
@@ -361,7 +447,15 @@ fun SettingsHeader(scrollState: ScrollState? = null, onBack: () -> Unit) {
         ) {
             Box(
                 Modifier
-                    .fillMaxWidth(if (collapse > 0.02f) collapse else 0.16f + 0.14f * glow)
+                    .fillMaxWidth(
+                        if (barrier > 0.02f) {
+                            railProgress.coerceAtLeast(0.06f * barrier)
+                        } else if (collapse > 0.02f) {
+                            collapse
+                        } else {
+                            0.16f + 0.14f * glow
+                        },
+                    )
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(50))
                     .background(Brush.horizontalGradient(listOf(scheme.primary, accents.auroraMid, accents.auroraStart))),

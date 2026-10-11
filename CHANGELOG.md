@@ -30,6 +30,25 @@ Switcher.
 - Snooze, dismiss and skip straight from the notification, and re-arming after a reboot, a clock
   change or an app update.
 
+## [0.11.2]
+
+### Fixed
+- The Activity page's hourly bars could stand taller than the plot. Every kind of event carried a
+  minimum visible height so a lone failure could not vanish, and an hour with a large total plus a
+  few single failures then summed to more than the chart — the bar overflowed its own card, which is
+  what read as cards overlapping. The whole stack is measured first and fitted to the plot, so a bar
+  can never exceed it while a single failure stays visible.
+- Stacked bars are now one capsule per bar with flat boundaries between segments. Rounding every
+  segment separately made a stacked bar look like several small cards balanced on top of each other;
+  the same treatment now applies to the usage timeline, and a bar outside the selected hour dims.
+
+### Changed
+- Page headers pin to the top of the screen instead of scrolling away. The header lifts into a
+  frosted rail that also covers the status-bar strip, the emblem contracts, the title drops its
+  aurora tint for legibility on the panel, the hairline underneath becomes a scroll-progress bar,
+  and tapping the pinned rail scrolls back to the top. The settings page uses the same rail, so its
+  back button stays reachable however far down the diagnostics you have scrolled.
+
 ## [0.11.1]
 
 ### Fixed
