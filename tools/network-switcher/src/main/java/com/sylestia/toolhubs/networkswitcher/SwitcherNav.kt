@@ -1,9 +1,17 @@
 package com.sylestia.toolhubs.networkswitcher
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,17 +43,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sylestia.toolhubs.designsystem.hubAccents
-import com.sylestia.toolhubs.ui.HubHeroHeader
 import com.sylestia.toolhubs.ui.HubNavItem
 
 /*
@@ -178,10 +191,15 @@ private fun SwitcherNavSlot(
 }
 
 /**
- * The page header plus the settings affordance.
+ * The page header: a solid icon badge, a breathing title and a scroll-reactive filament.
  *
- * Settings is no longer a navigation destination: it is a button in the header that pushes a
- * dedicated page, so the tab bar only carries the screens you actually move between.
+ * Two things changed here beyond styling. The icon badge used to draw its accent colour at ~22%
+ * alpha straight over the animated backdrop, so the aurora shimmered through the glyph and made it
+ * look glitchy; the badge is now an opaque surface colour with a crisp accent border. And the whole
+ * band now reacts to the page's scroll position, which is why every page hands its [ScrollState] in:
+ * the badge contracts, the title scales from its left edge, the subtitle dissolves and the filament
+ * under the header fills as you scroll. No page transition or backdrop layer moves with the finger,
+ * so the header is the one part of the screen that feels physically attached to the content.
  */
 @Composable
 fun SwitcherHeader(
@@ -189,43 +207,214 @@ fun SwitcherHeader(
     title: String,
     subtitle: String? = null,
     icon: ImageVector? = null,
+    scrollState: ScrollState? = null,
     onOpenSettings: () -> Unit,
 ) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.weight(1f)) {
-            HubHeroHeader(kicker = kicker, title = title, subtitle = subtitle, icon = icon)
+    val accents = MaterialTheme.hubAccents
+    val scheme = MaterialTheme.colorScheme
+    val collapse = scrollState?.let { (it.value / 260f).coerceIn(0f, 1f) } ?: 0f
+
+    val motion = rememberInfiniteTransition(label = "header")
+    val glow by motion.animateFloat(
+        0f, 1f,
+        infiniteRepeatable(tween(5_200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "header_glow",
+    )
+    val sweep by motion.animateFloat(
+        0f, 1f,
+        infiniteRepeatable(tween(4_400, easing = LinearEasing), RepeatMode.Restart),
+        label = "header_sweep",
+    )
+
+    val titleColor = lerp(scheme.onSurface, accents.auroraMid, 0.10f + 0.22f * glow)
+    val filament = if (collapse > 0.02f) collapse else 0.16f + 0.14f * glow
+
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (icon != null) {
+                SwitcherIconBadge(icon = icon, progress = collapse, sweep = sweep)
+                Spacer(Modifier.width(13.dp))
+            }
+            Column(
+                Modifier
+                    .weight(1f)
+                    .graphicsLayer { alpha = 1f - 0.30f * collapse },
+            ) {
+                Text(
+                    kicker.uppercase(),
+                    color = scheme.primary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.4.sp,
+                )
+                Text(
+                    title,
+                    color = titleColor,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.graphicsLayer {
+                        val scale = 1f - 0.09f * collapse
+                        scaleX = scale
+                        scaleY = scale
+                        transformOrigin = TransformOrigin(0f, 0.5f)
+                    },
+                )
+                if (subtitle != null) {
+                    Text(
+                        subtitle,
+                        color = scheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.graphicsLayer { alpha = (1f - collapse * 1.6f).coerceIn(0f, 1f) },
+                    )
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            HubIconActionButton(icon = Icons.Rounded.Settings, label = "Settings", onClick = onOpenSettings)
         }
-        Spacer(Modifier.width(10.dp))
-        HubIconActionButton(icon = Icons.Rounded.Settings, label = "Settings", onClick = onOpenSettings)
+
+        Spacer(Modifier.height(12.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .clip(RoundedCornerShape(50))
+                .background(accents.hairline.copy(alpha = 0.5f)),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(filament.coerceIn(0f, 1f))
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(50))
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(scheme.primary, accents.auroraMid, accents.auroraStart),
+                        ),
+                    ),
+            )
+        }
     }
 }
 
 /** Header for the pushed settings page: back affordance in place of the settings button. */
 @Composable
-fun SettingsHeader(onBack: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        HubIconActionButton(icon = Icons.Rounded.ArrowBack, label = "Back", onClick = onBack)
-        Spacer(Modifier.width(13.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                "5G RECONNECT",
-                color = MaterialTheme.colorScheme.primary,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 2.4.sp,
-            )
-            Text(
-                "Settings",
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.ExtraBold,
-            )
-            Text(
-                "Recovery behaviour, privileged access, SIM choice and diagnostics.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
+fun SettingsHeader(scrollState: ScrollState? = null, onBack: () -> Unit) {
+    val accents = MaterialTheme.hubAccents
+    val scheme = MaterialTheme.colorScheme
+    val collapse = scrollState?.let { (it.value / 260f).coerceIn(0f, 1f) } ?: 0f
+
+    val motion = rememberInfiniteTransition(label = "settings_header")
+    val glow by motion.animateFloat(
+        0f, 1f,
+        infiniteRepeatable(tween(5_600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "settings_glow",
+    )
+    val sweep by motion.animateFloat(
+        0f, 1f,
+        infiniteRepeatable(tween(4_800, easing = LinearEasing), RepeatMode.Restart),
+        label = "settings_sweep",
+    )
+
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            HubIconActionButton(icon = Icons.Rounded.ArrowBack, label = "Back", onClick = onBack)
+            Spacer(Modifier.width(13.dp))
+            Column(
+                Modifier
+                    .weight(1f)
+                    .graphicsLayer { alpha = 1f - 0.30f * collapse },
+            ) {
+                Text(
+                    "5G RECONNECT",
+                    color = scheme.primary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.4.sp,
+                )
+                Text(
+                    "Settings",
+                    color = lerp(scheme.onSurface, accents.auroraMid, 0.10f + 0.22f * glow),
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                Text(
+                    "Recovery behaviour, privileged access, SIM choice and diagnostics.",
+                    color = scheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.graphicsLayer { alpha = (1f - collapse * 1.6f).coerceIn(0f, 1f) },
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .clip(RoundedCornerShape(50))
+                .background(accents.hairline.copy(alpha = 0.5f)),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(if (collapse > 0.02f) collapse else 0.16f + 0.14f * glow)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(50))
+                    .background(Brush.horizontalGradient(listOf(scheme.primary, accents.auroraMid, accents.auroraStart))),
             )
         }
+    }
+}
+
+/**
+ * Square badge behind a page's mark.
+ *
+ * Fully opaque on purpose: an accent wash over the animated backdrop is what made the previous chip
+ * shimmer through its own icon. The sweeping highlight is drawn *inside* the opaque fill, so it
+ * brightens the badge without ever letting the backdrop show through.
+ */
+@Composable
+private fun SwitcherIconBadge(icon: ImageVector, progress: Float, sweep: Float) {
+    val accents = MaterialTheme.hubAccents
+    val scheme = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(17.dp - 4.dp * progress)
+    // Named `badgeSize` rather than `size`, because inside the Canvas below `size` must resolve to
+    // DrawScope.size and a local of the same name would shadow it.
+    val badgeSize = 48.dp - 9.dp * progress
+
+    Box(
+        Modifier
+            .size(badgeSize)
+            .shadow(12.dp, shape, clip = false, ambientColor = accents.shadow, spotColor = accents.shadow)
+            .clip(shape)
+            .background(scheme.surfaceContainerHighest)
+            .border(1.5.dp, scheme.primary.copy(alpha = 0.55f), shape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            // A soft highlight that travels across the fill on its own loop.
+            val travel = sweep * 2f - 0.5f
+            drawRect(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        accents.auroraMid.copy(alpha = 0.30f),
+                        Color.Transparent,
+                    ),
+                    start = Offset(size.width * (travel - 0.4f), 0f),
+                    end = Offset(size.width * (travel + 0.4f), size.height),
+                ),
+            )
+        }
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = scheme.primary,
+            modifier = Modifier.size(22.dp - 4.dp * progress),
+        )
     }
 }
 

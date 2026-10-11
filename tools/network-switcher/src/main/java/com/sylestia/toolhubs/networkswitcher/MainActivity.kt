@@ -38,6 +38,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -104,6 +106,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -111,10 +116,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import kotlin.math.roundToInt
 import androidx.core.view.WindowCompat
 import com.sylestia.toolhubs.designsystem.ToolHubsTheme
 import com.sylestia.toolhubs.designsystem.hubAccents
-import com.sylestia.toolhubs.ui.HubBackdrop
 import com.sylestia.toolhubs.ui.HubEmptyState
 import com.sylestia.toolhubs.ui.HubGlassCard
 import com.sylestia.toolhubs.ui.HubHairline
@@ -383,7 +388,7 @@ private fun NetworkApp(
         else -> MaterialTheme.colorScheme.primary
     }
 
-    HubBackdrop {
+    SwitcherBackdrop {
         Scaffold(
             containerColor = Color.Transparent,
             // Insets are applied by the pages themselves, so Scaffold must not add its own
@@ -477,6 +482,7 @@ private fun WatchPage(
     accent: Color,
     onOpenSettings: () -> Unit,
 ) {
+    val scroll = rememberScrollState()
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
@@ -488,7 +494,7 @@ private fun WatchPage(
     Column(
         Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scroll)
             .statusBarsPadding()
             .padding(horizontal = 18.dp)
             .padding(top = 14.dp, bottom = 22.dp),
@@ -499,6 +505,7 @@ private fun WatchPage(
                 title = "Radio guardian",
                 subtitle = "Keeps watch for LTE fallback and pulls you back onto 5G.",
                 icon = Icons.Rounded.Bolt,
+                scrollState = scroll,
                 onOpenSettings = onOpenSettings,
             )
         }
@@ -1014,6 +1021,7 @@ private data class EventGroup(
 
 @Composable
 private fun EventsPage(context: Context, onOpenSettings: () -> Unit) {
+    val scroll = rememberScrollState()
     var entries by remember { mutableStateOf(readNetworkHistory(context)) }
     var filter by rememberSaveable { mutableStateOf("All") }
     var showExport by remember { mutableStateOf(false) }
@@ -1039,7 +1047,7 @@ private fun EventsPage(context: Context, onOpenSettings: () -> Unit) {
     val networkCount = filtered.count { it.type == "network" || it.type == "sim_failover" }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding()
+        Modifier.fillMaxSize().verticalScroll(scroll).statusBarsPadding()
             .padding(horizontal = 18.dp).padding(top = 14.dp, bottom = 22.dp),
     ) {
         HubReveal(0) {
@@ -1048,6 +1056,7 @@ private fun EventsPage(context: Context, onOpenSettings: () -> Unit) {
                 title = "Network timeline",
                 subtitle = "Repeated watcher noise is grouped into one event so the useful signal stays visible.",
                 icon = Icons.Rounded.Timeline,
+                scrollState = scroll,
                 onOpenSettings = onOpenSettings,
             )
         }
@@ -1315,6 +1324,7 @@ private fun DataPage(
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
+    val scroll = rememberScrollState()
     val store = remember { MainActivity.store(context) }
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
@@ -1350,7 +1360,7 @@ private fun DataPage(
     Column(
         Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scroll)
             .statusBarsPadding()
             .padding(horizontal = 18.dp)
             .padding(top = 14.dp, bottom = 22.dp),
@@ -1361,6 +1371,7 @@ private fun DataPage(
                 title = "Observed traffic",
                 subtitle = "Day-by-day mobile traffic, sampled by the radio that carried it.",
                 icon = Icons.Rounded.Analytics,
+                scrollState = scroll,
                 onOpenSettings = onOpenSettings,
             )
         }
@@ -1388,24 +1399,16 @@ private fun DataPage(
                 Spacer(Modifier.height(14.dp))
                 NetworkSplitBar(lte = totals.todayLte, fiveG = totals.todayFiveG)
                 Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    HubQuietButton(
-                        text = "Reset today",
-                        icon = Icons.Rounded.Refresh,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        NetworkUsageTracker.resetToday(context)
-                        tick++
-                    }
-                    HubQuietButton(
-                        text = "History",
-                        icon = Icons.Rounded.History,
-                        modifier = Modifier.weight(1f),
-                        onClick = onOpenHistory,
-                    )
-                }
+                HubQuietButton(
+                    text = "Open history",
+                    icon = Icons.Rounded.History,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onOpenHistory,
+                )
             }
         }
+        Spacer(Modifier.height(12.dp))
+        HubReveal(2) { ResetTodayCard(context) { tick++ } }
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             HubStatTile("5G time", formatDuration(fiveGTime), MaterialTheme.hubAccents.success, Modifier.weight(1f))
@@ -1541,6 +1544,8 @@ private fun DataPage(
             }
         }
         Spacer(Modifier.height(12.dp))
+        HubReveal(7) { ReconciliationCard(context) }
+        Spacer(Modifier.height(12.dp))
         Text(
             "Android exposes aggregate mobile traffic, not carrier-billing bytes split by radio. Each " +
                 "delta is attributed to the radio state active during the sample, so this is an " +
@@ -1553,10 +1558,12 @@ private fun DataPage(
 
 @Composable
 private fun UsageHistoryPage(context: MainActivity, onOpenSettings: () -> Unit) {
+    val scroll = rememberScrollState()
     var tick by remember { mutableIntStateOf(0) }
     var rangeIndex by rememberSaveable { mutableIntStateOf(1) }
     var suspiciousOnly by rememberSaveable { mutableStateOf(false) }
     var selectedId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var bulkMessage by remember { mutableStateOf<String?>(null) }
     val historyScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
@@ -1591,7 +1598,7 @@ private fun UsageHistoryPage(context: MainActivity, onOpenSettings: () -> Unit) 
     Column(
         Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scroll)
             .statusBarsPadding()
             .padding(horizontal = 18.dp)
             .padding(top = 14.dp, bottom = 22.dp),
@@ -1602,6 +1609,7 @@ private fun UsageHistoryPage(context: MainActivity, onOpenSettings: () -> Unit) 
                 title = "Usage timeline",
                 subtitle = "Minute-level mobile traffic with suspicious-spike review and manual cleanup.",
                 icon = Icons.Rounded.History,
+                scrollState = scroll,
                 onOpenSettings = onOpenSettings,
             )
         }
@@ -1640,6 +1648,29 @@ private fun UsageHistoryPage(context: MainActivity, onOpenSettings: () -> Unit) 
                             selectedId = null
                         },
                     )
+                }
+                Spacer(Modifier.height(10.dp))
+                HubQuietButton(
+                    text = "Mark every spike as fake",
+                    icon = Icons.Rounded.Warning,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        historyScope.launch {
+                            val changed = withContext(Dispatchers.IO) {
+                                NetworkUsageTracker.markAllSuspiciousFake(context)
+                            }
+                            bulkMessage = if (changed > 0) {
+                                "Marked $changed spike${if (changed == 1) "" else "s"} fake and removed them from the totals."
+                            } else {
+                                "Nothing left to mark — every flagged spike is already fake."
+                            }
+                            tick++
+                        }
+                    },
+                )
+                bulkMessage?.let { note ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(note, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
                 }
             }
         }
@@ -1855,19 +1886,78 @@ private fun UsageHistoryGraph(intervals: List<UsageInterval>, graphStart: Long) 
         buckets.maxOfOrNull { it.bytes } ?: 0L,
         1L * 1024L * 1024L,
     )
+
+    // Scrubbing state. The chart is the one place the app reads the finger directly, and the readout
+    // above it, the crosshair and the highlighted point all follow the same index so they cannot
+    // disagree about which minute is being inspected.
+    var scrubIndex by remember { mutableStateOf<Int?>(null) }
+    var graphWidth by remember { mutableIntStateOf(0) }
+    val insetPx = with(LocalDensity.current) { 14.dp.toPx() }
+    val scrubbed = scrubIndex?.let { buckets.getOrNull(it.coerceIn(0, buckets.lastIndex)) }
+
+    fun bucketIndexFor(x: Float): Int {
+        val chartWidth = (graphWidth - insetPx * 2f).coerceAtLeast(1f)
+        val step = chartWidth / buckets.lastIndex.coerceAtLeast(1)
+        return (((x - insetPx) / step).roundToInt()).coerceIn(0, buckets.lastIndex)
+    }
     val historyErrorColor = MaterialTheme.colorScheme.error
     val historySuccessColor = MaterialTheme.hubAccents.success
     val historyLteColor = MaterialTheme.colorScheme.tertiary
     val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
 
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    scrubbed?.let { formatIntervalClock(it.timestamp) } ?: "Drag across the chart to inspect a minute",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    scrubbed?.let { bucket -> formatBytes(bucket.bytes) + " · " + (bucket.network ?: "unattributed") }
+                        ?: ("Tallest bucket " + formatBytes(maxBytes)),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
+                )
+            }
+            scrubbed?.let { bucket ->
+                HubPill(
+                    label = if (bucket.suspicious) "SPIKE" else "SELECTED",
+                    active = false,
+                    accent = if (bucket.suspicious) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(180.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                .onSizeChanged { graphWidth = it.width }
+                .pointerInput(buckets.size) {
+                    detectDragGestures(
+                        onDragStart = { offset -> scrubIndex = bucketIndexFor(offset.x) },
+                        onDrag = { change, _ -> scrubIndex = bucketIndexFor(change.position.x) },
+                    )
+                }
+                .pointerInput(buckets.size) {
+                    detectTapGestures { offset ->
+                        val index = bucketIndexFor(offset.x)
+                        scrubIndex = if (scrubIndex == index) null else index
+                    }
+                },
+        ) {
     Canvas(
-        Modifier
-            .fillMaxWidth()
-            .height(180.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLow),
+        Modifier.fillMaxSize(),
     ) {
-        val inset = 12.dp.toPx()
+        // Must match `insetPx` used for hit-testing, otherwise the crosshair lands a bucket away
+        // from the finger near the edges.
+        val inset = 14.dp.toPx()
         val chartWidth = (size.width - inset * 2f).coerceAtLeast(1f)
         val chartHeight = (size.height - inset * 2f).coerceAtLeast(1f)
         val baseline = size.height - inset
@@ -1939,12 +2029,40 @@ private fun UsageHistoryGraph(intervals: List<UsageInterval>, graphStart: Long) 
             )
         }
 
+        // Crosshair for the scrubbed bucket, drawn last so it sits above everything else.
+        scrubIndex?.let { index ->
+            val point = points[index.coerceIn(0, buckets.lastIndex)]
+            drawLine(
+                color = historySuccessColor.copy(alpha = 0.32f),
+                start = Offset(point.x, inset),
+                end = Offset(point.x, baseline),
+                strokeWidth = 1.5f,
+            )
+            drawCircle(color = historySuccessColor.copy(alpha = 0.20f), radius = 11.dp.toPx(), center = point)
+            drawCircle(color = historySuccessColor, radius = 5.dp.toPx(), center = point)
+        }
+
         drawLine(
             color = historyLteColor.copy(alpha = 0.22f),
             start = Offset(inset, baseline),
             end = Offset(size.width - inset, baseline),
             strokeWidth = 1.5.dp.toPx(),
         )
+    }
+        }
+        Spacer(Modifier.height(7.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(
+                formatIntervalClock(graphStart),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 9.sp,
+            )
+            Text(
+                formatIntervalClock(now),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 9.sp,
+            )
+        }
     }
 }
 
@@ -2036,6 +2154,139 @@ private fun LteWarningCard(enabled: Boolean, limitBytes: Long, usedToday: Long) 
     }
 }
 
+/**
+ * Resets today's numbers, one field at a time.
+ *
+ * A single "reset everything" button forced the user to throw away the good numbers along with the
+ * bad one, so the scope is chosen first and only that bucket is cleared.
+ */
+@Composable
+private fun ResetTodayCard(context: Context, onChanged: () -> Unit) {
+    var index by rememberSaveable { mutableIntStateOf(0) }
+    val scopes = listOf(
+        NetworkUsageTracker.ResetScope.ALL,
+        NetworkUsageTracker.ResetScope.LTE,
+        NetworkUsageTracker.ResetScope.FIVE_G,
+        NetworkUsageTracker.ResetScope.PEAK,
+    )
+    val scope = scopes[index]
+    val label = when (scope) {
+        NetworkUsageTracker.ResetScope.ALL -> "everything"
+        NetworkUsageTracker.ResetScope.LTE -> "the 4G figure"
+        NetworkUsageTracker.ResetScope.FIVE_G -> "the 5G figure"
+        NetworkUsageTracker.ResetScope.PEAK -> "the speed peak"
+    }
+
+    HubGlassCard(accent = MaterialTheme.colorScheme.tertiary) {
+        Text("Reset today", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        Text(
+            "Clear only what is wrong. Resetting one field leaves the others alone.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp,
+        )
+        Spacer(Modifier.height(12.dp))
+        HubSegmented(
+            options = listOf("All", "4G", "5G", "Peak"),
+            selectedIndex = index,
+            onSelect = { index = it },
+        )
+        Spacer(Modifier.height(12.dp))
+        HubQuietButton(
+            text = "Reset $label",
+            icon = Icons.Rounded.Refresh,
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+                NetworkUsageTracker.resetToday(context, scope)
+                onChanged()
+            },
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Clearing a radio's usage also drops that radio's recorded intervals for today.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 10.sp,
+        )
+    }
+}
+
+/**
+ * The device's own counter against the app's attribution, for this watcher session.
+ *
+ * This is the check that makes the 4G/5G split falsifiable rather than confident: if the attributed
+ * bytes plus everything deliberately set aside ever exceed what the device moved, the split is
+ * provably wrong, and the card says so instead of quietly presenting the numbers as fact.
+ */
+@Composable
+private fun ReconciliationCard(context: Context) {
+    // The baseline only changes when a new session starts, but the device total keeps moving, so the
+    // residual is re-read on a slow tick rather than being frozen at first composition.
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(3_000)
+            tick++
+        }
+    }
+    val balance = tick.let { NetworkUsageTracker.readReconciliation(context) }
+    val accent = when {
+        balance == null -> MaterialTheme.colorScheme.tertiary
+        balance.balanced -> MaterialTheme.hubAccents.success
+        else -> MaterialTheme.colorScheme.error
+    }
+    HubGlassCard(accent = accent) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "COUNTER CHECK",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.5.sp,
+                    color = accent,
+                )
+                Text(
+                    when {
+                        balance == null -> "Waiting for the first sample"
+                        balance.balanced -> "The parts add up"
+                        else -> "The parts exceed the device total"
+                    },
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Black,
+                )
+            }
+            HubStatusDot(color = accent, pulsing = balance == null)
+        }
+        if (balance != null) {
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Device total since " + formatTimestamp(balance.sinceAt), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                Text(formatBytes(balance.deviceTotal), color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Attributed 5G + 4G", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                Text(formatBytes(balance.attributed), color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Set aside (rejected / unattributed)", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                Text(formatBytes(balance.rejected + balance.unattributed), color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+            HubHairline()
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Not seen by the watcher", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                Text(formatBytes(balance.unexplained), color = accent, fontSize = 12.sp, fontWeight = FontWeight.Black)
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Traffic used while the watcher was off, or on Wi-Fi, is counted by the device but not by " +
+                    "this app. A residual is therefore normal; a negative one would mean the split is wrong.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 10.sp,
+            )
+        }
+    }
+}
+
 @Composable
 private fun DailyUsageRow(day: DailyUsage) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp)) {
@@ -2076,6 +2327,7 @@ private fun SettingsPage(
     shizuku: ShizukuHealth,
     onBack: () -> Unit,
 ) {
+    val scroll = rememberScrollState()
     val store = MainActivity.store(context)
     var statusTick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
@@ -2144,12 +2396,12 @@ private fun SettingsPage(
     Column(
         Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scroll)
             .statusBarsPadding()
             .padding(horizontal = 18.dp)
             .padding(top = 14.dp, bottom = 22.dp),
     ) {
-        HubReveal(0) { SettingsHeader(onBack = onBack) }
+        HubReveal(0) { SettingsHeader(scrollState = scroll, onBack = onBack) }
 
         Spacer(Modifier.height(16.dp))
 
