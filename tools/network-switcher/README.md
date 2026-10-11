@@ -51,6 +51,16 @@ figures off the screen:
 - Rates between `SUSPECT_SPIKE_BPS` and the ceiling are still counted — they are possible on fast 5G —
   but are flagged so they appear in the History review list.
 
+On top of that, every sample is reconciled against the device's own aggregate counter. The Data page's
+`Counter check` card shows the device total for the session next to the bytes attributed to 4G and 5G,
+what was deliberately set aside, and the residual (traffic used while the watcher was off or on Wi-Fi).
+A negative residual would mean the app credited more than the device moved, which is the one thing that
+can actually prove the split wrong; a positive one is expected.
+
+Each interval also carries a unique id. The review list addresses a row by id, so sharing the minute
+bucket across records made "mark interval fake" flip a different record — the id is now unique and the
+list sorts by `(startAt, id)` so ordering is stable between reads.
+
 ### Controls
 - Foreground watcher service with an ongoing notification showing the radio and watcher state, the
   live cooldown countdown, the failed-attempt count, the Shizuku state and a contextual action
@@ -92,7 +102,8 @@ All source lives in `src/main/java/com/sylestia/toolhubs/networkswitcher/`.
 | `NetworkReconnectTileService.kt` | Quick Settings tile |
 | `NetworkUsageTracker.kt` | Traffic/speed sampling and 4G/5G attribution |
 | `UsageHistoryStore.kt` | Bounded minute-level history persisted to disk |
-| `SwitcherNav.kt` | Module-local bottom navigation, page header and settings header |
+| `SwitcherNav.kt` | Module-local bottom navigation, scroll-reactive page header and settings header |
+| `SwitcherBackdrop.kt` | Module-local animated backdrop (orbiting light, drifting grid and particles) |
 | `ShizukuHealth.kt` | Shizuku readiness state machine, exception-safe |
 | `NetworkSwitcherBridge.kt` | Binds the Shizuku user service |
 | `NetworkModeService.kt` | `INetworkModeService` implementation running under Shizuku |

@@ -10,6 +10,38 @@ Each entry corresponds to the `versionName` in
 [`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts). See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [0.9.0]
+
+### Fixed
+- "Mark interval fake" now works on every row. Interval ids were the minute bucket, so several
+  records could share one id and toggling flipped a different record than the one tapped — which is
+  why the button appeared dead for some rows. Ids are now unique, and the history list sorts ties by
+  id so ordering is stable between reads too.
+- Marking or resetting a single radio no longer disturbs the other one.
+
+### Added
+- Interactive usage graph: drag across it to scrub, with a crosshair, a highlighted point and a
+  readout of the inspected bucket, plus start/end time labels.
+- "Mark every spike as fake" clears all flagged intervals in one pass and reports how many changed.
+- Per-field reset. The Data page now clears only what you choose — everything, the 4G figure, the 5G
+  figure, or the speed peak — instead of one blanket button that threw away the good numbers too.
+- Counter check card: the device's own aggregate mobile counter against the app's attribution for the
+  session, split into attributed, deliberately set aside, and not seen by the watcher. This is the
+  check that makes the 4G/5G split falsifiable — a negative residual would prove it wrong.
+- Session reconciliation feeds the totals, so rejected bursts and unattributable bytes are accounted
+  for rather than silently vanishing.
+
+### Changed
+- New module-local backdrop: orbiting light, three aurora blooms on independent periods, a grid and
+  particle field that drift upward forever, a travelling sheen, a slow scanline and a vignette, all
+  driven by continuous infinite transitions at different speeds so the motion never reads as one loop.
+- All page headers rebuilt. The icon badge is now fully opaque with an accent border — it used to
+  wash its accent over the animated backdrop, which is what made the glyph look glitchy — and the
+  whole band reacts to the page's scroll position: the badge contracts, the title scales from its left
+  edge, the subtitle dissolves and a gradient filament under the header fills as you scroll, with a
+  breathing title colour on its own loop.
+- The Data page's Reset/History row is split up, and History is a full-width action.
+
 ## [0.8.0]
 
 ### Fixed
