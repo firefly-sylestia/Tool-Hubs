@@ -62,6 +62,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Analytics
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.DataUsage
 import androidx.compose.material.icons.rounded.History
@@ -297,6 +298,14 @@ class MainActivity : ComponentActivity() {
             }
             else -> openShizuku()
         }
+    }
+
+    /** Hands every active failover back: the data SIM first, then the Wi-Fi radio. */
+    fun revertFailovers() {
+        ContextCompat.startForegroundService(
+            this,
+            Intent(this, AutoReconnectService::class.java).setAction(AutoReconnectService.ACTION_REVERT),
+        )
     }
 
     fun resumeWatcher() {
@@ -2228,6 +2237,7 @@ private fun ReconciliationCard(context: Context) {
         }
     }
     val balance = tick.let { NetworkUsageTracker.readReconciliation(context) }
+    var correctMessage by remember { mutableStateOf<String?>(null) }
     val accent = when {
         balance == null -> MaterialTheme.colorScheme.tertiary
         balance.balanced -> MaterialTheme.hubAccents.success
@@ -2275,6 +2285,19 @@ private fun ReconciliationCard(context: Context) {
             Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Not seen by the watcher", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.weight(1f))
                 Text(formatBytes(balance.unexplained), color = accent, fontSize = 12.sp, fontWeight = FontWeight.Black)
+            }
+            if (!balance.balanced) {
+                Spacer(Modifier.height(10.dp))
+                HubQuietButton(
+                    text = "Auto-correct now",
+                    icon = Icons.Rounded.Build,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { correctMessage = NetworkUsageTracker.autoCorrect(context) },
+                )
+            }
+            correctMessage?.let { note ->
+                Spacer(Modifier.height(8.dp))
+                Text(note, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
             }
             Spacer(Modifier.height(8.dp))
             Text(
@@ -2382,6 +2405,9 @@ private fun SettingsPage(
     }
     var pauseDuringCall by rememberSaveable {
         mutableStateOf(store.getBoolean(AutoReconnectService.PREF_PAUSE_DURING_CALL, false))
+    }
+    var wifiFailover by rememberSaveable {
+        mutableStateOf(store.getBoolean(AutoReconnectService.PREF_WIFI_FAILOVER_ENABLED, false))
     }
 
     fun refreshWatcher() {
@@ -2559,7 +2585,14 @@ private fun SettingsPage(
                 HubGlassCard {
                     Text("SIM & eligibility", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                     Text(
-                        "Pick the SIM whose 5G state is monitored. Failover only runs after 45 seconds with no service.",
+                        when {
+                            sims.size >= 2 ->
+                                "Both SIMs detected. Failover can move mobile data between them, and the monitored SIM defaults to whichever one currently carries data."
+                            sims.isEmpty() ->
+                                "No active SIM detected, so failover stays disabled."
+                            else ->
+                                "Only one active SIM detected, so the backup-SIM failover cannot run. Insert or enable a second SIM to use it."
+                        },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp,
                     )
@@ -2741,6 +2774,32 @@ private fun SettingsPage(
                         store.edit().putBoolean(AutoReconnectService.PREF_PAUSE_DURING_CALL, enabled).apply()
                         refreshWatcher()
                     },
+                )
+                Spacer(Modifier.height(10.dp))
+                HubHairline()
+                Spacer(Modifier.height(10.dp))
+                HubToggleRow(
+                    title = "Raise Wi-Fi when cellular recovery stalls",
+                    subtitle = "If the monitored radio stays on 4G or loses service, switch the Wi-Fi radio on so the phone can join a saved network. Android gives no way to choose the network, and Wi-Fi is turned back off once 5G returns.",
+                    checked = wifiFailover,
+                    onCheckedChange = { enabled ->
+                        wifiFailover = enabled
+                        store.edit().putBoolean(AutoReconnectService.PREF_WIFI_FAILOVER_ENABLED, enabled).apply()
+                        refreshWatcher()
+                    },
+                )
+                Spacer(Modifier.height(10.dp))
+                HubQuietButton(
+                    text = "Move data back to the monitored SIM now",
+                    icon = Icons.Rounded.Refresh,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { context.revertFailovers() },
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Failover only runs when two active SIMs are present. If the monitored SIM never gets 5G back, data is handed back automatically after a few minutes regardless, and this button does it immediately.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
                 )
             }
         }

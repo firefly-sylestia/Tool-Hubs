@@ -479,16 +479,91 @@ class NetworkUsageTracker(context: Context) {
             return changed
         }
 
-        /** Adds or removes one interval's bytes from its day and lifetime buckets. */
+        /**
+         * Adds or removes one interval's bytes from its day, lifetime and session buckets.
+         *
+         * The session total is adjusted too, so marking a bad interval fake also improves the counter
+         * reconciliation — otherwise correcting the history and the reconciliation would disagree.
+         */
         private fun applyIntervalAccounting(context: Context, updated: UsageInterval) {
             val store = prefs(context)
             val day = dayFormat().format(Date(updated.startAt))
             val signed = if (updated.fake) -updated.bytes else updated.bytes
-            val key = if (updated.network == FIVE_G_LABEL) KEY_5G_BYTES else KEY_LTE_BYTES
+            val fiveG = updated.network == FIVE_G_LABEL
+            val key = if (fiveG) KEY_5G_BYTES else KEY_LTE_BYTES
+            val sessionKey = if (fiveG) KEY_SESSION_5G else KEY_SESSION_LTE
             store.edit()
                 .putLong("$key:$day", (store.getLong("$key:$day", 0L) + signed).coerceAtLeast(0L))
                 .putLong(key, (store.getLong(key, 0L) + signed).coerceAtLeast(0L))
+                .putLong(sessionKey, (store.getLong(sessionKey, 0L) + signed).coerceAtLeast(0L))
                 .apply()
+        }
+
+        /**
+         * Repairs the buckets when the session reconciliation says they cannot be right.
+         *
+         * Order matters. Flagged spikes are marked fake first, because that is a correction the user
+         * can see and undo row by row. Only if the totals are *still* over what the device counter
+         * moved are the numbers themselves trimmed, and the returned message always says which of the
+         * two happened — this never silently rewrites history.
+         */
+        fun autoCorrect(context: Context): String {
+            val before = readReconciliation(context)
+                ?: return "Nothing to check yet — the watcher needs a sample first."
+            if (before.balanced) {
+                return "Already consistent: attributed plus set aside fits inside the device total."
+            }
+
+            val flagged = markAllSuspiciousFake(context)
+            val after = readReconciliation(context) ?: before
+            if (after.balanced) {
+                return "Corrected by marking $flagged flagged interval${if (flagged == 1) "" else "s"} fake."
+            }
+
+            val excess = (after.attributed + after.unattributed + after.rejected - after.deviceTotal)
+                .coerceAtLeast(0L)
+            if (excess <= 0L) return "Nothing to correct."
+
+            val store = prefs(context)
+            val day = todayStamp()
+            val lteKey = "$KEY_LTE_BYTES:$day"
+            val fiveGKey = "$KEY_5G_BYTES:$day"
+            val lte = store.getLong(lteKey, 0L)
+            val fiveG = store.getLong(fiveGKey, 0L)
+
+            // Take the excess out of the larger bucket first, then the smaller one.
+            var remaining = excess
+            val trimLte: Long
+            val trimFiveG: Long
+            if (lte >= fiveG) {
+                trimLte = minOf(remaining, lte)
+                remaining -= trimLte
+                trimFiveG = minOf(remaining, fiveG)
+            } else {
+                trimFiveG = minOf(remaining, fiveG)
+                remaining -= trimFiveG
+                trimLte = minOf(remaining, lte)
+            }
+
+            store.edit()
+                .putLong(lteKey, (lte - trimLte).coerceAtLeast(0L))
+                .putLong(fiveGKey, (fiveG - trimFiveG).coerceAtLeast(0L))
+                .putLong(KEY_LTE_BYTES, (store.getLong(KEY_LTE_BYTES, 0L) - trimLte).coerceAtLeast(0L))
+                .putLong(KEY_5G_BYTES, (store.getLong(KEY_5G_BYTES, 0L) - trimFiveG).coerceAtLeast(0L))
+                .putLong(KEY_SESSION_LTE, (store.getLong(KEY_SESSION_LTE, 0L) - trimLte).coerceAtLeast(0L))
+                .putLong(KEY_SESSION_5G, (store.getLong(KEY_SESSION_5G, 0L) - trimFiveG).coerceAtLeast(0L))
+                .apply()
+            recomputeTodayPeak(context, day)
+
+            return "Marked $flagged spike${if (flagged == 1) "" else "s"} fake, then removed " +
+                humanBytes(trimLte + trimFiveG) + " from today's totals to match the device counter."
+        }
+
+        private fun humanBytes(bytes: Long): String = when {
+            bytes >= 1_073_741_824L -> String.format(Locale.US, "%.2f GB", bytes / 1_073_741_824f)
+            bytes >= 1_048_576L -> String.format(Locale.US, "%.1f MB", bytes / 1_048_576f)
+            bytes >= 1_024L -> String.format(Locale.US, "%.0f KB", bytes / 1_024f)
+            else -> "$bytes B"
         }
 
         /** Which of today's counters a reset clears. */
