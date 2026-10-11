@@ -16,7 +16,7 @@ unless a Network Switcher change genuinely requires it.
 
 **CI only.** [`.github/workflows/android.yml`](.github/workflows/android.yml) builds the release APK
 for every module on pushes to `main` and `dev`, on pull requests, and on manual dispatch, then
-uploads the APKs as artifacts (7-day retention).
+uploads the APKs as artifacts (1-day retention).
 
 There is no Gradle wrapper in the repository; CI pins Gradle `9.3.1` and JDK 17, and installs the
 Android SDK itself. Do not add wrapper files or a local toolchain as part of a change.

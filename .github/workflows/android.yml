@@ -90,9 +90,15 @@ jobs:
 
       - name: Upload downloadable release APK
         if: success()
+        # The build is what this workflow is for; the artifact is a convenience. An account-level
+        # artifact storage quota must not turn a successful build into a failed run, which is what
+        # happened while 90-day artifacts from old runs filled the account's storage.
+        continue-on-error: true
         uses: actions/upload-artifact@v6
         with:
           name: tool-hubs-${{ matrix.name }}-${{ github.run_number }}
           path: ${{ matrix.apk }}
           if-no-files-found: error
-          retention-days: 7
+          # One day only: these APKs are debug-signed build outputs, and the 90-day default filled the
+          # account's artifact storage quota, which failed the upload step on every matrix leg.
+          retention-days: 1

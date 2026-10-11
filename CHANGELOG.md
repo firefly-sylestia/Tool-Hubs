@@ -10,6 +10,20 @@ Each entry corresponds to the `versionName` in
 [`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts). See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [0.11.1]
+
+### Fixed
+- The 0.11.0 release did not compile, which is why its CI run failed: the live graphs read theme
+  colours inside their `Canvas` draw lambdas (not a composable scope), the reset-scope enum was
+  nested inside the tracker's companion object where the UI could not name it, and a companion
+  function was called through the same-named property. All three are corrected at the cause.
+- The "why did it change?" card no longer offers an RSRP figure. `SignalStrength.cellSignalStrength`
+  does not resolve against this project's compile SDK, so the card reports Android's 0–4 signal level
+  on its own rather than a dBm value it could not actually read.
+- Artifact uploads can no longer fail an otherwise good build, and retained APKs drop from 7 days to
+  1: repeated runs had filled the account's artifact storage quota, which failed the upload step on
+  every module.
+
 ## [0.11.0]
 
 ### Added
