@@ -59,6 +59,15 @@ jobs:
       - name: Build main, preload and renderer bundles
         run: npm run build
 
+      # The installer talks to Mojang's and Fabric's live services, and nothing
+      # else in this workflow does. It is kept non-blocking on purpose: a
+      # metadata service having a bad day must not turn a good build red, but the
+      # log says whether the real endpoints still answer the way the parser
+      # expects.
+      - name: Check the installer against the live metadata services
+        continue-on-error: true
+        run: npm run netcheck
+
   package:
     name: Package (${{ matrix.os }})
     needs: verify
