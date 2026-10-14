@@ -49,6 +49,13 @@ snapshot state protocol, and a launch pipeline built from the version json.
   instead of jumping to an elevation; rows arrive one after another; and the app
   sits on a background of a drifting grid and a slow light sweep, all drawn in
   CSS. `prefers-reduced-motion` turns every one of those off.
+- **Two themes, blur and rounded corners.** The window follows the desktop's
+  light/dark preference by default and can be pinned to either in Settings; the
+  preference is re-read while the app is open, so a desktop that switches at
+  dusk takes the launcher with it. Surfaces are translucent and blur what is
+  behind them — the grid and the light sweep show through a card, and more of
+  the page shows through the bar and drawer while it scrolls under them — and
+  every control is rounded by default rather than one at a time.
 - **Servers: pinged, and shared with the game.** A server in the list is pinged the
   way the game's own multiplayer screen does it — handshake, status request, one
   JSON answer — so the list shows its version, player count, round trip, icon and
@@ -103,7 +110,13 @@ snapshot state protocol, and a launch pipeline built from the version json.
   for them before anything is typed, so the page is never an empty box; a search
   word and a sort (relevance, downloads, followers, newest, recently updated)
   narrow it, and with an instance selected it lists only what fits that instance's
-  game version and loader. Result cards lead to each project's own page: its
+  game version and loader. The game version is read *out of* what the instance
+  runs, so a loader profile such as `fabric-loader-0.16.9-1.21.4` is filtered by
+  `1.21.4` rather than by a version Modrinth has never heard of. **Check
+  connection** asks Modrinth whether it answers and reports what it said — the
+  count of projects and the round trip, or the reason it could not, which is what
+  separates a rate limit from a proxy that refuses the request. Nothing matched
+  and nothing answered are shown as the two different answers they are. Result cards lead to each project's own page: its
   published description, gallery, client/server requirements, licence, links to
   source, issues, wiki and Discord, and its whole version list. Installing a
   modpack from there downloads the `.mrpack` and imports it as a new instance.
@@ -150,7 +163,9 @@ snapshot state protocol, and a launch pipeline built from the version json.
   none — normal on Windows — the launcher downloads Mojang's own runtime for that
   version into the instance, exactly as the official launcher does, and launching
   does it by itself rather than refusing. Settings shows what the instance needs,
-  what is installed there, and what is on the machine.
+  what is installed there, and what is on the machine. An instance that was given
+  a runtime of its own uses that one first, and one whose chosen path has since
+  been uninstalled falls back to the search rather than refusing to start.
 - **A runtime is a directory, not a system install.** `<instance>/runtime/...`
   means two instances can want different Java versions and both get them, and
   nothing outside the launcher's own folders is touched.
@@ -170,8 +185,16 @@ snapshot state protocol, and a launch pipeline built from the version json.
   rewritten, so keys the launcher has never heard of survive. The instance also
   carries its own extra JVM arguments, added before the memory limit so the
   memory setting still wins.
-- **Log view, task list, settings** (instances folder, java binary, memory,
-  window size), and a preview of the exact java command before launching.
+- **Its own Java and its own memory, per instance.** Which runtime an instance
+  starts on and how much it is allowed to take are chosen on that instance, from
+  an *Automatic* that resolves the runtime its version asks for, the runtimes
+  this machine has, or a path picked by hand. One launcher-wide Java and one
+  launcher-wide memory limit cannot serve a machine that plays both 1.12.2 and
+  1.21: the first only starts on Java 8. Leaving either empty means the
+  launcher's default in Settings, which is what a new instance gets.
+- **Log view, task list, settings** (theme, instances folder, java binary and
+  the default memory, window size), and a preview of the exact java command
+  before launching.
 
 ## What it deliberately does not do
 
@@ -187,9 +210,10 @@ snapshot state protocol, and a launch pipeline built from the version json.
   app does not meet, so a CurseForge pack is imported for its overrides and its
   file list is reported rather than fetched. Modrinth, which answers without a
   key, is fully supported for search and install.
-- **No marketplace or modpack browsing.** There is no storefront: a modpack is
-  still imported from an archive you downloaded. What happens after a project is
-  chosen — the version that fits, the hashes, the dependencies — is done properly.
+- **No account, no store account and no uploads.** The Modrinth page browses and
+  installs from the public catalogue, which answers without a key, and a modpack
+  can also be imported from an archive you downloaded yourself. Nothing is ever
+  uploaded: an exported pack is written into a folder you pick.
 - **No Forge or NeoForge installation.** Both publish installers that have to be
   run as a Java process and edit the version json themselves. Fabric and Quilt
   publish a finished profile json instead, which is why they are the two that

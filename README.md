@@ -71,13 +71,17 @@ from Mojang's manifest and Fabric or Quilt loaders from their metadata — verif
 the hash its version json declares, resuming interrupted downloads, and unpacking native libraries —
 resolves the version json (`inheritsFrom` chains, per-OS library rules), builds the classpath, shows
 the exact java command, and launches. It finds a Java runtime itself (Mojang's own runtime in the game
-directory, `JAVA_HOME`, or an installed JDK) instead of assuming one is on PATH. It imports a folder
+directory, `JAVA_HOME`, or an installed JDK) instead of assuming one is on PATH, and every instance
+can be given its own runtime and memory limit — one machine that plays both 1.12.2 and 1.21 needs
+two. It imports a folder
 (a game directory is used in place, a single version folder is copied in) and a modpack (Modrinth
 `.mrpack`, or a CurseForge pack's overrides, into a new instance). Mods, resource packs and shader
 packs are turned on and off from the app, which renames them rather than keeping a list, and mods,
 resource packs and shader packs can be searched and installed from Modrinth — filtered by the
 instance's version and loader, with every file hash-checked and required dependencies followed. Each
 jar is read, so the list shows a mod's real name, version and loader and flags one that will not load.
+The window follows the desktop's light/dark preference or is pinned to one, over translucent, rounded
+surfaces.
 
 It is **local profiles only**: the UUID is the standard offline derivation, there is no account,
 session or token, so it can only join servers configured with `online-mode=false`. There is no

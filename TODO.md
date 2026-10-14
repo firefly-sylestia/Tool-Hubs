@@ -1,5 +1,30 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.14.0, the right game version, and one Java per instance
+
+- [x] **The store asks Modrinth for the game version an instance actually plays.** A loader plays a
+      version profile whose id is `fabric-loader-0.16.9-1.21.4`; that whole id was being sent as the
+      game version, which matches nothing, so a filtered search came back empty. The game underneath
+      the loader is read out of the id in one place (`baseGameVersion`), shared with the modpack export.
+- [x] **Java and memory belong to the instance.** The Options tab carries a runtime choice
+      (Automatic, one of the runtimes this machine has, or a path picked by hand) and the instance's own
+      `-Xmx`, empty meaning the launcher's default in Settings. An instance whose chosen runtime has been
+      uninstalled falls back to the search with a warning.
+- [x] **Requests go through Electron's own networking**, not Node's `fetch`, so the system proxy
+      settings and the system certificate store are read. `systemFetch()` is installed at start-up and
+      stays overridable, so the checks keep using their own stubs.
+- [x] **A connection check in the store**, reporting the project count and round trip or the reason
+      Modrinth could not be reached, and an empty result and a failed request are two different screens.
+- [x] **Themes, blur and rounded corners.** Follow-the-desktop, light or dark, re-read while the app is
+      open; translucent surfaces that blur the background behind them; Vuetify defaults that round every
+      control rather than one at a time.
+- [x] The file picker can drop its filter, which is what choosing a Java binary needs.
+- [x] Restoring a world backup puts its worlds back beside whatever is in `saves/`, never over it.
+- [x] Covered by the launcher's own checks: the loader-id reading, the per-instance memory limit over
+      the launcher's default, the state migration to per-instance Java and theme, and a refused Java
+      path or memory value leaving the instance alone.
+- [x] Version bumped to `0.14.0` in `desktop/mc-launcher/package.json`, lockfile included.
+
 ## Desktop launcher — MC Launcher 0.13.1, one instance at a time
 
 - [x] **The Instances page is tabs instead of four stacked cards in two columns**: a header with the

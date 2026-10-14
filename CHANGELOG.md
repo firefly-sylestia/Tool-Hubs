@@ -11,6 +11,42 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.14.0]
+
+Mods now match the Minecraft version an instance actually plays, Java and memory belong to the
+instance rather than to the launcher, the store says whether it can reach Modrinth instead of looking
+empty, and the window has themes, blur and rounded corners.
+
+### Added
+- **A Java runtime and a memory limit per instance.** The Options tab of an instance carries both: a
+  runtime chosen from *Automatic*, the runtimes this machine has or a path picked by hand, and its own
+  `-Xmx`, empty meaning the launcher's default. One setting cannot serve a machine that plays both
+  1.12.2, which only starts on Java 8, and 1.21, which wants 21. A chosen runtime that has since been
+  uninstalled falls back to the search with a warning rather than refusing to start.
+- **A connection check in the store.** *Check connection* asks Modrinth whether it answers and reports
+  what it said: the number of projects and the round trip, or the reason it could not answer. An empty
+  result and a failed request are now two different screens, and the failed one offers to try again.
+- **Themes.** Follow the desktop, light or dark, chosen in Settings. The system preference is re-read
+  while the app is open, so a desktop that switches at dusk takes the launcher with it.
+
+### Changed
+- **The store asks Modrinth for the right game version.** An instance that runs a loader plays a
+  version profile such as `fabric-loader-0.16.9-1.21.4`, and the store was sending that whole id as the
+  game version — a string Modrinth has never heard of, which is why a filtered search came back empty.
+  The game underneath the loader is read out of the id (so `1.21.4` and `1.21.4-pre1` are both handled),
+  and modpack exports use the same reading.
+- **Requests go through the desktop's networking.** The main process fetches through Electron's own
+  stack rather than Node's, which is what reads the system proxy settings and trusts the system
+  certificate store; behind a proxy, every request used to fail with nothing to act on.
+- **Surfaces are translucent and blurred, and every control is rounded.** A card lets the background's
+  grid and light sweep show through it, the bar and drawer a little less, and the defaults round the
+  corners of the whole interface rather than one control at a time.
+- **Mods and packs can be listed by what an instance already has.** The store marks a project the
+  selected instance is already using, and a world backup can be restored into `saves/` beside whatever
+  is there rather than over it.
+- **The file picker can offer everything.** Choosing a Java binary needs a picker that is not filtered
+  to `.jar` and `.zip`, which is how it was impossible to point the launcher at a runtime by hand.
+
 ## [MC Launcher 0.13.1]
 
 The Instances page was four cards deep, two to a column, each one a paragraph standing next to a
