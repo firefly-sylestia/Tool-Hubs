@@ -11,6 +11,41 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.15.0]
+
+There is a Downloads page, an install says which file it is fetching and how many bytes have arrived,
+and the store's record of what an instance already has can no longer break the store.
+
+### Added
+- **A Downloads page.** Every install, download and launch, running or finished: state, percentage,
+  elapsed time, the file being fetched and the bytes so far, and the reason a failed one failed. The
+  finished ones clear on request, and a running one is never cleared out from under itself.
+- **Installs report bytes, not just a spinner.** Each file owns a slice of the task, so the bar moves
+  while a large file arrives, and the message reads `Sodium: 12.4 MB of 30.1 MB`. The store shows the
+  running install above its results, and the Play page's Activity card links to the page that has all
+  of it.
+
+### Fixed
+- **An unusable entry in an instance's store record no longer makes every read of it throw.** The
+  record names a file inside a folder named by its kind, and an entry missing either — one this
+  launcher did not write — reached `join` as an undefined path, which threw the runtime's own "the
+  path argument must be of type string" on every later read *and* survived every rewrite to do it
+  again. Entries that cannot be read as a record are now dropped, and the record still says what it
+  can.
+- **An unknown resource kind says so by name.** `folderForKind` returned `undefined` for a kind it did
+  not know, so every caller that joined it onto a path failed with that same unreadable path error
+  instead of "unknown resource kind `modpack`: expected mod, resourcepack, shaderpack".
+- **A store install uses the service's own fetch**, so a check can run one without a network — which is
+  what the new end-to-end check below does.
+
+### Changed
+- **A result card opens the project's page**, rather than only the button in its corner: the page is
+  the point of the card, and a card is a bigger target than a button. Installing from a card still
+  keeps the click to itself.
+- **The keyboard shortcut hints are shown only while Ctrl (or Cmd) is held.** A column of `Ctrl 1`
+  chips beside the navigation is noise to anyone who is not reading it and appears exactly when
+  someone is looking for it.
+
 ## [MC Launcher 0.14.1]
 
 The store's project icons were being blocked by the page's own content security policy.

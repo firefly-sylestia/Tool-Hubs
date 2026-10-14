@@ -302,7 +302,8 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
     status: () => launch.status()
   })
   registry.register('task', {
-    list: () => tasks.list()
+    list: () => tasks.list(),
+    clear: () => tasks.clear()
   })
   registry.register('log', {
     recent: (params) => log.recent(as<{ limit?: number } | undefined>(params)?.limit),

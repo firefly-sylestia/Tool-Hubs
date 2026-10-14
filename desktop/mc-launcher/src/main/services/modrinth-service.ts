@@ -15,7 +15,7 @@ import type {
   StoreInstall,
   StoreInstalls
 } from '@shared/types'
-import { downloadAll, fetchJson, type FetchLike } from '../minecraft/download'
+import { downloadAll, fetchJson, type DownloadProgress, type FetchLike } from '../minecraft/download'
 import {
   bestVersion,
   parseProjectDetail,
@@ -33,7 +33,7 @@ import {
   versionUrl,
   type SearchSort
 } from '../minecraft/modrinth'
-import { folderForKind } from '../minecraft/resources'
+import { RESOURCE_KINDS, folderForKind } from '../minecraft/resources'
 import { baseGameVersion } from '../minecraft/version-id'
 import type { AppEnvironment } from './env'
 import type { InstanceService } from './instance-service'
@@ -44,15 +44,38 @@ import type { TaskService } from './task-service'
 const INSTALL_RECORD = '.toolhubs/store.json'
 
 /**
+ * Whether a record entry is one this launcher can use.
+ *
+ * Every entry is a file name inside a folder named by its kind, so an entry
+ * with neither — one this launcher did not write, or one written by an older
+ * shape — is not a record of anything. Kept as a predicate rather than trusted
+ * because a single unusable entry used to make every later read of the record
+ * throw the runtime's own path error, and stayed in the file to do it again.
+ */
+function isStoreInstall(value: unknown): value is StoreInstall {
+  if (value === null || typeof value !== 'object') return false
+  const entry = value as Partial<StoreInstall>
+  return (
+    typeof entry.projectId === 'string' &&
+    typeof entry.filename === 'string' &&
+    entry.filename !== '' &&
+    typeof entry.kind === 'string' &&
+    (RESOURCE_KINDS as string[]).includes(entry.kind)
+  )
+}
+
+/**
  * Reads that record, and treats one it cannot read as empty: the files are the
  * source of truth, and the launcher does not get to claim what it cannot show.
+ * An entry that cannot be read as one is dropped rather than kept.
  */
 export function readStoreInstalls(instanceDir: string): StoreInstall[] {
+  if (typeof instanceDir !== 'string' || instanceDir === '') return []
   const path = join(instanceDir, INSTALL_RECORD)
   if (!existsSync(path)) return []
   try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8')) as { installs?: StoreInstall[] }
-    return Array.isArray(parsed.installs) ? parsed.installs : []
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as { installs?: unknown[] }
+    return Array.isArray(parsed.installs) ? parsed.installs.filter(isStoreInstall) : []
   } catch {
     return []
   }
@@ -71,8 +94,9 @@ export function writeStoreInstalls(instanceDir: string, installs: StoreInstall[]
  * markers are read against the folder they describe rather than believed.
  */
 export function presentInstalls(instanceDir: string, installs: StoreInstall[]): StoreInstall[] {
-  return installs.filter((entry) =>
-    existsSync(join(instanceDir, folderForKind(entry.kind), entry.filename))
+  return installs.filter(
+    (entry) =>
+      isStoreInstall(entry) && existsSync(join(instanceDir, folderForKind(entry.kind), entry.filename))
   )
 }
 
@@ -380,22 +404,34 @@ export class ModrinthService {
       }
       seenFiles.add(file.filename)
 
-      report(
-        queue.length + installed.length === 0
-          ? 0.5
-          : installed.length / (installed.length + queue.length + 1),
-        `Downloading ${item.version.name}${item.dependency ? ' (required by what you asked for)' : ''}`
-      )
-      const result = await downloadAll([
+      // Each file owns an equal slice of the task, so the bar moves while a
+      // large file arrives instead of jumping once per file. The message says
+      // the bytes, which is the only answer to "what is it doing" there is.
+      const span = 1 / (installed.length + queue.length + 1)
+      const base = installed.length * span
+      const required = item.dependency ? ' (required by what you asked for)' : ''
+      report(base, `Downloading ${item.version.name}${required}`)
+      const result = await downloadAll(
+        [
+          {
+            url: file.url,
+            dest: join(folder, file.filename),
+            sha1: file.sha1,
+            sha512: file.sha512,
+            size: file.size,
+            label: file.filename
+          }
+        ],
         {
-          url: file.url,
-          dest: join(folder, file.filename),
-          sha1: file.sha1,
-          sha512: file.sha512,
-          size: file.size,
-          label: file.filename
+          // The service's own fetch, so a check can run this without a network.
+          fetchImpl: this.options.fetchImpl,
+          onProgress: (progress) =>
+            report(
+              base + span * downloadFraction(progress),
+              `${item.version.name}${required}: ${describeDownload(progress, file.size)}`
+            )
         }
-      ])
+      )
 
       installed.push({
         projectId: item.version.projectId,
@@ -556,4 +592,24 @@ export class ModrinthService {
 function gameVersionOf(instance: { versionId: string | null } | null): string | null {
   if (!instance?.versionId) return null
   return baseGameVersion(instance.versionId)
+}
+
+/** How far through a download is, by bytes when the server declared them. */
+function downloadFraction(progress: DownloadProgress): number {
+  if (progress.bytesTotal > 0) return Math.min(1, progress.bytesDone / progress.bytesTotal)
+  if (progress.total > 0) return Math.min(1, progress.completed / progress.total)
+  return 0
+}
+
+/** `12.4 MB of 30.1 MB`, or the file count when no size was declared. */
+function describeDownload(progress: DownloadProgress, size?: number): string {
+  const total = progress.bytesTotal > 0 ? progress.bytesTotal : (size ?? 0)
+  if (total > 0) return `${formatBytes(progress.bytesDone)} of ${formatBytes(total)}`
+  return `${progress.completed} of ${progress.total} file(s)`
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MB`
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} kB`
+  return `${bytes} B`
 }

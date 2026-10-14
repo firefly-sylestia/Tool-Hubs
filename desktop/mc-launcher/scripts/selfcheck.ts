@@ -122,7 +122,12 @@ import {
   runtimeDirFor,
   runtimeOsKey
 } from '../src/main/minecraft/java-runtime'
-import { splitResourceName, resourceFileName, isResourceFile } from '../src/main/minecraft/resources'
+import {
+  splitResourceName,
+  resourceFileName,
+  isResourceFile,
+  folderForKind
+} from '../src/main/minecraft/resources'
 import {
   buildPackIndex,
   packArchivePath,
@@ -139,6 +144,7 @@ import { ServiceRegistry } from '../src/main/services/registry'
 import { StateStore, defaultState, migrateState } from '../src/main/services/state-store'
 import { ProfileService } from '../src/main/services/profile-service'
 import { ModpackService } from '../src/main/services/modpack-service'
+import { ModrinthService } from '../src/main/services/modrinth-service'
 import { baseGameVersion } from '../src/main/minecraft/version-id'
 import { presentInstalls, readStoreInstalls, writeStoreInstalls } from '../src/main/services/modrinth-service'
 import { ServerService } from '../src/main/services/server-service'
@@ -2139,6 +2145,50 @@ console.log('\nwhat the store has installed')
     writeFileSync(join(storeRoot, '.toolhubs', 'store.json'), '{ not json')
     expectEqual(readStoreInstalls(storeRoot), [], 'a corrupt record reads as empty')
   })
+
+  check('drops a record entry that names no folder, instead of throwing on every read', () => {
+    // An entry with no file name, or a kind that is not one of the three
+    // folders, used to reach `join` as an undefined path: every later read of
+    // the record threw the runtime's own "path argument" error, and the entry
+    // survived each rewrite to do it again.
+    const unusable = [
+      { projectId: 'p', title: 'Sodium', versionNumber: '1', kind: 'mod', at: 'now' },
+      { projectId: 'p', title: 'Sodium', versionNumber: '1', filename: 'sodium.jar', at: 'now' },
+      {
+        projectId: 'p',
+        title: 'Sodium',
+        versionNumber: '1',
+        filename: 'sodium.jar',
+        kind: 'modpack',
+        at: 'now'
+      }
+    ]
+    writeFileSync(
+      join(storeRoot, '.toolhubs', 'store.json'),
+      JSON.stringify({ version: 1, installs: [...unusable, install('sodium.jar')] })
+    )
+
+    const read = readStoreInstalls(storeRoot)
+    expectEqual(read.map((entry) => entry.filename), ['sodium.jar'], 'only the usable one is kept')
+    expectEqual(
+      presentInstalls(storeRoot, [...read, ...(unusable as never[])]).map((entry) => entry.filename),
+      ['sodium.jar'],
+      'and a caller that hands it a bad entry back is not thrown at either'
+    )
+  })
+}
+
+console.log('\nresources')
+{
+  check('refuses a kind that has no folder rather than returning undefined', () => {
+    expectEqual(folderForKind('mod'), 'mods', 'the folder a mod goes in')
+    expectEqual(folderForKind('resourcepack'), 'resourcepacks', 'and a pack')
+    expectEqual(folderForKind('shaderpack'), 'shaderpacks', 'and a shader')
+    // The kind arrives over the service channel, where its type is not enforced;
+    // naming it in the refusal is the difference between a two-second fix and a
+    // hunt for a path argument that was never a path.
+    expectThrows(() => folderForKind('modpack' as never), 'Unknown resource kind "modpack"')
+  })
 }
 
 console.log('\nimporting what is already on disk')
@@ -2568,6 +2618,89 @@ console.log('\nmodpack archives, and packs this launcher writes')
   })
 
   const modpacks = new ModpackService(installer, instances, tasks, () => {})
+
+  // A store install, end to end and with no network: the service is handed its
+  // own fetch, which is also what makes the progress messages below observable.
+  await acheck(
+    'installs a project and the dependency it needs, saying how many bytes have arrived',
+    async () => {
+      const bytes = Buffer.from('sodium-bytes')
+      const sha1 = createHash('sha1').update(bytes).digest('hex')
+      const sha512 = createHash('sha512').update(bytes).digest('hex')
+      const version = (id: string, projectId: string, needs: string | null) => ({
+        id,
+        project_id: projectId,
+        name: id,
+        version_number: '1.0.0',
+        version_type: 'release',
+        game_versions: ['1.21.4'],
+        loaders: ['fabric'],
+        date_published: '2026-10-14T00:00:00.000Z',
+        dependencies: needs ? [{ project_id: needs, dependency_type: 'required' }] : [],
+        files: [
+          {
+            url: `https://cdn.example/${id}.jar`,
+            filename: `${id}.jar`,
+            primary: true,
+            fileSize: bytes.length,
+            hashes: { sha1, sha512 }
+          }
+        ]
+      })
+
+      const messages: string[] = []
+      registry.setEmitter((event) => {
+        if (event.service === 'task' && event.event === 'progress') {
+          messages.push((event.payload as { message: string }).message)
+        }
+      })
+
+      const modrinth = new ModrinthService(environment, instances, modpacks, tasks, () => {}, {
+        fetchImpl: async (url) => {
+          if (url.includes('/project/')) {
+            const projectId = url.split('/project/')[1].split('/')[0]
+            const list =
+              projectId === 'AANobbMI'
+                ? [version('sodium', 'AANobbMI', 'P7dR8mSH')]
+                : [version('fabric-api', 'P7dR8mSH', null)]
+            return new Response(JSON.stringify(list), { status: 200 })
+          }
+          if (url.includes('/version/')) {
+            return new Response(JSON.stringify(version('sodium', 'AANobbMI', 'P7dR8mSH')), { status: 200 })
+          }
+          return new Response(bytes, { status: 200 })
+        }
+      })
+
+      const target = instances.create({
+        name: 'Store install',
+        versionId: 'fabric-loader-0.16.9-1.21.4',
+        loader: 'fabric',
+        loaderVersion: '0.16.9'
+      })
+      const result = await modrinth.install({
+        projectId: 'AANobbMI',
+        kind: 'mod',
+        instanceId: target.id
+      })
+
+      expectEqual(
+        result.installed.map((item) => item.filename),
+        ['sodium.jar', 'fabric-api.jar'],
+        'the project and the dependency it requires'
+      )
+      expect(existsSync(join(target.dir, 'mods', 'sodium.jar')), 'the file is in the instance')
+      expectEqual(
+        modrinth.installed({ instanceId: target.id }).items.length,
+        2,
+        'and the record says both are installed'
+      )
+      expect(
+        messages.some((message) => / of .*(B|kB|MB)$/.test(message)),
+        `a progress message says how many bytes have arrived; saw ${JSON.stringify(messages)}`
+      )
+    }
+  )
 
   await acheck('writes an instance out as a pack, and refuses one with nothing in it', async () => {
     const source = instances.create({

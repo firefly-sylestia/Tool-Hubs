@@ -110,7 +110,9 @@ snapshot state protocol, and a launch pipeline built from the version json.
   for them before anything is typed, so the page is never an empty box; a search
   word and a sort (relevance, downloads, followers, newest, recently updated)
   narrow it, and with an instance selected it lists only what fits that instance's
-  game version and loader. The game version is read *out of* what the instance
+  game version and loader. A result card opens the project's own page, so the
+  published description, its gallery and its version list are one click away
+  rather than behind a small button. The game version is read *out of* what the instance
   runs, so a loader profile such as `fabric-loader-0.16.9-1.21.4` is filtered by
   `1.21.4` rather than by a version Modrinth has never heard of. **Check
   connection** asks Modrinth whether it answers and reports what it said — the
@@ -192,6 +194,13 @@ snapshot state protocol, and a launch pipeline built from the version json.
   launcher-wide memory limit cannot serve a machine that plays both 1.12.2 and
   1.21: the first only starts on Java 8. Leaving either empty means the
   launcher's default in Settings, which is what a new instance gets.
+- **A Downloads page.** Every install, download and launch the launcher starts,
+  running or finished: its state, percentage, elapsed time, the file it is
+  fetching and the bytes that have arrived so far, and the reason a failed one
+  failed. Finished tasks clear on request; a running one is left alone. An
+  install reports bytes as they arrive rather than only spinning, so a long
+  download can be told apart from a stalled one, and the store shows the running
+  install above its results.
 - **Log view, task list, settings** (theme, instances folder, java binary and
   the default memory, window size), and a preview of the exact java command
   before launching.

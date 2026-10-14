@@ -481,6 +481,18 @@ onBeforeUnmount(() => {
         <v-card-title class="d-flex align-center">
           <v-icon icon="mdi-history" class="mr-2" size="small" />
           Activity
+          <v-spacer />
+          <!-- The card shows the last few; the rest, with what each download
+               fetched and how long it took, is a page of its own. -->
+          <v-btn
+            v-if="tasks.length > 0"
+            size="small"
+            variant="text"
+            prepend-icon="mdi-download-box-outline"
+            @click="router.push('/downloads')"
+          >
+            Downloads
+          </v-btn>
         </v-card-title>
         <v-card-text>
           <v-list v-if="tasks.length > 0" density="comfortable" class="app-stagger">
@@ -494,6 +506,10 @@ onBeforeUnmount(() => {
               <v-list-item-subtitle>
                 {{ taskLook(task).label }}: {{ task.message }} · {{ taskTail(task) }}
               </v-list-item-subtitle>
+              <!-- The message says which file and how many bytes while it runs. -->
+              <span v-if="task.state === 'running'" class="text-medium-emphasis text-caption">
+                {{ Math.round(task.progress * 100) }}%
+              </span>
               <v-progress-linear
                 v-if="task.state === 'running'"
                 :model-value="Math.round(task.progress * 100)"

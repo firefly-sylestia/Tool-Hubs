@@ -30,6 +30,7 @@ const {
   selectInstance,
   modrinthStatus,
   modrinthSearch,
+  tasks,
   modrinthVersions,
   modrinthProject,
   storeInstalls,
@@ -144,6 +145,16 @@ const instanceOptions = computed(() => [
 function chooseInstance(value: string | null): void {
   void selectInstance(value === null || value === '' ? null : value)
 }
+/**
+ * The install or download happening right now, and how far through it is.
+ *
+ * A spinner on the button says "working"; this says what is being fetched and
+ * how much of it has arrived, which is the difference between a download that
+ * is progressing and one that has stalled.
+ */
+const activeTask = computed(() => tasks.value.find((task) => task.state === 'running') ?? null)
+const taskPercent = computed(() => Math.round((activeTask.value?.progress ?? 0) * 100))
+
 /** The detail dialog's own project, when it is one this instance already has. */
 const detailInstall = computed(() =>
   detail.project ? (installedFor.value.get(detail.project.projectId) ?? null) : null
@@ -475,6 +486,22 @@ onMounted(() => {
         <strong>Ignore its version</strong> off to see only what fits an instance.
       </p>
 
+      <!-- What is downloading, while it downloads. The Downloads page has the
+           whole list; this is the one that is about the page you are on. -->
+      <div v-if="activeTask" class="mt-4">
+        <div class="d-flex align-center flex-wrap ga-2">
+          <span class="status-dot status-dot--live" />
+          <strong>{{ activeTask.name }}</strong>
+          <v-spacer />
+          <span class="text-medium-emphasis text-body-2">{{ taskPercent }}%</span>
+          <v-btn size="small" variant="text" prepend-icon="mdi-download-box-outline" to="/downloads">
+            Downloads
+          </v-btn>
+        </div>
+        <p class="text-body-2 mb-2 mt-1">{{ activeTask.message }}</p>
+        <v-progress-linear :model-value="taskPercent" height="6" rounded color="primary" />
+      </div>
+
       <v-alert
         v-if="requiresInstance && !selectedInstance"
         type="info"
@@ -507,7 +534,17 @@ onMounted(() => {
 
   <v-row v-else-if="hits.length > 0" class="app-stagger">
     <v-col v-for="hit in hits" :key="hit.projectId" cols="12" md="6" lg="4">
-      <v-card class="h-100 d-flex flex-column result-card">
+      <!-- The whole card opens the project, not just the button in its corner:
+           the page is the point of the card, and a button is a small target. -->
+      <v-card
+        class="h-100 d-flex flex-column result-card result-card--openable"
+        role="button"
+        tabindex="0"
+        :aria-label="`Open ${hit.title}`"
+        @click="openDetail(hit)"
+        @keydown.enter.prevent="openDetail(hit)"
+        @keydown.space.prevent="openDetail(hit)"
+      >
         <v-card-text class="flex-grow-1">
           <div class="d-flex ga-3 align-start">
             <v-avatar v-if="hit.iconUrl" rounded size="52" class="result-card__icon">
@@ -554,7 +591,9 @@ onMounted(() => {
             </v-chip>
           </div>
         </v-card-text>
-        <v-card-actions>
+        <!-- Installing from a card is not the same gesture as opening it, so the
+             actions keep the click to themselves. -->
+        <v-card-actions @click.stop>
           <v-btn size="small" variant="text" prepend-icon="mdi-information-outline" @click="openDetail(hit)">
             Details
           </v-btn>
@@ -775,6 +814,10 @@ onMounted(() => {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.result-card--openable {
+  cursor: pointer;
 }
 
 .result-card__icon {

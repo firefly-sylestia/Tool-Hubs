@@ -23,24 +23,30 @@ const {
 /**
  * The theme the window paints, which the launcher's settings own.
  *
- * `system` is not a theme name but a decision to follow the desktop, and it has
- * to keep following it: a launcher that only read the preference at start-up
- * would sit in the wrong theme half the day.
+ * `system` is Vuetify's own follow-the-desktop mode rather than a palette, and
+ * it keeps following it: the preference is re-read while the app is open, so a
+ * desktop that switches at dusk takes the launcher with it.
  */
 const theme = useTheme()
-const prefersDark = window.matchMedia('(prefers-color-scheme: dark)')
 
 function applyTheme(choice: ThemeChoice): void {
-  theme.global.name.value = choice === 'system' ? (prefersDark.matches ? 'dark' : 'light') : choice
+  void theme.change(choice)
 }
 
 watch(() => settings.value?.theme ?? 'system', applyTheme, { immediate: true })
-prefersDark.addEventListener('change', () => applyTheme(settings.value?.theme ?? 'system'))
 const windowApi = window.windowController
 
 /** The key that goes with the number, which is not the same on every desktop. */
 const modifier = navigator.userAgent.includes('Mac') ? 'Cmd' : 'Ctrl'
 const maximized = ref(false)
+/**
+ * Whether the shortcut modifier is being held down.
+ *
+ * A column of `Ctrl 1` chips beside the navigation is noise to anyone who is
+ * not reading it, so they appear while the modifier is held — which is exactly
+ * when someone is looking for them — and not otherwise.
+ */
+const modifierDown = ref(false)
 
 /** The icon each page's row carries, so the navigation reads at a glance. */
 const NAV_ICONS: Record<string, string> = {
@@ -49,7 +55,8 @@ const NAV_ICONS: Record<string, string> = {
   '/instances': 'mdi-cube-outline',
   '/servers': 'mdi-server-network',
   '/settings': 'mdi-cog-outline',
-  '/logs': 'mdi-text-box-search-outline'
+  '/logs': 'mdi-text-box-search-outline',
+  '/downloads': 'mdi-download-box-outline'
 }
 
 const navItems = computed(() =>
@@ -138,8 +145,24 @@ function onKeydown(event: KeyboardEvent): void {
   void router.push(routes[index - 1].path)
 }
 
+function onModifierDown(event: KeyboardEvent): void {
+  if (event.key === 'Control' || event.key === 'Meta') modifierDown.value = true
+}
+
+function onModifierUp(event: KeyboardEvent): void {
+  if (event.key === 'Control' || event.key === 'Meta') modifierDown.value = false
+}
+
+/** Losing focus mid-press must not leave the hints stuck on screen. */
+function onBlur(): void {
+  modifierDown.value = false
+}
+
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
+  window.addEventListener('keydown', onModifierDown)
+  window.addEventListener('keyup', onModifierUp)
+  window.addEventListener('blur', onBlur)
   // The window can also be maximized by its own title bar or the OS, so the icon
   // is re-read whenever the window changes shape.
   window.addEventListener('resize', refreshMaximized)
@@ -148,6 +171,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('keydown', onModifierDown)
+  window.removeEventListener('keyup', onModifierUp)
+  window.removeEventListener('blur', onBlur)
   window.removeEventListener('resize', refreshMaximized)
 })
 </script>
@@ -225,7 +251,7 @@ onBeforeUnmount(() => {
           rounded="lg"
         >
           <template #append>
-            <span class="shortcut-hint">{{ item.shortcut }}</span>
+            <span v-if="modifierDown" class="shortcut-hint">{{ item.shortcut }}</span>
           </template>
         </v-list-item>
       </v-list>
@@ -304,7 +330,8 @@ onBeforeUnmount(() => {
   color: rgb(var(--v-theme-error));
 }
 
-/* A shortcut nobody is told about is a shortcut nobody uses. */
+/* Shown only while the modifier is held: a shortcut nobody is told about is a
+   shortcut nobody uses, and a column of them is clutter the rest of the time. */
 .shortcut-hint {
   font-size: 0.68rem;
   letter-spacing: 0.02em;

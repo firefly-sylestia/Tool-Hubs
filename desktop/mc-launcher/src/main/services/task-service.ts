@@ -20,6 +20,22 @@ export class TaskService {
     return this.state.snapshot().tasks
   }
 
+  /**
+   * Forgets the tasks that have finished, and only those.
+   *
+   * Whatever is still running stays: clearing a list is not stopping the work
+   * the list is a record of.
+   */
+  clear(): { cleared: number } {
+    const before = this.state.snapshot().tasks
+    const cleared = before.filter((task) => task.state !== 'running').length
+    if (cleared === 0) return { cleared: 0 }
+    this.state.update((state) => {
+      state.tasks = state.tasks.filter((task) => task.state === 'running')
+    })
+    return { cleared }
+  }
+
   async run<T>(
     name: string,
     work: (report: (progress: number, message: string) => void) => Promise<T> | T

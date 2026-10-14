@@ -30,8 +30,22 @@ const LOADABLE_EXTENSIONS: Record<ResourceKind, string[]> = {
   shaderpack: ['.zip']
 }
 
+/**
+ * The folder a kind belongs in, and a refusal rather than `undefined`.
+ *
+ * A kind arrives over the service channel, where the type it was declared with
+ * is not enforced. Returning `undefined` here made every caller that joined it
+ * onto a path fail with the runtime's own "The path argument must be of type
+ * string" — an error that names neither the kind nor the folder nor the reason.
+ */
 export function folderForKind(kind: ResourceKind): string {
-  return RESOURCE_FOLDERS[kind]
+  const folder = RESOURCE_FOLDERS[kind as ResourceKind]
+  if (!folder) {
+    throw new Error(
+      `Unknown resource kind "${String(kind)}": expected ${RESOURCE_KINDS.join(', ')}.`
+    )
+  }
+  return folder
 }
 
 export function kindForFolder(folder: string): ResourceKind | null {

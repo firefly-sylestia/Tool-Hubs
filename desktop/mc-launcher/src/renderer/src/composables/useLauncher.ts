@@ -213,6 +213,9 @@ export function useLauncher() {
       instanceId?: string | null
     }) => call<ModrinthInstallResult>('modrinth', 'install', input),
 
+    /** Forgets the tasks that have finished, leaving whatever is still running. */
+    clearTasks: () => call<{ cleared: number }>('task', 'clear'),
+
     rescan: () => call<InstalledVersion[]>('installation', 'rescan'),
     remoteVersions: (refresh = false) =>
       call<RemoteVersion[]>('install', 'versions', { refresh }),

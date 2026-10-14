@@ -1,5 +1,26 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.15.0, downloads you can watch
+
+- [x] **A Downloads page** listing every task, running and finished, with percentage, elapsed time,
+      the file being fetched, the bytes so far and why a failure failed; finished ones clear on
+      request and a running one is never cleared.
+- [x] **Install progress reports bytes.** Each file owns a slice of the task, so the bar moves while a
+      large file arrives and the message reads `Sodium: 12.4 MB of 30.1 MB`; the store shows the
+      running install above its results and the Play page's Activity card links to the page.
+- [x] **The store's own record can no longer break the store.** An entry missing its file name, or
+      naming a kind that is not one of the three folders, reached `join` as an undefined path: every
+      later read threw the runtime's path error and the entry survived each rewrite. Unusable entries
+      are now dropped on read and never re-written.
+- [x] **An unknown resource kind is refused by name**, instead of returning `undefined` for a caller
+      to join onto a path.
+- [x] A store install passes the service's own fetch into its downloads, and a new end-to-end check
+      installs a project plus its required dependency against a stubbed network and asserts the byte
+      progress, the files on disk and the record.
+- [x] A result card opens the project's own page; the shortcut hints appear only while the modifier is
+      held.
+- [x] Version bumped to `0.15.0` in `desktop/mc-launcher/package.json`, lockfile included.
+
 ## Desktop launcher — MC Launcher 0.14.1, icons that were blocked by the page's own policy
 
 - [x] **Modrinth's image CDN is allowed in the renderer's content security policy.** The policy allowed
