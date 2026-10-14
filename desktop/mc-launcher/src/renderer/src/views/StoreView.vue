@@ -246,7 +246,7 @@ onMounted(() => {
     </v-card-text>
   </v-card>
 
-  <v-row class="mt-4">
+  <v-row class="mt-4 app-stagger">
     <v-col v-for="hit in hits" :key="hit.projectId" cols="12" md="6" lg="4">
       <v-card class="h-100 d-flex flex-column">
         <v-card-text class="flex-grow-1">

@@ -166,7 +166,7 @@ onMounted(() => {
             unauthenticated clients (offline mode). Public servers and Realms will refuse the join.
           </v-alert>
 
-          <v-list v-if="servers.length > 0">
+          <v-list v-if="servers.length > 0" class="app-stagger">
             <v-list-item
               v-for="server in servers"
               :key="server.id"

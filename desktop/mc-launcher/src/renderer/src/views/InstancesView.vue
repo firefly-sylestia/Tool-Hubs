@@ -866,7 +866,7 @@ onMounted(async () => {
             <v-alert v-if="savesInfo && savesInfo.worlds.length === 0" type="info" variant="tonal">
               No worlds yet. Play the instance once, or import one you already have.
             </v-alert>
-            <v-list v-else density="compact">
+            <v-list v-else density="compact" class="app-stagger">
               <v-list-item
                 v-for="world in savesInfo?.worlds ?? []"
                 :key="world.folder"

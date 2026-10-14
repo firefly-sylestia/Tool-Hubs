@@ -16,6 +16,7 @@ const {
   createProfile,
   selectProfile,
   selectInstance,
+  openPath,
   startLaunch,
   stopLaunch,
   planLaunch
@@ -25,6 +26,9 @@ const newName = ref('')
 const busy = ref(false)
 const plan = ref<LaunchPlan | null>(null)
 const showPlan = ref(false)
+
+const spinning = ref(false)
+const menuOpen = ref(false)
 
 const isRunning = computed(() => runningProfileId.value !== null)
 const canLaunch = computed(
@@ -63,6 +67,7 @@ async function launch(): Promise<void> {
   const profile = selectedProfile.value
   const instance = selectedInstance.value
   if (!profile || !instance) return
+  spinning.value = true
   busy.value = true
   try {
     await startLaunch(profile.id, pendingServer.value?.id ?? null, instance.id)
@@ -71,6 +76,13 @@ async function launch(): Promise<void> {
   } finally {
     busy.value = false
   }
+}
+
+/** A whole folder for the instance, which is what people go looking for. */
+async function openGameFolder(): Promise<void> {
+  const instance = selectedInstance.value
+  if (!instance) return
+  await openPath(instance.dir)
 }
 
 async function previewPlan(): Promise<void> {
@@ -147,10 +159,55 @@ async function previewPlan(): Promise<void> {
             Enable join only if that server is configured for unauthenticated clients.
           </v-alert>
         </v-card-text>
-        <v-card-actions>
-          <v-btn color="primary" :disabled="busy || !canLaunch" @click="launch">Launch</v-btn>
+        <v-card-actions class="align-center">
+          <!-- A pill with the play control set into it. The icon spins once on
+               click, which is the only sign a launch started before a window
+               appears. -->
+          <div class="launch-pill mr-2">
+            <v-btn
+              color="primary"
+              variant="flat"
+              class="btn-launch"
+              :disabled="busy || !canLaunch"
+              @click="launch"
+            >
+              {{ isRunning ? 'Running' : 'Launch' }}
+            </v-btn>
+            <v-btn
+              icon
+              variant="flat"
+              class="launch-inset launch-inset--play"
+              :disabled="busy || !canLaunch"
+              aria-label="Launch"
+              @click="launch"
+            >
+              <v-icon :class="{ 'is-spinning': spinning }" @animationend="spinning = false">play_arrow</v-icon>
+            </v-btn>
+            <v-menu
+              location="bottom end"
+              :open-on-hover="true"
+              transition="scroll-y-transition"
+              @update:model-value="(open: boolean) => (menuOpen = open)"
+            >
+              <template #activator="{ props: activatorProps }">
+                <v-btn
+                  icon
+                  variant="flat"
+                  class="launch-inset launch-inset--menu"
+                  aria-label="Instance actions"
+                  v-bind="activatorProps"
+                >
+                  <v-icon :class="{ 'is-active': menuOpen }">settings</v-icon>
+                </v-btn>
+              </template>
+              <v-list density="compact">
+                <v-list-item title="Show the command" @click="previewPlan()" />
+                <v-list-item title="Manage instances" @click="router.push('/instances')" />
+                <v-list-item title="Open the game folder" @click="openGameFolder()" />
+              </v-list>
+            </v-menu>
+          </div>
           <v-btn :disabled="!isRunning" @click="stopLaunch()">Stop</v-btn>
-          <v-btn variant="text" :disabled="!canLaunch" @click="previewPlan">Show command</v-btn>
           <v-spacer />
           <v-btn variant="text" @click="router.push('/instances')">Manage instances</v-btn>
         </v-card-actions>
