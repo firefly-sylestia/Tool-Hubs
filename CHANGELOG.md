@@ -11,6 +11,40 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.8.0]
+
+A game directory is thousands of files written by several programs, and every way it breaks is silent —
+a download interrupted, a jar deleted to free space, a folder copied from another machine without its
+assets, a JDK uninstalled since it was chosen. All of it used to reach the player as the game failing to
+start with nothing to explain it. Launch now makes the installation whole first, and then starts it.
+
+### Added
+- **A launch completes what it is about to run.** The installer's own plan is run first, and only files
+that are absent or not the size the manifest declared are fetched — an asset's name is its hash, so a
+file that is there is a file that is right, and hashing thousands of them before every launch would cost
+more than starting the game. A complete installation costs a walk over the tree and no requests; a
+repaired one is reported in the log with what it took.
+- **Natives are unpacked again when they are missing**, which is the difference between a game that
+starts and a game that fails with an unloadable native.
+- **`npm run netcheck --launch`** — the check that installs a whole real version, deletes three of its
+files, watches them come back, blanks `PATH` and `JAVA_HOME` so the runtime has to be downloaded, and
+starts the game with the command the launcher builds.
+
+### Fixed
+- **The same asset was downloaded twice, at once.** Real asset indexes list one hash under more than one
+name — 1.12.2 has `icons/icon_16x16.png` and `minecraft/icons/icon_16x16.png` for the same content, and
+1.20.1 has a sound shared by two mobs — so the plan held one destination twice and two downloads raced
+for it. One of them resumed a `.part` its neighbour had already finished, and the server answered
+HTTP 416; other orderings would have written a corrupt file. Each hash is planned once now. Found by
+installing a real version and starting it.
+- **A Java path in Settings that no longer answers stopped every launch.** A JDK uninstalled or a
+settings file copied to another machine left a path that could not start, and the search that would have
+found a runtime never ran. It is now tested, reported in the log, and passed over.
+- **Older versions were launched on whatever Java the machine had.** A version json from before 1.14
+names no Java at all, so 1.12.2 was handed the newest runtime on the machine — Java 25, which it cannot
+start on. The Java a release needs is now read from the release itself, and a machine with no runtime
+installs the one that era used.
+
 ## [MC Launcher 0.7.0]
 
 Browsing was a dialog inside one instance, which put the catalogue behind the thing you were supposed to

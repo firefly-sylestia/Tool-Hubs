@@ -1,5 +1,27 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.8.0, a launch that repairs what it starts
+
+- [x] Launch runs the installer's own plan first and fetches only what is absent or the wrong size; a
+      complete installation costs a walk over the tree and no requests at all.
+- [x] Natives are unpacked again when they are gone, and a Java path in Settings that no longer answers
+      is tested, reported and passed over instead of stopping the launch.
+- [x] A version json that names no Java is matched by the Java its release needs — 1.12.2 no longer
+      lands on Java 25, and a machine with no runtime gets the one that era used.
+- [x] Fixed at the cause: real asset indexes list one hash under two names, so the plan held a path
+      twice and two downloads raced for it (HTTP 416, or a corrupt file in another order). Each hash is
+      planned once. Found by installing a real version and starting it.
+- [x] `npm run netcheck --launch` covers the whole chain: a complete 1.12.2 install, three files
+      deleted and fetched back, `PATH`/`JAVA_HOME` blanked so the runtime must be downloaded, and the
+      game started with the real command. It reaches the game's own graphics code and stops at the
+      missing display, which is as far as a headless machine can go.
+- [x] Version bumped to `0.8.0` in `desktop/mc-launcher/package.json`, lockfile included.
+
+### Still to verify on a desktop
+- [ ] A launch that opens a window and reaches the main menu. Everything up to the window is covered
+      above; the window itself needs a machine with a GPU and a display, and `netcheck --launch` was
+      run in a container without either.
+
 ## Desktop launcher — MC Launcher 0.7.0, the Modrinth store page
 
 - [x] A Modrinth page of its own: search, sort (relevance/downloads/followers/newest/updated), four
@@ -92,9 +114,9 @@
 
 ### Still to verify on a desktop
 - [ ] Launch on a Windows desktop where `PATH` has no java, which is the machine the reported failure
-      came from. The runtime download itself is now covered by `netcheck` (it downloads Mojang's build,
-      unpacks it, runs it and finds it again on Linux); what still needs Windows is the download, the
-      `java.exe` spawn and native loading there.
+      came from. The runtime download itself is now covered by `netcheck --launch`, which blanks `PATH`
+      and `JAVA_HOME`, downloads Java 8 for a real version and starts the game with it — on Linux. What
+      still needs Windows is the download, the `java.exe` spawn and native loading there.
 - [ ] Import a real modpack end to end (a several-hundred-megabyte `.mrpack`), including its overrides
       landing in the instance and the loader it names being installed first.
 

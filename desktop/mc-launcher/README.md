@@ -27,6 +27,16 @@ snapshot state protocol, and a launch pipeline built from the version json.
   a download that is interrupted keeps its `.part` file and resumes with a range
   request next time, and a hash mismatch keeps the bytes and fails loudly instead
   of leaving a corrupt jar behind a working-looking install.
+- **Launching repairs what it is about to run.** Before a game starts, the
+  installer's plan is run again and anything absent or the wrong size is
+  fetched — a deleted jar, a half-finished download, assets missing after a game
+  directory was copied from another machine, natives that were never unpacked.
+  A complete installation is checked without a single request, and the log says
+  what a repair had to fetch. Java is resolved the same way: a runtime already
+  installed for the instance is used, then the machine's own, and if neither
+  answers Mojang's runtime is downloaded for the version — including for versions
+  old enough that their json names no runtime at all, which are matched by the
+  Java their release needs rather than by whatever the machine happens to have.
 - **Instances.** An instance is one game directory with its own version,
   loader, `mods/`, `resourcepacks/` and `shaderpacks/`. Create one (the folder
   name is derived from its name and cannot collide), select it, install a
@@ -203,7 +213,7 @@ as a snapshot event, so the UI keeps a working copy instead of guessing.
 Verified locally on Linux with Node 24.21:
 
 - `npm run typecheck` — clean for main, preload, shared and the Vue renderer.
-- `npm run selfcheck` — 85 checks: the offline UUID, rule evaluation,
+- `npm run selfcheck` — 90 checks: the offline UUID, rule evaluation,
   inheritance, classpath and natives resolution (including a library listed twice
   with the natives on the second listing), argument substitution, the launch
   plan and its failure paths, zip reading and extraction (including a modpack's
@@ -217,8 +227,11 @@ Verified locally on Linux with Node 24.21:
   (including the legacy one) and the warnings they produce, reading and patching
   `options.txt` and splitting JVM arguments the way a shell would, Mojang's
   runtime index and manifest (including that the runtime is installed exactly
-  where discovery looks for it), profile/server/settings validation, the state
-  store and the migration from the old single-directory state file.
+  where discovery looks for it, and which component answers for a version that
+  names none), planning a whole version chain with its asset index, the check
+  that decides which files a launch has to fetch, a Java path in Settings that
+  no longer answers being passed over, profile/server/settings validation, the
+  state store and the migration from the old single-directory state file.
 - `npm run netcheck` — the same install path against live services: Mojang's
   manifest and a real version json, a real asset index, libraries and assets
   downloaded and hash-checked (664 KB), a real native jar unpacked (1.16.5's
@@ -228,6 +241,17 @@ Verified locally on Linux with Node 24.21:
   out of the jar, plus a real project page and a modpack search), and Mojang's own
   Java runtime downloaded, unpacked, marked executable, run to confirm its
   version, and then found again by the resolver.
+- `npm run netcheck --launch` — opt-in, because it installs a whole version and
+  takes a couple of minutes: 1.12.2 (1327 files, including the natives it still
+  needs) is installed, the client jar, an asset and the natives directory are
+  deleted, and the launch-time check fetches all three back and then reports
+  nothing left to do on a second pass. `PATH` and `JAVA_HOME` are then blanked so
+  no machine runtime can answer, the launcher downloads Java 8 for it, and the
+  game is started with the command the launcher builds. It reaches its own
+  graphics code — the LWJGL natives load from the instance's natives directory —
+  and stops there because this environment has no display and no X11 client
+  libraries. That is as far as a headless machine can go; the window itself has
+  only been checked on a desktop.
 - `npm run test` — 7 renderer tests: boot from the bridge, snapshot rendering, a
   UI action reaching the service bridge, error surfacing, navigation, the install
   picker installing what it offers into the selected instance, and the Modrinth
