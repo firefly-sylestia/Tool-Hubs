@@ -56,6 +56,13 @@ const {
 
 const busy = ref(false)
 const loadingVersions = ref(false)
+
+/**
+ * The page is four cards deep and each one is a whole subject, so they are put
+ * behind tabs rather than stacked: the version it runs, what is in it, its
+ * worlds and its options.
+ */
+const tab = ref<'version' | 'content' | 'worlds' | 'options'>('version')
 const note = ref<string | null>(null)
 const noteType = ref<'info' | 'success' | 'warning'>('info')
 
@@ -121,6 +128,16 @@ const visibleVersions = computed(() =>
 )
 
 const runningTask = computed(() => tasks.value.find((task) => task.state === 'running') ?? null)
+
+/** The state of the instance being looked at, in the same words the Play page uses. */
+const instanceState = computed(() => {
+  const instance = selectedInstance.value
+  if (!instance) return { label: 'No instance', icon: 'mdi-plus-circle-outline', color: 'info' }
+  if (!instance.versionId) {
+    return { label: 'Needs a version', icon: 'mdi-alert-circle-outline', color: 'warning' }
+  }
+  return { label: 'Ready to play', icon: 'mdi-check-circle-outline', color: 'success' }
+})
 const entries = computed<ResourceEntry[]>(() => instanceResources.value?.entries[resourceTab.value] ?? [])
 const resourceFolder = computed(() => instanceResources.value?.folders[resourceTab.value] ?? '')
 const entryWarnings = computed(() =>
@@ -541,17 +558,18 @@ async function openResourceFolder(): Promise<void> {
   await openPath(resourceFolder.value)
 }
 
+/** Opened without a search word it lists the catalogue, the way the store does. */
 function openBrowse(): void {
   browse.open = true
   browse.hits = []
   browse.selected = null
   browse.versions = []
   browse.searched = false
-  if (browse.query.trim() !== '') void runSearch()
+  void runSearch()
 }
 
 async function runSearch(): Promise<void> {
-  if (!selectedInstance.value || browse.query.trim() === '') return
+  if (!selectedInstance.value) return
   browse.loading = true
   try {
     const result = await modrinthSearch({
@@ -723,13 +741,13 @@ onMounted(async () => {
 </script>
 
 <template>
-  <v-row>
-    <v-col cols="12" md="6">
-      <v-card>
-        <v-card-title class="d-flex align-center">
-          <v-icon icon="mdi-cube-outline" size="small" class="mr-2" />
-          Instances
-        </v-card-title>
+  <!-- One instance at a time: what it is, what is happening to it, and the set
+       of actions that change it. -->
+  <v-card class="hero-card">
+    <v-card-title class="d-flex align-center">
+      <v-icon icon="mdi-cube-outline" size="small" class="mr-2" />
+      Instances
+    </v-card-title>
         <v-card-text>
           <v-select
             :items="instances"
@@ -742,12 +760,19 @@ onMounted(async () => {
             @update:model-value="selectInstanceById"
           />
 
-          <p v-if="selectedInstance" class="text-medium-emphasis mb-1">
-            {{ describe(selectedInstance) }}
-          </p>
-          <p v-if="selectedInstance" class="text-medium-emphasis mb-0 text-body-2">
-            {{ selectedInstance.dir }}
-          </p>
+          <div v-if="selectedInstance" class="d-flex align-center flex-wrap ga-2 mt-3">
+            <v-chip
+              class="state-chip"
+              size="small"
+              :color="instanceState.color"
+              variant="tonal"
+              :prepend-icon="instanceState.icon"
+            >
+              {{ instanceState.label }}
+            </v-chip>
+            <span class="text-body-2 text-medium-emphasis">{{ describe(selectedInstance) }}</span>
+            <span class="text-body-2 text-medium-emphasis text-truncate">{{ selectedInstance.dir }}</span>
+          </div>
 
           <v-alert v-if="instances.length === 0" type="info" variant="tonal" class="mt-4">
             An instance is one game directory with its own version and its own mods, resource packs
@@ -794,13 +819,20 @@ onMounted(async () => {
             Remove
           </v-btn>
         </v-card-actions>
-      </v-card>
+  </v-card>
 
-      <v-card class="mt-4">
-        <v-card-title class="d-flex align-center">
-          <v-icon icon="mdi-download" size="small" class="mr-2" />
-          Install a version here
-        </v-card-title>
+  <v-tabs v-model="tab" class="mt-6" density="comfortable" align-tabs="start">
+    <v-tab value="version" prepend-icon="mdi-download">Version</v-tab>
+    <v-tab value="content" prepend-icon="mdi-puzzle-outline">Mods and packs</v-tab>
+    <v-tab value="worlds" prepend-icon="mdi-earth">Worlds</v-tab>
+    <v-tab value="options" prepend-icon="mdi-tune-variant">Options</v-tab>
+  </v-tabs>
+
+  <v-card v-if="tab === 'version'" class="mt-2">
+    <v-card-title class="d-flex align-center">
+      <v-icon icon="mdi-download" size="small" class="mr-2" />
+      Install a version here
+    </v-card-title>
         <v-card-text>
           <p class="text-medium-emphasis">
             Installing goes into
@@ -869,15 +901,13 @@ onMounted(async () => {
             Refresh list
           </v-btn>
         </v-card-actions>
-      </v-card>
-    </v-col>
+  </v-card>
 
-    <v-col cols="12" md="6">
-      <v-card>
-        <v-card-title class="d-flex align-center">
-          <v-icon icon="mdi-puzzle-outline" size="small" class="mr-2" />
-          Mods, packs and shaders
-        </v-card-title>
+  <v-card v-if="tab === 'content'" class="mt-2">
+    <v-card-title class="d-flex align-center">
+      <v-icon icon="mdi-puzzle-outline" size="small" class="mr-2" />
+      Mods, packs and shaders
+    </v-card-title>
         <v-card-text>
           <v-tabs v-model="resourceTab" density="comfortable">
             <v-tab v-for="kind in tabKinds" :key="kind.value" :value="kind.value">{{ kind.title }}</v-tab>
@@ -962,13 +992,13 @@ onMounted(async () => {
             Open folder
           </v-btn>
         </v-card-actions>
-      </v-card>
+  </v-card>
 
-      <v-card class="mt-4">
-        <v-card-title class="d-flex align-center">
-          <v-icon icon="mdi-tag-multiple-outline" size="small" class="mr-2" />
-          Versions in this instance
-        </v-card-title>
+  <v-card v-if="tab === 'version'" class="mt-4">
+    <v-card-title class="d-flex align-center">
+      <v-icon icon="mdi-tag-multiple-outline" size="small" class="mr-2" />
+      Versions in this instance
+    </v-card-title>
         <v-card-text>
           <v-alert v-if="installations.length === 0" type="info" variant="tonal" class="mb-2">
             Nothing under <code>versions/</code> yet.
@@ -999,13 +1029,13 @@ onMounted(async () => {
             Rescan
           </v-btn>
         </v-card-actions>
-      </v-card>
+  </v-card>
 
-      <v-card class="mt-4">
-        <v-card-title class="d-flex align-center">
-          <v-icon icon="mdi-earth" size="small" class="mr-2" />
-          Worlds and backups
-        </v-card-title>
+  <v-card v-if="tab === 'worlds'" class="mt-2">
+    <v-card-title class="d-flex align-center">
+      <v-icon icon="mdi-earth" size="small" class="mr-2" />
+      Worlds and backups
+    </v-card-title>
         <v-card-text>
           <p v-if="!selectedInstance" class="text-medium-emphasis">
             Select an instance first.
@@ -1111,13 +1141,13 @@ onMounted(async () => {
             Back up now
           </v-btn>
         </v-card-actions>
-      </v-card>
+  </v-card>
 
-      <v-card class="mt-4">
-        <v-card-title class="d-flex align-center">
-          <v-icon icon="mdi-tune-variant" size="small" class="mr-2" />
-          Game and java options
-        </v-card-title>
+  <v-card v-if="tab === 'options'" class="mt-2">
+    <v-card-title class="d-flex align-center">
+      <v-icon icon="mdi-tune-variant" size="small" class="mr-2" />
+      Game and java options
+    </v-card-title>
         <v-card-text>
           <p v-if="!selectedInstance" class="text-medium-emphasis">
             Select an instance first.
@@ -1205,9 +1235,7 @@ onMounted(async () => {
             Save options
           </v-btn>
         </v-card-actions>
-      </v-card>
-    </v-col>
-  </v-row>
+  </v-card>
 
   <v-dialog v-model="showNewInstance" max-width="520">
     <v-card>
@@ -1261,22 +1289,29 @@ onMounted(async () => {
           <v-text-field
             v-model="browse.query"
             label="Search Modrinth"
+            prepend-inner-icon="mdi-magnify"
             hide-details
             autofocus
             @keyup.enter="runSearch"
           />
-          <v-btn :loading="browse.loading" @click="runSearch">Search</v-btn>
+          <v-btn :loading="browse.loading" prepend-icon="mdi-magnify" @click="runSearch">
+            Search
+          </v-btn>
+        </div>
+
+        <div v-if="browse.loading && browse.hits.length === 0" class="d-flex justify-center py-6">
+          <v-progress-circular indeterminate color="primary" />
         </div>
 
         <p
-          v-if="!browse.loading && browse.searched && browse.hits.length === 0"
+          v-else-if="browse.searched && browse.hits.length === 0"
           class="text-medium-emphasis mt-4"
         >
           Nothing found. Modrinth filters by this instance's version and loader, so a mod built for
           another one will not appear.
         </p>
 
-        <v-list v-if="browse.hits.length > 0" density="compact" class="mt-4">
+        <v-list v-if="browse.hits.length > 0" density="comfortable" class="mt-4 app-stagger">
           <v-list-item
             v-for="hit in browse.hits"
             :key="hit.projectId"
@@ -1285,6 +1320,11 @@ onMounted(async () => {
             :active="browse.selected?.projectId === hit.projectId"
             @click="chooseHit(hit)"
           >
+            <template #prepend>
+              <div class="row-icon" :class="browse.selected?.projectId === hit.projectId ? 'row-icon--primary' : ''">
+                <v-icon :icon="kindIcon(resourceTab)" size="20" />
+              </div>
+            </template>
             <template #append>
               <span class="text-medium-emphasis text-body-2">
                 {{ hit.downloads.toLocaleString() }} downloads

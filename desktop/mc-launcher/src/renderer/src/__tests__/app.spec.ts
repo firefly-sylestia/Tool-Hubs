@@ -367,6 +367,9 @@ describe('renderer shell', () => {
     await flushPromises()
 
     expect(calls).toContainEqual({ service: 'save', method: 'list', params: { instanceId: 'i1' } })
+    // The worlds have a tab of their own, so open it before looking at them.
+    await buttonByText(wrapper, 'Worlds').trigger('click')
+    await flushPromises()
     const text = wrapper.text()
     expect(text).toContain('My World')
     // The line under a world is the world's own: its version, its game mode, when
