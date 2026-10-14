@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { ModrinthHit, ModrinthProjectDetail, ModrinthVersion, ResourceKind } from '@shared/types'
 import { useLauncher } from '@renderer/composables/useLauncher'
 
 /**
- * The store: Modrinth's catalogue, searchable, with an install button.
+ * The store: Modrinth's catalogue, browsable without searching and searchable
+ * when you know what you want.
  *
  * It is a page of its own rather than a dialog inside an instance because
- * browsing is what you do *before* choosing where something goes — the tabs cover
+ * browsing is what you do *before* choosing where something goes: the tabs cover
  * resources (which need an instance) and modpacks (which create one), and the
  * filter says which instance a resource install would land in.
  */
@@ -26,17 +27,32 @@ const {
   installModpackFromStore
 } = useLauncher()
 
-const tabs: { title: string; value: StoreKind }[] = [
-  { title: 'Mods', value: 'mod' },
-  { title: 'Resource packs', value: 'resourcepack' },
-  { title: 'Shaders', value: 'shaderpack' },
-  { title: 'Modpacks', value: 'modpack' }
+const tabs: { title: string; value: StoreKind; icon: string; blurb: string }[] = [
+  { title: 'Mods', value: 'mod', icon: 'mdi-puzzle-outline', blurb: 'go into an instance\'s mods folder' },
+  {
+    title: 'Resource packs',
+    value: 'resourcepack',
+    icon: 'mdi-palette-outline',
+    blurb: 'change how the game looks'
+  },
+  {
+    title: 'Shaders',
+    value: 'shaderpack',
+    icon: 'mdi-shimmer',
+    blurb: 'need a shader loader such as Iris'
+  },
+  {
+    title: 'Modpacks',
+    value: 'modpack',
+    icon: 'mdi-package-variant-closed',
+    blurb: 'become a new instance, with their own game version'
+  }
 ]
 
 const sorts = [
+  { title: 'Most downloaded', value: 'downloads' },
   { title: 'Relevance', value: 'relevance' },
-  { title: 'Downloads', value: 'downloads' },
-  { title: 'Followers', value: 'follows' },
+  { title: 'Most followed', value: 'follows' },
   { title: 'Newest', value: 'newest' },
   { title: 'Recently updated', value: 'updated' }
 ]
@@ -45,7 +61,7 @@ const PAGE_SIZE = 20
 
 const kind = ref<StoreKind>('mod')
 const query = ref('')
-const sort = ref('relevance')
+const sort = ref('downloads')
 const hits = ref<ModrinthHit[]>([])
 const totalHits = ref(0)
 const offset = ref(0)
@@ -62,20 +78,23 @@ const detail = reactive({
   showAllVersions: false
 })
 
-const kindLabel = computed(() => tabs.find((tab) => tab.value === kind.value)?.title ?? 'Mods')
+const activeTab = computed(() => tabs.find((tab) => tab.value === kind.value) ?? tabs[0])
+const kindLabel = computed(() => activeTab.value.title)
+/** A modpack is installed as an instance, so it needs no instance of its own. */
 const requiresInstance = computed(() => kind.value !== 'modpack')
-const canSearch = computed(() => requiresInstance.value ? selectedInstance.value !== null : true)
+const readyToInstall = computed(() => !requiresInstance.value || selectedInstance.value !== null)
 
 function report(message: string, type: 'info' | 'success' | 'warning' = 'info'): void {
   noteType.value = type
   note.value = message
 }
 
+/**
+ * The catalogue, filtered by the selected instance when there is one: without a
+ * search word the page still shows what is most downloaded for it, which is what
+ * makes opening the store anything other than an empty box.
+ */
 async function search(reset = true): Promise<void> {
-  if (!canSearch.value) {
-    report('Modpacks are installed as new instances; for mods, packs and shaders pick an instance first.', 'warning')
-    return
-  }
   loading.value = true
   if (reset) offset.value = 0
   try {
@@ -89,7 +108,8 @@ async function search(reset = true): Promise<void> {
     hits.value = reset ? result.hits : [...hits.value, ...result.hits]
     totalHits.value = result.totalHits
   } catch {
-    // Reported in the snackbar.
+    // Reported in the snackbar, and kept as a note here so the page says so.
+    report('Modrinth could not be reached. Check the connection and try again.', 'warning')
   } finally {
     loading.value = false
   }
@@ -98,6 +118,12 @@ async function search(reset = true): Promise<void> {
 async function loadMore(): Promise<void> {
   offset.value += PAGE_SIZE
   await search(false)
+}
+
+function switchTab(next: StoreKind): void {
+  kind.value = next
+  detail.open = false
+  void search()
 }
 
 async function openDetail(hit: ModrinthHit): Promise<void> {
@@ -141,7 +167,14 @@ async function installPack(projectId: string, versionId?: string): Promise<void>
 async function installResource(hit: ModrinthHit | null, versionId?: string): Promise<void> {
   const instance = selectedInstance.value
   const projectId = hit?.projectId ?? detail.project?.projectId ?? null
-  if (!instance || !projectId) return
+  if (!projectId) return
+  if (!instance) {
+    report(
+      `Pick an instance first: ${kindLabel.value.toLowerCase()} are installed into one instance's own folder.`,
+      'warning'
+    )
+    return
+  }
   busy.value = true
   try {
     const result = await installFromModrinth({
@@ -186,119 +219,178 @@ function downloads(value: number): string {
   return String(value)
 }
 
+watch(
+  () => selectedInstance.value?.id ?? null,
+  () => {
+    // What fits the instance changes with it, so the list is looked up again.
+    void search()
+  }
+)
+
 onMounted(() => {
   void search()
 })
 </script>
 
 <template>
-  <v-card>
-    <v-card-title class="d-flex align-center">
-      Modrinth
-      <v-spacer />
-      <span class="text-medium-emphasis text-body-2">
-        {{ instances.length }} instance(s) · {{ selectedInstance?.name ?? 'none selected' }}
-      </span>
-    </v-card-title>
+  <v-card class="hero-card mb-4">
     <v-card-text>
-      <div class="d-flex ga-2 align-center flex-wrap">
+      <div class="d-flex align-center flex-wrap ga-3">
+        <div class="hero-icon"><v-icon icon="mdi-storefront-outline" /></div>
+        <div class="flex-grow-1">
+          <h1 class="text-h5 mb-0">Modrinth</h1>
+          <p class="text-body-2 text-medium-emphasis mb-0">
+            Browsing {{ kindLabel.toLowerCase() }}, which {{ activeTab.blurb }}.
+          </p>
+        </div>
+        <v-chip
+          v-if="requiresInstance && selectedInstance"
+          class="state-chip"
+          color="primary"
+          variant="tonal"
+          prepend-icon="mdi-cube-outline"
+        >
+          fits {{ selectedInstance.name }}
+        </v-chip>
+        <v-chip v-else-if="requiresInstance" class="state-chip" color="warning" variant="tonal" prepend-icon="mdi-cube-off-outline">
+          no instance selected
+        </v-chip>
+      </div>
+
+      <v-tabs :model-value="kind" class="mt-4" density="comfortable" @update:model-value="switchTab">
+        <v-tab v-for="tab in tabs" :key="tab.value" :value="tab.value" :prepend-icon="tab.icon">
+          {{ tab.title }}
+        </v-tab>
+      </v-tabs>
+
+      <div class="d-flex ga-2 align-center flex-wrap mt-4">
         <v-text-field
           v-model="query"
           label="Search Modrinth"
+          prepend-inner-icon="mdi-magnify"
           hide-details
           clearable
-          style="max-width: 420px"
+          density="comfortable"
+          class="search-field"
           @keyup.enter="search()"
+          @click:clear="search()"
         />
         <v-select
           v-model="sort"
           :items="sorts"
           label="Sort by"
           hide-details
-          density="compact"
-          style="max-width: 200px"
+          density="comfortable"
+          class="sort-field"
           @update:model-value="search()"
         />
-        <v-btn color="primary" :loading="loading" @click="search()">Search</v-btn>
+        <v-btn color="primary" prepend-icon="mdi-magnify" :loading="loading" @click="search()">Search</v-btn>
       </div>
 
-      <v-tabs v-model="kind" class="mt-4" @update:model-value="search()">
-        <v-tab v-for="tab in tabs" :key="tab.value" :value="tab.value">{{ tab.title }}</v-tab>
-      </v-tabs>
-
-      <p class="text-medium-emphasis mt-4">
-        <template v-if="kind === 'modpack'">
-          A modpack is installed as a new instance: its Minecraft version, its loader and its own files.
+      <v-alert
+        v-if="requiresInstance && !selectedInstance"
+        type="warning"
+        variant="tonal"
+        class="mt-4"
+        prepend-icon="mdi-cube-off-outline"
+      >
+        Nothing is selected, so what you install has nowhere to go. Pick an instance, or install a
+        modpack, which arrives as its own instance.
+        <template #append>
+          <v-btn size="small" variant="text" @click="router.push('/instances')">Choose an instance</v-btn>
         </template>
-        <template v-else-if="selectedInstance">
-          Showing what fits <strong>{{ selectedInstance.name }}</strong> —
-          {{ selectedInstance.versionId ?? 'no version' }}<template v-if="selectedInstance.loader && selectedInstance.loader !== 'vanilla'">
-            on {{ selectedInstance.loader }}</template
-          >. Files go into that instance's {{ kindLabel.toLowerCase() }} folder.
-        </template>
-        <template v-else>
-          No instance is selected. Pick one on <strong>Instances</strong> to install into, or use the
-          Modpacks tab, which creates one.
-        </template>
-      </p>
+      </v-alert>
+      <v-alert v-else-if="selectedInstance && requiresInstance" type="info" variant="tonal" class="mt-4">
+        Listing what fits <strong>{{ selectedInstance.name }}</strong>
+        ({{ selectedInstance.versionId ?? 'no version' }}<template
+          v-if="selectedInstance.loader && selectedInstance.loader !== 'vanilla'"
+        >, {{ selectedInstance.loader }}</template
+        >). Files are installed into that instance.
+      </v-alert>
 
       <v-alert v-if="note" :type="noteType" variant="tonal" class="mt-4">{{ note }}</v-alert>
     </v-card-text>
   </v-card>
 
-  <v-row class="mt-4 app-stagger">
+  <div v-if="loading && hits.length === 0" class="d-flex justify-center py-10">
+    <v-progress-circular indeterminate color="primary" />
+  </div>
+
+  <v-row v-else-if="hits.length > 0" class="app-stagger">
     <v-col v-for="hit in hits" :key="hit.projectId" cols="12" md="6" lg="4">
-      <v-card class="h-100 d-flex flex-column">
+      <v-card class="h-100 d-flex flex-column result-card">
         <v-card-text class="flex-grow-1">
-          <div class="d-flex ga-3">
-            <v-avatar v-if="hit.iconUrl" rounded size="56">
+          <div class="d-flex ga-3 align-start">
+            <v-avatar v-if="hit.iconUrl" rounded size="52" class="result-card__icon">
               <v-img :src="hit.iconUrl" :alt="hit.title" />
             </v-avatar>
-            <div>
-              <h3 class="text-h6">{{ hit.title }}</h3>
-              <p class="text-medium-emphasis mb-1 text-body-2">
-                {{ downloads(hit.downloads) }} downloads · {{ downloads(hit.follows) }} followers
+            <div v-else class="hero-icon result-card__icon-fallback">
+              <v-icon icon="mdi-package-variant" />
+            </div>
+            <div class="flex-grow-1">
+              <h3 class="text-subtitle-1 mb-1">{{ hit.title }}</h3>
+              <p class="text-medium-emphasis text-body-2 mb-0 d-flex align-center ga-3 flex-wrap">
+                <span class="d-inline-flex align-center ga-1">
+                  <v-icon icon="mdi-download" size="x-small" />
+                  {{ downloads(hit.downloads) }} downloads
+                </span>
+                <span class="d-inline-flex align-center ga-1">
+                  <v-icon icon="mdi-heart-outline" size="x-small" />
+                  {{ downloads(hit.follows) }} followers
+                </span>
               </p>
             </div>
           </div>
-          <p class="mt-3 mb-2">{{ hit.description }}</p>
+          <p class="mt-3 mb-2 result-card__description">{{ hit.description }}</p>
           <div class="d-flex flex-wrap ga-1">
             <v-chip v-for="loader in hit.loaders" :key="loader" size="small" variant="tonal">
               {{ loader }}
             </v-chip>
-            <v-chip v-for="category in hit.categories.slice(0, 3)" :key="category" size="small" variant="text">
+            <v-chip
+              v-for="category in hit.categories.slice(0, 3)"
+              :key="category"
+              size="small"
+              variant="text"
+            >
               {{ category }}
             </v-chip>
           </div>
         </v-card-text>
         <v-card-actions>
-          <v-btn size="small" variant="text" @click="openDetail(hit)">Details</v-btn>
+          <v-btn size="small" variant="text" prepend-icon="mdi-information-outline" @click="openDetail(hit)">
+            Details
+          </v-btn>
           <v-spacer />
           <v-btn
             size="small"
             color="primary"
             :loading="busy"
-            :disabled="requiresInstance && !selectedInstance"
+            :prepend-icon="readyToInstall ? 'mdi-download' : 'mdi-cube-off-outline'"
             @click="install(hit)"
           >
-            Install
+            {{ readyToInstall ? 'Install' : 'Pick an instance' }}
           </v-btn>
         </v-card-actions>
       </v-card>
     </v-col>
   </v-row>
 
-  <div v-if="!loading && hits.length === 0" class="text-center mt-6">
-    <p class="text-medium-emphasis">
-      Nothing to show. Search for something, or check the instance this filters by.
+  <div v-else class="text-center py-10">
+    <v-icon icon="mdi-magnify-close" size="40" class="text-medium-emphasis" />
+    <p class="text-medium-emphasis mt-3 mb-0">
+      Nothing matched. Modrinth filters by the instance's version and loader, so a build for another
+      one will not appear.
     </p>
   </div>
 
   <div v-if="hits.length > 0 && hits.length < totalHits" class="text-center mt-4">
-    <v-btn :loading="loading" variant="tonal" @click="loadMore">
+    <v-btn :loading="loading" variant="tonal" prepend-icon="mdi-chevron-down" @click="loadMore">
       Load more ({{ hits.length }} of {{ totalHits }})
     </v-btn>
   </div>
+  <p v-else-if="hits.length > 0" class="text-center text-medium-emphasis text-body-2 mt-4 mb-0">
+    That is all {{ totalHits }} of them.
+  </p>
 
   <v-dialog v-model="detail.open" max-width="900" scrollable>
     <v-card>
@@ -308,19 +400,30 @@ onMounted(() => {
         </v-avatar>
         <span>{{ detail.project?.title ?? 'Project' }}</span>
         <v-spacer />
-        <span class="text-body-2 text-medium-emphasis">{{ detail.project?.projectType }}</span>
+        <v-chip size="small" variant="tonal">{{ detail.project?.projectType }}</v-chip>
       </v-card-title>
       <v-card-text>
         <v-progress-linear v-if="detail.loading" indeterminate height="3" class="mb-4" />
 
         <template v-if="detail.project">
-          <p class="text-medium-emphasis">
-            {{ downloads(detail.project.downloads) }} downloads ·
-            {{ downloads(detail.project.followers) }} followers ·
-            updated {{ detail.project.updated.slice(0, 10) }}
-            <template v-if="detail.project.license"> · {{ detail.project.license }}</template>
+          <p class="text-medium-emphasis d-flex align-center ga-3 flex-wrap">
+            <span class="d-inline-flex align-center ga-1">
+              <v-icon icon="mdi-download" size="small" />{{ downloads(detail.project.downloads) }} downloads
+            </span>
+            <span class="d-inline-flex align-center ga-1">
+              <v-icon icon="mdi-heart-outline" size="small" />{{ downloads(detail.project.followers) }} followers
+            </span>
+            <span class="d-inline-flex align-center ga-1">
+              <v-icon icon="mdi-update" size="small" />updated {{ detail.project.updated.slice(0, 10) }}
+            </span>
+            <span v-if="detail.project.license" class="d-inline-flex align-center ga-1">
+              <v-icon icon="mdi-license" size="small" />{{ detail.project.license }}
+            </span>
           </p>
-          <p v-if="detail.project.clientSide || detail.project.serverSide" class="text-medium-emphasis text-body-2">
+          <p
+            v-if="detail.project.clientSide || detail.project.serverSide"
+            class="text-medium-emphasis text-body-2"
+          >
             client: {{ detail.project.clientSide ?? 'unknown' }} · server:
             {{ detail.project.serverSide ?? 'unknown' }}
           </p>
@@ -353,6 +456,7 @@ onMounted(() => {
               :key="link.url"
               size="small"
               variant="tonal"
+              prepend-icon="mdi-open-in-new"
               @click="openLink(link.url)"
             >
               {{ link.label }}
@@ -362,7 +466,7 @@ onMounted(() => {
           <v-divider class="my-4" />
 
           <p class="mb-2">
-            <strong>Versions</strong> — the newest that fits is listed first. Required dependencies are
+            <strong>Versions</strong>: the newest that fits is listed first. Required dependencies are
             downloaded with the file.
           </p>
           <v-btn
@@ -370,7 +474,8 @@ onMounted(() => {
             color="primary"
             class="mb-2"
             :loading="busy"
-            :disabled="requiresInstance && !selectedInstance"
+            :disabled="!readyToInstall"
+            :prepend-icon="readyToInstall ? 'mdi-download' : 'mdi-cube-off-outline'"
             @click="install(null, detail.versions[0].id)"
           >
             Install {{ detail.versions[0].versionNumber }}
@@ -389,11 +494,19 @@ onMounted(() => {
               :title="`${version.versionNumber} (${version.versionType})`"
               :subtitle="`${version.gameVersions.slice(0, 5).join(', ')} · ${version.loaders.join(', ') || 'any loader'}${version.dependencies.some((d) => d.dependencyType === 'required') ? ' · needs ' + version.dependencies.filter((d) => d.dependencyType === 'required').length + ' dependency(ies)' : ''}`"
             >
+              <template #prepend>
+                <div class="row-icon" :class="version.versionType === 'release' ? 'row-icon--success' : 'row-icon--warning'">
+                  <v-icon
+                    :icon="version.versionType === 'release' ? 'mdi-tag-check-outline' : 'mdi-flask-outline'"
+                    size="20"
+                  />
+                </div>
+              </template>
               <template #append>
                 <v-btn
                   size="small"
                   :loading="busy"
-                  :disabled="requiresInstance && !selectedInstance"
+                  :disabled="!readyToInstall"
                   @click="install(null, version.id)"
                 >
                   Install
@@ -405,13 +518,10 @@ onMounted(() => {
             v-if="detail.versions.length > 5"
             variant="text"
             size="small"
+            :prepend-icon="detail.showAllVersions ? 'mdi-chevron-up' : 'mdi-chevron-down'"
             @click="detail.showAllVersions = !detail.showAllVersions"
           >
             {{ detail.showAllVersions ? 'Show fewer' : `Show all ${detail.versions.length}` }}
-          </v-btn>
-
-          <v-btn variant="text" size="small" @click="router.push('/instances')">
-            Manage instances
           </v-btn>
         </template>
       </v-card-text>
@@ -419,6 +529,7 @@ onMounted(() => {
         <v-btn
           v-if="detail.project"
           variant="text"
+          prepend-icon="mdi-open-in-new"
           @click="openLink(`https://modrinth.com/${detail.project.projectType}/${detail.project.slug}`)"
         >
           Open on Modrinth
@@ -431,11 +542,40 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.search-field {
+  flex: 1 1 320px;
+  max-width: 460px;
+}
+
+.sort-field {
+  flex: 0 1 190px;
+}
+
+.result-card__description {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.result-card__icon {
+  flex: 0 0 auto;
+}
+
+.result-card__icon-fallback {
+  width: 52px;
+  height: 52px;
+  font-size: 24px;
+}
+
 .body {
   max-height: 320px;
   overflow: auto;
   white-space: pre-wrap;
   font-size: 13px;
   font-family: inherit;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(var(--v-theme-on-surface), 0.06);
 }
 </style>

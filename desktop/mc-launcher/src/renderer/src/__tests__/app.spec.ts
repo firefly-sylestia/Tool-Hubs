@@ -299,7 +299,8 @@ describe('renderer shell', () => {
     pushSnapshot(steveState)
     await flushPromises()
     expect(wrapper.text()).toContain('Steve')
-    expect(inputByLabel(wrapper, 'Offline UUID').element.value).toBe('b50ad385-829d-3141-a216-7e7d7539ba7f')
+    // The offline UUID is shown as a value to copy rather than as a field.
+    expect(wrapper.text()).toContain('b50ad385-829d-3141-a216-7e7d7539ba7f')
     expect(wrapper.text()).not.toContain('No instance yet')
   })
 
@@ -388,11 +389,12 @@ describe('renderer shell', () => {
     await router.push('/store')
     await flushPromises()
 
-    // The store filters by the selected instance, so it asks for what fits it.
+    // The store opens on the catalogue with no search word, so it asks for the
+    // most downloaded rather than for a relevance ranking with nothing to rank.
     expect(calls).toContainEqual({
       service: 'modrinth',
       method: 'search',
-      params: { query: '', kind: 'mod', sort: 'relevance', limit: 20, offset: 0 }
+      params: { query: '', kind: 'mod', sort: 'downloads', limit: 20, offset: 0 }
     })
     expect(wrapper.text()).toContain('Sodium')
     expect(wrapper.text()).toContain('12.3M downloads')
