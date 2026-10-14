@@ -65,11 +65,16 @@ file, and QR scanning runs on-device through CameraX and the bundled ML Kit barc
 
 ## MC Launcher (desktop)
 
-An Electron + Vue 3 launcher for a Minecraft installation you already have on disk. It resolves the
-version json (including `inheritsFrom` chains and per-OS library rules), builds the classpath, shows
-the exact java command, and launches — with **local profiles only**: the UUID is the standard offline
-derivation, there is no account, session or token, and it downloads no game files. It can only join
-servers configured with `online-mode=false`.
+An Electron + Vue 3 Minecraft launcher. It **downloads and installs** game versions from Mojang's
+manifest and Fabric or Quilt loaders from their metadata — verifying every file against the hash its
+version json declares, resuming interrupted downloads, and unpacking native libraries — then resolves
+the version json (`inheritsFrom` chains, per-OS library rules), builds the classpath, shows the exact
+java command, and launches. It can also take an installation from a folder: a game directory is used
+in place, a single version folder is copied in.
+
+It is **local profiles only**: the UUID is the standard offline derivation, there is no account,
+session or token, so it can only join servers configured with `online-mode=false`. There is no
+marketplace, and no Forge, NeoForge or OptiFine installation.
 
 Its own README, including the full layout and requirements, is at
 [`desktop/mc-launcher/README.md`](desktop/mc-launcher/README.md). Its version lives in

@@ -27,6 +27,48 @@ export interface InstalledVersion {
   inheritsFrom: string | null
 }
 
+/** A game version offered by Mojang's manifest, as the install picker shows it. */
+export interface RemoteVersion {
+  id: string
+  type: string
+  releaseTime: string
+}
+
+/** 'vanilla' installs the game alone; the others add a mod loader on top of it. */
+export type InstallLoader = 'vanilla' | 'fabric' | 'quilt'
+
+export interface LoaderOption {
+  version: string
+  stable: boolean
+}
+
+export interface InstallRequest {
+  versionId: string
+  loader: InstallLoader
+  /** Required for fabric and quilt, ignored for vanilla. */
+  loaderVersion?: string | null
+}
+
+export interface InstallResult {
+  /** The game version that was asked for. */
+  versionId: string
+  /** The version that was actually installed: the loader profile id when one was added. */
+  targetId: string
+  files: number
+  reused: number
+  bytes: number
+  nativesExtracted: number
+}
+
+export interface ImportResult {
+  /** A game directory is used in place; a version folder is copied in. */
+  kind: 'gameDirectory' | 'version'
+  path: string
+  message: string
+  /** Versions visible after the import. */
+  installationCount: number
+}
+
 export interface ServerEntry {
   id: string
   name: string

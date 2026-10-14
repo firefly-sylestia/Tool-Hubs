@@ -68,6 +68,29 @@ function stubBridge(): void {
       throw new Error(`Error invoking remote method 'service-call': Error: ${message}`)
     }
     if (service === 'log' && method === 'recent') return []
+    if (service === 'install' && method === 'versions') {
+      return [
+        { id: '1.21.5-pre1', type: 'snapshot', releaseTime: '2026-10-01T00:00:00.000Z' },
+        { id: '1.21.4', type: 'release', releaseTime: '2025-12-03T00:00:00.000Z' },
+        { id: '1.21.3', type: 'release', releaseTime: '2025-10-23T00:00:00.000Z' }
+      ]
+    }
+    if (service === 'install' && method === 'loaders') {
+      return [
+        { version: '0.17.0-beta.1', stable: false },
+        { version: '0.16.9', stable: true }
+      ]
+    }
+    if (service === 'install' && method === 'start') {
+      return {
+        versionId: '1.21.4',
+        targetId: 'fabric-loader-0.16.9-1.21.4',
+        files: 184,
+        reused: 2,
+        bytes: 4096,
+        nativesExtracted: 7
+      }
+    }
     return null
   })
 
@@ -186,6 +209,26 @@ describe('renderer shell', () => {
     const body = document.body.textContent ?? ''
     expect(body).toContain('A profile named "Alex" already exists.')
     expect(body).not.toContain('Error invoking remote method')
+  })
+
+  it('installs the version the picker offers, without preselecting a snapshot', async () => {
+    const { wrapper, router } = await mountApp()
+    await router.push('/instances')
+    await flushPromises()
+
+    expect(calls).toContainEqual({ service: 'install', method: 'versions', params: { refresh: false } })
+    // The releases filter is on by default, so nothing on screen should be a
+    // snapshot even though the manifest starts with one.
+    expect(inputByLabel(wrapper, 'Game version').element.value).toBe('1.21.4')
+
+    await buttonByText(wrapper, 'Install').trigger('click')
+    await flushPromises()
+    expect(calls).toContainEqual({
+      service: 'install',
+      method: 'start',
+      params: { versionId: '1.21.4', loader: 'vanilla', loaderVersion: null }
+    })
+    expect(wrapper.text()).toContain('Installed fabric-loader-0.16.9-1.21.4')
   })
 
   it('navigates between the views', async () => {

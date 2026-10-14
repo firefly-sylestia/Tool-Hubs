@@ -7,9 +7,9 @@ import type { StateStore } from './state-store'
 /**
  * Finds versions that are already installed under `<gameDir>/versions`.
  *
- * This launcher deliberately does not download game files. The installation it
- * reads is the one the official launcher (or another launcher) already put
- * there; a missing or incomplete version is reported, not repaired.
+ * This is a scan, not a repair: it reports what is on disk. Installing a
+ * version that is missing — or completing one that is incomplete — is the
+ * installer's job, and that is a separate service so a scan stays instant.
  */
 export class InstallationService {
   constructor(
@@ -27,7 +27,8 @@ export class InstallationService {
 
     if (!existsSync(versionsDir)) {
       this.warn(
-        `No versions directory at ${versionsDir}. Point the game directory at an existing Minecraft installation.`
+        `No versions directory at ${versionsDir}. Install a version, or point the game ` +
+          `directory at an installation you already have.`
       )
       return this.state.update((state) => {
         state.installations = []

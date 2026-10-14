@@ -55,7 +55,8 @@ export function buildLaunchPlan(input: LaunchPlanInput): LaunchPlan {
     throw new Error(
       `No client jar found for ${versionId} or anything it inherits from. ` +
         `Expected a file such as ${join(resolved.dir, `${versionId}.jar`)}. ` +
-        `Complete the installation with the official launcher, then rescan.`
+        `Install this version from the Installed versions page, or complete it with the ` +
+        `official launcher, then rescan.`
     )
   }
 
@@ -67,8 +68,8 @@ export function buildLaunchPlan(input: LaunchPlanInput): LaunchPlan {
   if (natives.length > 0 && !existsSync(nativesDir)) {
     throw new Error(
       `Version ${versionId} needs native libraries, but ${nativesDir} does not exist. ` +
-        `The official launcher extracts them there on first run; run it once for this ` +
-        `version, then rescan. This launcher does not download or extract game files.`
+        `Install this version from the Installed versions page — the installer unpacks ` +
+        `natives — or run the version once with the official launcher, then rescan.`
     )
   }
   const useNativesDir = existsSync(nativesDir) ? nativesDir : null

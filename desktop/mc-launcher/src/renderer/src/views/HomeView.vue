@@ -122,8 +122,8 @@ async function stop(): Promise<void> {
             @update:model-value="selectVersion"
           />
           <v-alert v-if="installations.length === 0" type="info" variant="tonal" class="mt-2">
-            No versions found. This launcher runs an installation that already exists: install a
-            version with the official launcher, then rescan.
+            No versions found yet. Install one from <strong>Installed versions</strong>, or add an
+            installation you already have — then pick it here.
           </v-alert>
 
           <v-alert v-if="pendingServer" type="warning" variant="tonal" class="mt-4">
@@ -150,12 +150,21 @@ async function stop(): Promise<void> {
         <v-card-title>Tasks</v-card-title>
         <v-card-text>
           <v-list v-if="tasks.length > 0" density="compact">
-            <v-list-item
-              v-for="task in tasks.slice(0, 10)"
-              :key="task.id"
-              :title="task.name"
-              :subtitle="`${task.state} — ${task.message}`"
-            />
+            <v-list-item v-for="task in tasks.slice(0, 10)" :key="task.id" :title="task.name">
+              <v-progress-linear
+                v-if="task.state === 'running'"
+                :model-value="Math.round(task.progress * 100)"
+                height="6"
+                rounded
+                class="my-2"
+              />
+              <p class="text-medium-emphasis mb-0">
+                {{ task.state }} — {{ task.message }}
+                <template v-if="task.state === 'running'">
+                  ({{ Math.round(task.progress * 100) }}%)
+                </template>
+              </p>
+            </v-list-item>
           </v-list>
           <p v-else class="text-medium-emphasis">Nothing has run yet.</p>
         </v-card-text>

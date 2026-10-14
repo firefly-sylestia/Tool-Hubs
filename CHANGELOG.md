@@ -11,6 +11,65 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.2.0]
+
+The launcher can install the game now. Before this it could only run an installation that already
+existed, which made it useless to anyone who did not already have one — the thing it was asked to fix.
+
+### Added
+- **Install a game version.** The Installed versions page lists every version from Mojang's manifest
+(releases, snapshots or both, with search) and installs the one you pick: the version json, the client
+jar, every library the per-OS rules allow, the asset index and its objects, and the native libraries.
+- **Fabric and Quilt.** Pick a loader and a loader version and it is installed on top: their metadata
+publishes a finished profile json that inherits the vanilla version, so it is written into
+`versions/<loader>-<version>/` and its libraries are fetched. No installer is run and no JDK is needed
+at install time.
+- **Native libraries are unpacked** into `versions/<id>/<id>-natives`, which is where the launch plan
+already looked. Older versions need that directory to exist before they can start, so installing a
+version now also makes it launchable — previously that step belonged to the official launcher.
+- **Add from a folder.** A game directory (one containing `versions/`) becomes the game directory in
+place, because copying one means gigabytes. A single version folder is copied into the current
+installation, which is how a version downloaded elsewhere gets in.
+- **Progress you can see.** Installs run as tasks: percentage, files completed, and bytes done out of
+bytes total, in the install card and the task list. The percentage is bytes, not files — 41 of 3000
+says nothing, and one 100 MB asset looks like one 2 KB pom otherwise.
+
+### Changed
+- **Nothing half-downloaded counts as installed.** A file is fetched to `<name>.part` and only renamed
+into place once its sha1 matches the hash the version json declared; an interrupted download resumes
+with a range request; a server that ignores the range is detected and restarted; a failed request is
+retried; and a hash mismatch keeps the bytes and fails with the expected and actual hash rather than
+leaving a corrupt jar behind. A truncated archive is refused with a message that says so, instead of
+being read as if it were whole.
+- Files already present and hash-correct are skipped, so re-running an install completes what is
+missing rather than fetching everything again. An existing version json is never overwritten.
+- Installing into a profile that has no version selected selects what was just installed.
+- The launch errors for a missing client jar or a missing natives directory now point at Install,
+because this launcher is the thing that fills those gaps now.
+
+### Fixed
+- **A library listed twice lost its natives.** Real version jsons spell some coordinates out twice —
+1.16.5 lists `org.lwjgl:lwjgl-glfw:3.2.2` once with the artifact and once with the `natives` field.
+Libraries were deduplicated before the per-OS rules were evaluated, so the first listing won and the
+one carrying the natives was dropped; the launch plan then found no natives to require and the game
+died at runtime with an unloadable native library. Rules are now evaluated first and repeated
+coordinates are merged, natives included. Found by `npm run netcheck` against the live metadata, not
+by reading the code.
+
+### Not in this pass
+- No Forge or NeoForge installation (their installers have to be run as a Java process and edit the
+version json themselves), no OptiFine, and no CurseForge/Modrinth marketplace.
+- Still no account of any kind: no Microsoft login, no session, no token. Online-mode servers will
+refuse a join, as before.
+
+### Verified
+- `npm run selfcheck` — 51 checks, including the downloader's resume, checksum rejection, retries and
+byte progress, zip reading and extraction, install planning, loader metadata, and importing.
+- `npm run netcheck` — 8 steps against the live services: a real manifest and version json, a real
+asset index, 6 real files hash-checked, a real native jar downloaded and unpacked, the 39.6 MB client
+jar fetched and verified, and real Fabric and Quilt loader profiles parsed.
+- `npm run test` — 6 renderer tests, one of which installs what the picker offers.
+
 ## [MC Launcher 0.1.1]
 
 The desktop launcher now lives in this repository, under

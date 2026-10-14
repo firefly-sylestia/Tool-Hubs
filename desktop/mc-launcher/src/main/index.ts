@@ -6,7 +6,9 @@ import { IPC, type ServiceCallMessage } from '@shared/ipc'
 import type { LauncherSettings, LauncherState } from '@shared/types'
 import type { AddServerInput } from './services/server-service'
 import type { CreateProfileInput, UpdateProfileInput } from './services/profile-service'
+import type { InstallRequest } from '@shared/types'
 import { InstallationService } from './services/installation-service'
+import { InstallService } from './services/install-service'
 import { LaunchService } from './services/launch-service'
 import { LogService } from './services/log-service'
 import { ProfileService } from './services/profile-service'
@@ -82,6 +84,7 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   const servers = new ServerService(state)
   const tasks = new TaskService(state, registry)
   const launch = new LaunchService(state, environment, log, tasks, servers)
+  const install = new InstallService(state, environment, tasks, installations, settings, warn)
   const windows = new WindowController()
 
   const as = <T,>(params: unknown): T => params as T
@@ -107,6 +110,12 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   registry.register('installation', {
     list: () => installations.list(),
     rescan: () => installations.rescan()
+  })
+  registry.register('install', {
+    versions: (params) => install.remoteVersions(as<{ refresh?: boolean } | undefined>(params) ?? {}),
+    loaders: (params) => install.loaderVersions(as<{ loader: 'fabric' | 'quilt' }>(params)),
+    start: (params) => install.install(as<InstallRequest>(params)),
+    importFolder: (params) => install.importFrom(as<{ path: string }>(params).path)
   })
   registry.register('server', {
     list: () => servers.list(),
@@ -139,7 +148,8 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
     close: () => windows.close(),
     focus: () => windows.focus(),
     isMaximized: () => windows.isMaximized(),
-    toggleDevTools: () => windows.toggleDevTools()
+    toggleDevTools: () => windows.toggleDevTools(),
+    pickFolder: () => windows.pickFolder()
   })
 
   // First inspection of an existing installation, so the UI has something to

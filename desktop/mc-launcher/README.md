@@ -1,7 +1,9 @@
 # MC Launcher
 
-A small desktop launcher for an existing Minecraft installation, with **local
-profiles only**. Electron + Vue 3 + Vuetify, TypeScript throughout.
+A desktop Minecraft launcher with **local profiles only**. It downloads game
+versions and Fabric or Quilt loaders from the official metadata services, runs
+an installation it finds on disk, and joins offline-mode servers. Electron +
+Vue 3 + Vuetify, TypeScript throughout.
 
 It exists because the architecture is worth having in your own hands: an
 isolated renderer, a preload bridge, a single generic service RPC channel, a
@@ -12,10 +14,25 @@ snapshot state protocol, and a launch pipeline built from the version json.
 - **Local profiles.** A name (your in-game name) and nothing else. The profile's
   UUID is derived from that name (`UUID.nameUUIDFromBytes("OfflinePlayer:<name>")`,
   an RFC 4122 v3 UUID) — no account is created, stored, or contacted.
+- **Downloads and installs.** Pick any version Mojang's manifest lists — releases,
+  snapshots or both — optionally with a Fabric or Quilt loader on top, and press
+  Install. The client jar, every library the per-OS rules allow, the asset index
+  and its objects are fetched from Mojang, and a loader profile is written from
+  Fabric's or Quilt's metadata. Native libraries are unpacked into the version's
+  `natives` directory, which is what the launch plan needs on older versions.
+- **Every file is verified, and nothing half-fetched counts.** A file is only
+  renamed into place once its sha1 matches the hash the version json declared;
+  a download that is interrupted keeps its `.part` file and resumes with a range
+  request next time, and a hash mismatch keeps the bytes and fails loudly instead
+  of leaving a corrupt jar behind a working-looking install.
 - **Runs an installation that is already on disk.** It scans
   `<gameDir>/versions`, resolves `inheritsFrom` chains (vanilla + a mod loader),
   evaluates the per-OS `rules` on libraries, builds the classpath, and
   substitutes the version json's launch placeholders.
+- **Takes an installation from somewhere else.** *Add from a folder* accepts a
+  game directory — which it then uses in place, because copying one is several
+  gigabytes — or a single version folder, which it copies in. That is how a
+  version downloaded elsewhere gets in.
 - **Server list and join.** Saved addresses plus a queued join. Modern versions
   get `--quickPlayMultiplayer host:port`; older ones get `--server/--port`.
 - **Log view, task list, settings** (game directory, java binary, memory,
@@ -31,11 +48,15 @@ snapshot state protocol, and a launch pipeline built from the version json.
   a local profile has none, so those servers will refuse the join. That is
   expected, and it is the reason the server list can only be useful against
   servers that you or someone else configured with `online-mode=false`.
-- **No game download or extraction.** It will not fetch versions, libraries,
-  assets or natives, and it will not unpack native jars. If a version is
-  incomplete, the launcher says exactly what is missing and stops; it does not
-  fill the gap. Install and run a version once with the official launcher, then
-  rescan.
+- **No marketplace.** Mods, resource packs, shader packs, modpacks and
+  CurseForge/Modrinth browsing are not here. This launcher installs the game and
+  a loader; everything else goes in the instance folder by hand.
+- **No Forge or NeoForge installation.** Both publish installers that have to be
+  run as a Java process and edit the version json themselves. Fabric and Quilt
+  publish a finished profile json instead, which is why they are the two that
+  are supported; install Forge with its own installer and rescan if you want it.
+- **No OptiFine.** Their site has no metadata API and their terms discourage
+  automated downloads.
 
 Use it with a copy of the game you own.
 
@@ -47,15 +68,15 @@ This app is part of the [Tool-Hubs](../../README.md) repository, at
 Android build never touches it and it never touches `core/` or `tools/`.
 
 Its version is its own, in [`package.json`](package.json), and moves
-independently of Chime and Network Switcher. `0.1.1` is its first version here.
+independently of Chime and Network Switcher.
 
 ## Requirements
 
 - Node.js 22.12+ (developed on 24)
-- A Minecraft installation on disk (the folder holding `versions/`, `libraries/`
-  and `assets/`), installed by the official launcher
 - A JDK for the game: 17 for ≤1.20.4-era versions, 21 for 1.20.5+; the version
   json records what it wants (`javaVersion.majorVersion`)
+- Network access for installing. Nothing else needs it: launching an installed
+  version is entirely offline, and no account is contacted either way.
 
 ## Development
 
@@ -63,7 +84,8 @@ independently of Chime and Network Switcher. `0.1.1` is its first version here.
 npm install
 npm run dev        # electron-vite dev, with HMR for the renderer
 npm run verify     # typecheck + selfcheck + tests + build
-npm run selfcheck  # launcher logic checks (launch plan, rules, state store)
+npm run selfcheck  # launcher logic checks (launch plan, rules, downloads, state store)
+npm run netcheck   # the same install path against the live Mojang/Fabric/Quilt APIs
 npm run test       # renderer tests against a stubbed bridge
 npm run build      # typecheck, then bundle main/preload/renderer into out/
 npm run dist:linux # package with electron-builder (also dist:win, dist:mac)
@@ -89,12 +111,14 @@ always need a desktop.
 src/main/            Electron main process
   index.ts           window creation, IPC wiring, service registration
   window-controller.ts
-  services/          profile, installation, server, launch, task, log, settings
-  minecraft/         version json, rules, classpath, arguments, launch plan
+  services/          profile, installation, install, server, launch, task, log, settings
+  minecraft/         version json, rules, classpath, arguments, launch plan,
+                     download, install plan, loader metadata, zip, manifest
 src/preload/         contextBridge: serviceChannels, windowController, bootstrap, taskMonitor
 src/renderer/        Vue 3 + Vuetify UI
 src/shared/          types and channel constants shared by all three
 scripts/selfcheck.ts logic checks, runnable under plain Node
+scripts/netcheck.ts  the installer against the live metadata services
 ```
 
 The renderer never touches Node. It calls `window.serviceChannels.call(service,
@@ -104,29 +128,43 @@ as a snapshot event, so the UI keeps a working copy instead of guessing.
 
 ## Verification status
 
-Verified locally on Linux with Node 24.21, and re-run unchanged after the app
-was moved into this repository:
+Verified locally on Linux with Node 24.21:
 
 - `npm run typecheck` — clean for main, preload, shared and the Vue renderer.
-- `npm run selfcheck` — 32 checks over the offline UUID, rule evaluation,
-  inheritance, classpath/natives resolution, argument substitution and the
-  launch plan (including the two failure paths), plus profile/server/settings
-  validation and the state store.
-- `npm run test` — 5 renderer tests: boot from the bridge, snapshot rendering,
-  a UI action reaching the service bridge, error surfacing, and navigation.
+- `npm run selfcheck` — 51 checks: the offline UUID, rule evaluation,
+  inheritance, classpath and natives resolution (including a library listed twice
+  with the natives on the second listing), argument substitution, the launch
+  plan and its failure paths, zip reading and extraction, install planning,
+  loader metadata, the downloader (resume, checksum rejection, retries, byte
+  progress), importing a folder, profile/server/settings validation and the
+  state store.
+- `npm run netcheck` — the same install path against live services: Mojang's
+  manifest and a real version json, a real asset index, libraries and assets
+  downloaded and hash-checked (664 KB), a real native jar unpacked (1.16.5's
+  LWJGL), the 39.6 MB client jar fetched and verified, and real Fabric and Quilt
+  loader profiles parsed.
+- `npm run test` — 6 renderer tests: boot from the bridge, snapshot rendering, a
+  UI action reaching the service bridge, error surfacing, navigation, and the
+  install picker installing what it offers.
 - `npm run build` — main, preload and renderer bundles build.
 
 ## License
 
 MIT. This is an original implementation: the architecture was studied from a
 shipped Electron application, but no third-party source or assets were copied
-into it. Keep it that way — anything taken from a GPL project changes the
-licence of what you add.
+into it. That application, XMCL, is itself MIT, so borrowing from it would be
+legal with attribution — but nothing here is borrowed, and keeping it that way
+keeps the licensing of this repository simple.
 
-**Not verified here:** the app was never launched. The build environment is a
-headless container with no display, so `npm run dev` and an actual game launch
-were not exercised. Argument ordering against a real loader version, native
-library loading, and the java spawn path all need a run on a desktop.
+**Not verified here:** the app was never launched and no game was ever started.
+The build environment is a headless container with no display, so `npm run dev`
+and an actual launch were not exercised. Argument ordering against a real loader
+version, native library loading at runtime, and the java spawn path all need a
+run on a desktop.
+
+**Verified against the real services, but not as a whole install:** `netcheck`
+downloads and verifies real files, but it stops short of a full 3000-asset,
+multiple-hundred-megabyte install and never runs the game afterwards.
 
 **Also not verified:** the packaged installers. `electron-builder` cannot
 cross-package, so the `.exe` is built by CI on `windows-latest` and has not been

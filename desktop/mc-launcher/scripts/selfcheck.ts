@@ -7,23 +7,46 @@
  * argument substitution, profile/server validation and the state store. No
  * Electron, no network, no game files.
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
+import { deflateRawSync } from 'node:zlib'
 import { buildLaunchPlan, supportsQuickPlay } from '../src/main/minecraft/launch-plan'
 import { offlineUuid, offlineUuidDashless } from '../src/main/minecraft/offline-uuid'
 import { ruleContextFor, rulesAllow } from '../src/main/minecraft/rules'
-import { resolveVersionChain } from '../src/main/minecraft/version-json'
+import { resolveVersionChain, type Library, type VersionJson } from '../src/main/minecraft/version-json'
 import { classpathString, mavenPath, resolveLibraries } from '../src/main/minecraft/classpath'
 import { flattenArguments, substitute, unresolvedPlaceholders } from '../src/main/minecraft/arguments'
+import { downloadAll, downloadFile, isFileValid, sha1OfFile } from '../src/main/minecraft/download'
+import {
+  mergePlans,
+  nativesDirFor,
+  planAssetObjects,
+  planVersionFiles
+} from '../src/main/minecraft/install-plan'
+import {
+  loaderListUrl,
+  loaderProfileUrl,
+  parseLoaderProfile,
+  parseLoaderVersions
+} from '../src/main/minecraft/loader'
+import {
+  filterManifestVersions,
+  findManifestVersion,
+  parseVersionManifest
+} from '../src/main/minecraft/version-manifest'
+import { extractZip, isNativeLibraryEntry, listZipEntries } from '../src/main/minecraft/zip'
 import { AtomicJsonStore } from '../src/main/services/atomic-store'
+import { InstallationService } from '../src/main/services/installation-service'
+import { InstallService } from '../src/main/services/install-service'
 import { ServiceRegistry } from '../src/main/services/registry'
 import { StateStore, defaultState } from '../src/main/services/state-store'
 import { ProfileService } from '../src/main/services/profile-service'
 import { ServerService } from '../src/main/services/server-service'
 import { SettingsService } from '../src/main/services/settings-service'
+import { TaskService } from '../src/main/services/task-service'
 import { pipeLines } from '../src/main/services/launch-service'
 import type { Profile } from '../src/shared/types'
 
@@ -49,6 +72,30 @@ function expectEqual<T>(actual: T, expected: T, label: string): void {
   const a = JSON.stringify(actual)
   const b = JSON.stringify(expected)
   if (a !== b) throw new Error(`${label}: expected ${b}, got ${a}`)
+}
+
+async function acheck(name: string, run: () => Promise<void>): Promise<void> {
+  try {
+    await run()
+    passed += 1
+    console.log(`  ok   ${name}`)
+  } catch (error) {
+    failures.push(`${name}: ${(error as Error).message}`)
+    console.log(`  FAIL ${name}\n       ${(error as Error).message}`)
+  }
+}
+
+async function expectRejects(run: () => Promise<unknown>, includes: string): Promise<void> {
+  try {
+    await run()
+  } catch (error) {
+    const message = (error as Error).message
+    if (!message.includes(includes)) {
+      throw new Error(`error message "${message}" does not include "${includes}"`)
+    }
+    return
+  }
+  throw new Error(`expected a failure including "${includes}", but nothing was thrown`)
 }
 
 function expectThrows(run: () => unknown, includes: string): void {
@@ -373,7 +420,7 @@ check('fails with an actionable message when natives are missing', () => {
         connect: null,
         ctx
       }),
-    'does not download or extract game files'
+    'Install this version from the Installed versions page'
   )
 })
 
@@ -446,6 +493,510 @@ check('writes state atomically', () => {
   store.write({ count: 7 })
   expectEqual(store.read(), { count: 7 }, 'round trip')
 })
+
+console.log('\nzip reading')
+{
+  /** Builds a zip in memory so the reader can be checked without an archive on disk. */
+  function buildZip(files: { name: string; contents: string; store?: boolean }[]): Buffer {
+    const parts: Buffer[] = []
+    const central: Buffer[] = []
+    let offset = 0
+    for (const file of files) {
+      const raw = Buffer.from(file.contents, 'utf8')
+      const data = file.store ? raw : deflateRawSync(raw)
+      const name = Buffer.from(file.name, 'utf8')
+      const local = Buffer.alloc(30)
+      local.writeUInt32LE(0x04034b50, 0)
+      local.writeUInt16LE(20, 4)
+      local.writeUInt16LE(file.store ? 0 : 8, 8)
+      local.writeUInt32LE(data.length, 18)
+      local.writeUInt32LE(raw.length, 22)
+      local.writeUInt16LE(name.length, 26)
+      parts.push(local, name, data)
+
+      const entry = Buffer.alloc(46)
+      entry.writeUInt32LE(0x02014b50, 0)
+      entry.writeUInt16LE(20, 4)
+      entry.writeUInt16LE(20, 6)
+      entry.writeUInt16LE(file.store ? 0 : 8, 10)
+      entry.writeUInt32LE(data.length, 20)
+      entry.writeUInt32LE(raw.length, 24)
+      entry.writeUInt16LE(name.length, 28)
+      entry.writeUInt32LE(offset, 42)
+      central.push(entry, name)
+      offset += local.length + name.length + data.length
+    }
+    const directory = Buffer.concat(central)
+    const eocd = Buffer.alloc(22)
+    eocd.writeUInt32LE(0x06054b50, 0)
+    eocd.writeUInt16LE(files.length, 8)
+    eocd.writeUInt16LE(files.length, 10)
+    eocd.writeUInt32LE(directory.length, 12)
+    eocd.writeUInt32LE(offset, 16)
+    return Buffer.concat([...parts, directory, eocd])
+  }
+
+  const archive = buildZip([
+    { name: 'META-INF/MANIFEST.MF', contents: 'Manifest-Version: 1.0\n', store: true },
+    { name: 'lib/linux/libglfw.so', contents: 'native-for-linux' },
+    { name: 'lib/windows/glfw.dll', contents: 'native-for-windows' },
+    { name: 'META-INF/notes.txt', contents: 'excluded by a version json' }
+  ])
+
+  check('lists stored and deflated entries and inflates them', () => {
+    const entries = listZipEntries(archive)
+    expectEqual(
+      entries.map((entry) => entry.name),
+      ['META-INF/MANIFEST.MF', 'lib/linux/libglfw.so', 'lib/windows/glfw.dll', 'META-INF/notes.txt'],
+      'entry names in order'
+    )
+    const dest = join(root, 'natives')
+    const written = extractZip(archive, dest, {
+      filter: (name) => isNativeLibraryEntry(name, 'linux')
+    })
+    expectEqual(written, 1, 'only the linux library was written')
+    expectEqual(readFileSync(join(dest, 'lib', 'linux', 'libglfw.so'), 'utf8'), 'native-for-linux', 'inflated contents')
+  })
+
+  check('honours extract.exclude and cannot be walked out of its destination', () => {
+    const dest = join(root, 'natives-filtered')
+    const written = extractZip(archive, dest, { exclude: ['META-INF/'] })
+    expectEqual(written, 2, 'the two libraries were written')
+    expect(!existsSync(join(dest, 'META-INF', 'notes.txt')), 'the excluded prefix was skipped')
+    const escaping = buildZip([{ name: '../escaped.txt', contents: 'nope' }])
+    expectThrows(() => extractZip(escaping, join(root, 'escapes')), 'outside')
+  })
+
+  check('refuses a truncated archive, the way a part-downloaded zip looks', () => {
+    expectThrows(() => listZipEntries(archive.subarray(0, archive.length - 24)), 'partially downloaded')
+  })
+}
+
+console.log('\ninstall planning')
+const planCtx = ruleContextFor('linux', 'x64', {})
+const planDir = '/games/.minecraft'
+const vanillaLike: VersionJson = {
+  id: '1.21.4',
+  downloads: {
+    client: { path: '1.21.4/1.21.4.jar', url: 'https://piston/1.21.4.jar', sha1: 'aa11', size: 100 }
+  },
+  libraries: [
+    {
+      name: 'org.example:common:1.0',
+      downloads: {
+        artifact: { path: 'org/example/common/1.0/common-1.0.jar', url: 'https://libraries/common.jar', sha1: 'bb22', size: 10 }
+      }
+    },
+    {
+      name: 'org.example:windows-only:1.0',
+      downloads: { artifact: { path: 'org/example/windows-only/1.0/win-1.0.jar', url: 'https://libraries/win.jar' } },
+      rules: [{ action: 'allow', os: { name: 'windows' } }]
+    },
+    {
+      name: 'org.lwjgl:lwjgl:3.3.3',
+      natives: { linux: 'natives-linux' },
+      extract: { exclude: ['META-INF/'] },
+      downloads: {
+        artifact: { path: 'org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar', url: 'https://libraries/lwjgl.jar' },
+        classifiers: {
+          'natives-linux': {
+            path: 'org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-linux.jar',
+            url: 'https://libraries/lwjgl-natives.jar',
+            sha1: 'cc33'
+          }
+        }
+      }
+    },
+    { name: 'org.example:repo-declared:2.0', url: 'https://maven.example/releases' }
+  ]
+}
+
+check('plans the client jar, the libraries this platform may load, and the natives', () => {
+  const plan = planVersionFiles(planDir, vanillaLike, planCtx)
+  const jars = plan.files.map((file) => file.dest)
+  expect(jars.includes(join(planDir, 'versions', '1.21.4', '1.21.4.jar')), 'client jar planned')
+  expect(
+    jars.includes(join(planDir, 'libraries', 'org', 'example', 'common', '1.0', 'common-1.0.jar')),
+    'library planned at its maven path'
+  )
+  expect(
+    jars.every((dest) => !dest.includes('windows-only')),
+    'a windows-only library is not planned on linux'
+  )
+  const declared = plan.files.find((file) => file.label === 'org.example:repo-declared:2.0')
+  expectEqual(
+    declared?.url,
+    'https://maven.example/releases/org/example/repo-declared/2.0/repo-declared-2.0.jar',
+    'a library with no download of its own is fetched from its own repository'
+  )
+  expectEqual(plan.nativeJars.length, 1, 'one native jar')
+  expectEqual(plan.nativeJars[0].sha1, 'cc33', 'the native jar keeps its checksum')
+  expectEqual(plan.nativeJars[0].exclude, ['META-INF/'], 'the exclusion list travels with it')
+})
+
+check('lets a loader win over its base version for the same destination', () => {
+  const child: VersionJson = {
+    id: 'fabric-loader-0.16.9-1.21.4',
+    libraries: [
+      {
+        name: 'org.example:common:1.0',
+        downloads: { artifact: { path: 'org/example/common/1.0/common-1.0.jar', url: 'https://loader/common.jar' } }
+      }
+    ]
+  }
+  const parent: VersionJson = {
+    id: '1.21.4',
+    libraries: [
+      {
+        name: 'org.example:common:1.0',
+        downloads: { artifact: { path: 'org/example/common/1.0/common-1.0.jar', url: 'https://vanilla/common.jar' } }
+      },
+      {
+        name: 'org.example:base-only:1.0',
+        downloads: { artifact: { path: 'org/example/base-only/1.0/base-only-1.0.jar', url: 'https://vanilla/base.jar' } }
+      }
+    ]
+  }
+  const merged = mergePlans([
+    planVersionFiles(planDir, child, planCtx),
+    planVersionFiles(planDir, parent, planCtx)
+  ])
+  const common = merged.files.find((file) => file.dest.endsWith('common-1.0.jar'))
+  expectEqual(common?.url, 'https://loader/common.jar', 'the child plan wins')
+  expect(
+    merged.files.some((file) => file.dest.endsWith('base-only-1.0.jar')),
+    'the base version still contributes what the loader does not repeat'
+  )
+  expectEqual(merged.files.length, 2, 'no duplicate destination is planned twice')
+})
+
+check('merges a library listed twice instead of letting the first listing win', () => {
+  // 1.16.5 spells lwjgl-glfw:3.2.2 out twice: one entry with the artifact, one
+  // with the natives. Taking the first and skipping the rest lost the native
+  // library, and the game died at runtime with an unloadable native.
+  const libraries = [
+    {
+      name: 'org.lwjgl:lwjgl-glfw:3.2.2',
+      downloads: {
+        artifact: {
+          path: 'org/lwjgl/lwjgl-glfw/3.2.2/lwjgl-glfw-3.2.2.jar',
+          url: 'https://libraries/glfw.jar'
+        }
+      },
+      rules: [{ action: 'allow' }, { action: 'disallow', os: { name: 'osx' } }]
+    },
+    {
+      name: 'org.lwjgl:lwjgl-glfw:3.2.2',
+      natives: { linux: 'natives-linux', windows: 'natives-windows' },
+      downloads: {
+        classifiers: {
+          'natives-linux': {
+            path: 'org/lwjgl/lwjgl-glfw/3.2.2/lwjgl-glfw-3.2.2-natives-linux.jar',
+            url: 'https://libraries/glfw-natives.jar'
+          }
+        }
+      },
+      rules: [{ action: 'allow' }, { action: 'disallow', os: { name: 'osx' } }]
+    },
+    {
+      name: 'org.example:mac-only:1.0',
+      natives: { osx: 'natives-osx' },
+      downloads: { classifiers: { 'natives-osx': { path: 'mac/only.jar' } } },
+      rules: [{ action: 'allow', os: { name: 'osx' } }]
+    }
+  ] as Library[]
+
+  const resolved = resolveLibraries(libraries, planCtx)
+  expectEqual(resolved.classpath.length, 1, 'one classpath entry for the repeated coordinate')
+  expectEqual(
+    resolved.classpath[0].relativePath,
+    'org/lwjgl/lwjgl-glfw/3.2.2/lwjgl-glfw-3.2.2.jar',
+    'the artifact comes from the listing that has one'
+  )
+  expectEqual(
+    resolved.classpath[0].url,
+    'https://libraries/glfw.jar',
+    'and keeps its own download url'
+  )
+  expectEqual(resolved.natives.length, 1, 'the natives come from the other listing')
+  expectEqual(
+    resolved.natives[0].relativePath,
+    'org/lwjgl/lwjgl-glfw/3.2.2/lwjgl-glfw-3.2.2-natives-linux.jar',
+    'natives-linux for linux'
+  )
+  expect(
+    !resolved.natives.some((entry) => entry.relativePath === 'mac/only.jar'),
+    'a mac-only listing stays off linux'
+  )
+})
+
+check('addresses every asset by its own hash', () => {
+  const files = planAssetObjects(planDir, {
+    objects: {
+      'minecraft/sounds/click.ogg': { hash: 'aabbcc', size: 5 },
+      'icons/icon_16x16.png': { hash: 'ddeeff', size: 9 }
+    }
+  })
+  expectEqual(files.length, 2, 'one file per object')
+  expectEqual(
+    files[0].dest,
+    join(planDir, 'assets', 'objects', 'aa', 'aabbcc'),
+    'the first two hex digits are a directory'
+  )
+  expectEqual(files[0].url, 'https://resources.download.minecraft.net/aa/aabbcc', 'the object host')
+  expectEqual(files[0].sha1, 'aabbcc', 'the hash is the checksum as well as the path')
+})
+
+check('reads the version manifest, filters it and finds a version by id', () => {
+  const manifest = parseVersionManifest({
+    latest: { release: '1.21.4', snapshot: '1.21.5-pre1' },
+    versions: [
+      { id: '1.21.5-pre1', type: 'snapshot', url: 'https://meta/s.json', releaseTime: '2026-10-01T00:00:00+00:00' },
+      { id: '1.21.4', type: 'release', url: 'https://meta/r.json', releaseTime: '2025-12-03T00:00:00+00:00' },
+      { id: 'rd-132211', type: 'old_alpha', url: 'https://meta/a.json' }
+    ]
+  })
+  expectEqual(manifest.latest.release, '1.21.4', 'the latest release')
+  expectEqual(filterManifestVersions(manifest).map((v) => v.id), ['1.21.4'], 'releases only by default')
+  expectEqual(filterManifestVersions(manifest, { type: 'all' }).length, 3, 'everything') 
+  expectEqual(filterManifestVersions(manifest, { type: 'all', search: 'pre' }).map((v) => v.id), ['1.21.5-pre1'], 'search')
+  expectEqual(findManifestVersion(manifest, '1.21.4')?.url, 'https://meta/r.json', 'the json url')
+  expectEqual(findManifestVersion(manifest, 'nope'), undefined, 'an unknown id')
+  expectThrows(() => parseVersionManifest({}), 'lists no versions')
+})
+
+check('reads loader metadata and refuses a profile that is not what was asked for', () => {
+  expectEqual(loaderListUrl('fabric'), 'https://meta.fabricmc.net/v2/versions/loader', 'fabric list url')
+  expectEqual(
+    loaderProfileUrl('quilt', '1.21.4', '0.27.1'),
+    'https://meta.quiltmc.org/v3/versions/loader/1.21.4/0.27.1/profile/json',
+    'quilt profile url'
+  )
+  const fabric = parseLoaderVersions([
+    { version: '0.16.9', stable: true },
+    { version: '0.17.0-beta.1', stable: false }
+  ])
+  expectEqual(fabric.map((v) => v.version), ['0.16.9', '0.17.0-beta.1'], 'fabric versions')
+  const quilt = parseLoaderVersions([{ version: '0.27.1' }, { version: '0.28.0-beta.1' }])
+  expectEqual(
+    quilt.map((v) => v.stable),
+    [true, false],
+    'quilt publishes no flag, so a pre-release suffix decides'
+  )
+  const profile = parseLoaderProfile(
+    {
+      id: 'fabric-loader-0.16.9-1.21.4',
+      inheritsFrom: '1.21.4',
+      mainClass: 'net.fabricmc.loader.impl.launch.knot.KnotClient',
+      libraries: [{ name: 'org.example:loader:1.0' }]
+    },
+    { kind: 'fabric', gameVersion: '1.21.4', loaderVersion: '0.16.9' }
+  )
+  expectEqual(profile.id, 'fabric-loader-0.16.9-1.21.4', 'the profile id')
+  const unnamed = parseLoaderProfile(
+    { inheritsFrom: '1.21.4', mainClass: 'X', libraries: [{ name: 'a:b:1' }] },
+    { kind: 'quilt', gameVersion: '1.21.4', loaderVersion: '0.27.1' }
+  )
+  expectEqual(unnamed.id, 'quilt-loader-0.27.1-1.21.4', 'an id is built when the profile has none')
+  expectThrows(
+    () =>
+      parseLoaderProfile(
+        { inheritsFrom: '1.20.1', mainClass: 'X', libraries: [{ name: 'a:b:1' }] },
+        { kind: 'fabric', gameVersion: '1.21.4', loaderVersion: '0.16.9' }
+      ),
+    'inherits from'
+  )
+  expectThrows(
+    () =>
+      parseLoaderProfile(
+        { inheritsFrom: '1.21.4', libraries: [{ name: 'a:b:1' }] },
+        { kind: 'fabric', gameVersion: '1.21.4', loaderVersion: '0.16.9' }
+      ),
+    'no main class'
+  )
+  expectThrows(
+    () =>
+      parseLoaderProfile(
+        { inheritsFrom: '1.21.4', mainClass: 'X', libraries: [] },
+        { kind: 'fabric', gameVersion: '1.21.4', loaderVersion: '0.16.9' }
+      ),
+    'lists no libraries'
+  )
+})
+
+console.log('\ndownloads')
+const downloadDir = join(root, 'downloads')
+const hashOf = (contents: Buffer): string => createHash('sha1').update(contents).digest('hex')
+
+await acheck('keeps a file only when its hash matches', async () => {
+  const body = Buffer.from('jar-bytes')
+  const dest = join(downloadDir, 'a.jar')
+  const result = await downloadFile(
+    { url: 'https://example/a.jar', dest, sha1: hashOf(body) },
+    { fetchImpl: async () => new Response(body, { status: 200 }) }
+  )
+  expect(!result.reused, 'it was fetched, not reused')
+  expectEqual(await sha1OfFile(dest), hashOf(body), 'the file hashes to what was declared')
+  expect(!existsSync(`${dest}.part`), 'the part file is gone once the real file is in place')
+})
+
+await acheck('does not even ask for a file whose hash already matches', async () => {
+  let requests = 0
+  await downloadFile(
+    { url: 'https://example/a.jar', dest: join(downloadDir, 'a.jar'), sha1: hashOf(Buffer.from('jar-bytes')) },
+    { fetchImpl: async () => {
+      requests += 1
+      return new Response('nope', { status: 200 })
+    } }
+  )
+  expectEqual(requests, 0, 'no request was made')
+})
+
+await acheck('resumes a part file with a range request', async () => {
+  const whole = Buffer.from('0123456789')
+  const dest = join(downloadDir, 'resumed.bin')
+  writeFileSync(`${dest}.part`, whole.subarray(0, 4))
+  let range: string | undefined
+  const result = await downloadFile(
+    { url: 'https://example/b.bin', dest, sha1: hashOf(whole) },
+    {
+      fetchImpl: async (_url, init) => {
+        range = init?.headers?.Range
+        return new Response(whole.subarray(4), { status: 206 })
+      }
+    }
+  )
+  expectEqual(range, 'bytes=4-', 'the range asked for from the partial size')
+  expectEqual(readFileSync(dest, 'utf8'), '0123456789', 'the file is whole')
+  expect(!result.reused, 'it was fetched')
+})
+
+await acheck('starts over when the server ignores the range and answers 200', async () => {
+  const whole = Buffer.from('abcdefghij')
+  const dest = join(downloadDir, 'ignored.bin')
+  writeFileSync(`${dest}.part`, Buffer.from('XXXX'))
+  await downloadFile(
+    { url: 'https://example/c.bin', dest, sha1: hashOf(whole) },
+    { fetchImpl: async () => new Response(whole, { status: 200 }) }
+  )
+  expectEqual(readFileSync(dest, 'utf8'), 'abcdefghij', 'the junk prefix was thrown away')
+})
+
+await acheck('never renames a file whose hash does not match, and keeps the bytes', async () => {
+  const dest = join(downloadDir, 'tampered.jar')
+  await expectRejects(
+    () =>
+      downloadFile(
+        { url: 'https://example/d.jar', dest, sha1: 'deadbeef' },
+        { fetchImpl: async () => new Response(Buffer.from('tampered'), { status: 200 }) }
+      ),
+    'Checksum mismatch'
+  )
+  expect(!existsSync(dest), 'nothing was renamed into place')
+  expectEqual(readFileSync(`${dest}.part`, 'utf8'), 'tampered', 'the bytes stay for a resume')
+})
+
+await acheck('retries a failed request before giving up', async () => {
+  const body = Buffer.from('eventually')
+  const dest = join(downloadDir, 'retry.bin')
+  let attempts = 0
+  await downloadFile(
+    { url: 'https://example/e.bin', dest, sha1: hashOf(body) },
+    {
+      fetchImpl: async () => {
+        attempts += 1
+        if (attempts < 3) throw new Error('connection reset')
+        return new Response(body, { status: 200 })
+      }
+    }
+  )
+  expectEqual(attempts, 3, 'attempts made')
+  expectEqual(readFileSync(dest, 'utf8'), 'eventually', 'the file arrived')
+})
+
+await acheck('reports byte progress across a batch and counts what it reused', async () => {
+  const batchDir = join(downloadDir, 'batch')
+  mkdirSync(batchDir, { recursive: true })
+  const first = Buffer.from('one')
+  const second = Buffer.from('two-two')
+  writeFileSync(join(batchDir, 'two.bin'), second)
+  const bodies = new Map([
+    ['https://example/one.bin', first],
+    ['https://example/two.bin', second]
+  ])
+  const seen: number[] = []
+  const report = await downloadAll(
+    [
+      { url: 'https://example/one.bin', dest: join(batchDir, 'one.bin'), sha1: hashOf(first), size: first.length },
+      { url: 'https://example/two.bin', dest: join(batchDir, 'two.bin'), sha1: hashOf(second), size: second.length }
+    ],
+    {
+      concurrency: 2,
+      fetchImpl: async (url) =>
+        new Response(bodies.get(url) ?? 'missing', { status: bodies.has(url) ? 200 : 404 }),
+      onProgress: (progress) => seen.push(progress.bytesDone)
+    }
+  )
+  expectEqual(report.downloaded, 1, 'one file was fetched')
+  expectEqual(report.reused, 1, 'one was already there')
+  expectEqual(report.bytes, 10, 'progress counts the reused file too')
+  expectEqual(seen[seen.length - 1], 10, 'progress finished at the total')
+  expect(await isFileValid(join(batchDir, 'one.bin'), hashOf(first)), 'the fetched file verifies')
+})
+
+console.log('\nimporting what is already on disk')
+{
+  const importRoot = join(root, 'import')
+  const environment = {
+    userDataDir: stateDir,
+    defaultGameDir: gameDir,
+    launcherName: 'mc-launcher',
+    launcherVersion: '0.0.0',
+    platform: 'linux' as NodeJS.Platform,
+    arch: 'x64'
+  }
+  const tasks = new TaskService(state, registry)
+  const installations = new InstallationService(state, () => {})
+  const installer = new InstallService(state, environment, tasks, installations, settings, () => {})
+
+  check('copies a single version folder into the current installation', () => {
+    const source = join(importRoot, 'downloaded', 'Imported-1.0')
+    mkdirSync(source, { recursive: true })
+    writeFileSync(
+      join(source, 'Imported-1.0.json'),
+      JSON.stringify({ id: 'Imported-1.0', mainClass: 'net.minecraft.client.main.Main' })
+    )
+    const result = installer.importFrom(source)
+    expectEqual(result.kind, 'version', 'a version folder is copied in')
+    expect(
+      existsSync(join(gameDir, 'versions', 'Imported-1.0', 'Imported-1.0.json')),
+      'the json landed under versions/'
+    )
+    expect(result.installationCount > 0, 'the rescan after the copy sees it')
+  })
+
+  check('uses a game directory in place rather than copying gigabytes', () => {
+    const other = join(importRoot, 'other-game')
+    mkdirSync(join(other, 'versions', '1.21.4'), { recursive: true })
+    writeFileSync(
+      join(other, 'versions', '1.21.4', '1.21.4.json'),
+      JSON.stringify({ id: '1.21.4', downloads: { client: { url: 'https://piston/client.jar' } } })
+    )
+    mkdirSync(join(other, 'libraries'))
+    const result = installer.importFrom(other)
+    expectEqual(result.kind, 'gameDirectory', 'a game directory is used where it is')
+    expectEqual(state.snapshot().settings.gameDir, other, 'the setting followed it')
+    expect(result.message.includes('assets/'), 'the message names what is still missing')
+    settings.update({ gameDir })
+  })
+
+  check('refuses a folder that is neither, and says what it wanted', () => {
+    const empty = join(importRoot, 'empty')
+    mkdirSync(empty, { recursive: true })
+    expectThrows(() => installer.importFrom(empty), 'expected a game directory')
+    expectThrows(() => installer.importFrom(join(importRoot, 'absent')), 'does not exist')
+  })
+}
 
 rmSync(root, { recursive: true, force: true })
 

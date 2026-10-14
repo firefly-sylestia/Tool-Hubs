@@ -17,6 +17,7 @@ export const IPC = {
 export type ServiceName =
   | 'profile'
   | 'installation'
+  | 'install'
   | 'server'
   | 'launch'
   | 'task'

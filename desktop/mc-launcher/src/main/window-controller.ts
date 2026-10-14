@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, dialog } from 'electron'
 
 /**
  * Window actions exposed to the renderer as `windowController`. This lives in
@@ -44,5 +44,23 @@ export class WindowController {
   toggleDevTools(event?: Electron.IpcMainInvokeEvent): { ok: boolean } {
     this.windowFor(event)?.webContents.toggleDevTools()
     return { ok: true }
+  }
+
+  /**
+   * The OS folder picker, used to point the launcher at an installation or at a
+   * single version folder. Asking the OS beats making someone type a Windows
+   * path by hand, and it is the only way the renderer can name a path it is not
+   * allowed to read.
+   */
+  async pickFolder(event?: Electron.IpcMainInvokeEvent): Promise<{ path: string | null }> {
+    const window = this.windowFor(event)
+    const options: Electron.OpenDialogOptions = {
+      title: 'Choose a Minecraft folder',
+      properties: ['openDirectory']
+    }
+    const result = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options)
+    return { path: result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0] }
   }
 }

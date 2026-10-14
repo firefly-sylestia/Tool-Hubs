@@ -1,11 +1,16 @@
 import { computed, ref, shallowRef } from 'vue'
 import type {
+  ImportResult,
+  InstallRequest,
+  InstallResult,
   InstalledVersion,
   LaunchPlan,
   LauncherSettings,
   LauncherState,
+  LoaderOption,
   LogLine,
   Profile,
+  RemoteVersion,
   ServerEntry,
   TaskRecord
 } from '@shared/types'
@@ -90,6 +95,14 @@ export function useLauncher() {
     removeProfile: (id: string) => call<{ removed: string }>('profile', 'remove', { id }),
     selectProfile: (id: string | null) => call('profile', 'select', { id }),
     rescan: () => call<InstalledVersion[]>('installation', 'rescan'),
+    remoteVersions: (refresh = false) =>
+      call<RemoteVersion[]>('install', 'versions', { refresh }),
+    loaderVersions: (loader: 'fabric' | 'quilt') =>
+      call<LoaderOption[]>('install', 'loaders', { loader }),
+    installVersion: (request: InstallRequest) =>
+      call<InstallResult>('install', 'start', request),
+    importFolder: (path: string) => call<ImportResult>('install', 'importFolder', { path }),
+    pickFolder: () => call<{ path: string | null }>('window', 'pickFolder'),
     addServer: (name: string, host: string, port: number) =>
       call<ServerEntry>('server', 'add', { name, host, port }),
     removeServer: (id: string) => call<{ removed: string }>('server', 'remove', { id }),

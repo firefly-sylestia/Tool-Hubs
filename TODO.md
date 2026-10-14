@@ -1,5 +1,28 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.2.0, install the game
+
+- [x] Install a version from Mojang's manifest: version json, client jar, rule-filtered libraries, asset
+      index and objects, natives.
+- [x] Fabric and Quilt loaders from their metadata, by writing the profile json they publish and
+      fetching what it lists. No installer process, no JDK needed at install time.
+- [x] Native libraries unpacked into `versions/<id>/<id>-natives`, which is what makes an installed
+      version launchable on the versions that need them.
+- [x] Add from a folder: a game directory is used in place, a single version folder is copied in.
+- [x] Downloads verify every sha1, resume from `.part` with a range request, retry failures, and never
+      rename an unverified file into place. Progress is reported in bytes.
+- [x] A truncated archive is refused by name instead of being read as whole — the failure the 93 MB
+      half-downloaded `xmcl-0.71.0-win32-x64.zip` in the working tree has.
+- [x] Fixed: a library listed twice lost its `natives`, because deduplication ran before the per-OS
+      rules. Real 1.16.5 jsons are shaped exactly like that. Found by `npm run netcheck`.
+- [x] Version bumped to `0.2.0` in `desktop/mc-launcher/package.json`, lockfile included.
+
+### Still to verify on a desktop
+- [ ] Install a full version and launch it: the whole chain of 3000-odd assets, native loading at
+      runtime, and the java spawn path. `netcheck` proves the pieces against the real services, not the
+      finished install.
+- [ ] The packaged Windows `.exe`.
+
 ## Desktop launcher import — MC Launcher 0.1.1
 
 - [x] The Electron + Vue 3 launcher sits at [`desktop/mc-launcher`](desktop/mc-launcher) with its own

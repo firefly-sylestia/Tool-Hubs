@@ -34,7 +34,8 @@ export interface VersionJson {
   type?: string
   mainClass?: string
   assets?: string
-  assetIndex?: { id?: string }
+  assetIndex?: { id?: string; url?: string; sha1?: string; size?: number; totalSize?: number }
+  downloads?: { client?: LibraryArtifact; server?: LibraryArtifact }
   javaVersion?: { majorVersion?: number; component?: string }
   minecraftArguments?: string
   arguments?: { game?: VersionArgument[]; jvm?: VersionArgument[] }
@@ -114,7 +115,7 @@ export function resolveVersionChain(gameDir: string, id: string): ResolvedVersio
       if (chain.length === 0) {
         throw new Error(
           `Version ${currentId} is not installed: expected ${jsonPath}. ` +
-            `Install the version with the official launcher, then rescan.`
+            `Install it from the Installed versions page, or with the official launcher, then rescan.`
         )
       }
       throw new Error(
