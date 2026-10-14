@@ -23,7 +23,9 @@ import { downloadAll, downloadFile, isFileValid, sha1OfFile } from '../src/main/
 import {
   mergePlans,
   nativesDirFor,
+  needsRefresh,
   planAssetObjects,
+  planInstallation,
   planVersionFiles
 } from '../src/main/minecraft/install-plan'
 import {
@@ -69,13 +71,16 @@ import {
   parseLoaderId
 } from '../src/main/minecraft/modpack'
 import {
+  inferJavaMajor,
   javaCandidates,
   javaExecutableName,
   parseJavaMajorVersion,
   runtimeCandidate,
+  runtimeComponentsForMajor,
   runtimePlatformDir,
   selectJava
 } from '../src/main/minecraft/java'
+import { JavaService } from '../src/main/services/java-service'
 import {
   findRuntimeManifest,
   listRuntimeComponents,
@@ -1013,6 +1018,78 @@ check('plans the client jar, the libraries this platform may load, and the nativ
   expectEqual(plan.nativeJars[0].exclude, ['META-INF/'], 'the exclusion list travels with it')
 })
 
+check('plans a whole chain, asset index and all, the way a launch checks it', () => {
+  const game: VersionJson = {
+    ...vanillaLike,
+    assetIndex: { id: '19', url: 'https://piston/19.json', sha1: 'dd44', size: 500 }
+  }
+  const loader: VersionJson = {
+    id: 'fabric-loader-0.16.9-1.21.4',
+    inheritsFrom: '1.21.4',
+    libraries: [
+      {
+        name: 'org.example:common:1.0',
+        downloads: { artifact: { path: 'org/example/common/1.0/common-1.0.jar', url: 'https://loader/common.jar' } }
+      }
+    ]
+  }
+  const objects = { objects: { 'a/sound.ogg': { hash: 'aabbcc', size: 5 } } }
+  const plan = planInstallation({
+    gameDir: planDir,
+    chain: [loader, game],
+    ctx: planCtx,
+    assetIndex: objects
+  })
+  const dests = plan.files.map((file) => file.dest)
+  expect(dests.includes(join(planDir, 'versions', '1.21.4', '1.21.4.jar')), 'the game version brings the client jar')
+  expect(
+    dests.includes(join(planDir, 'assets', 'indexes', '19.json')),
+    'the asset index itself is part of the plan'
+  )
+  expect(
+    dests.includes(join(planDir, 'assets', 'objects', 'aa', 'aabbcc')),
+    'and the objects it lists'
+  )
+  expectEqual(
+    plan.files.find((file) => file.label === 'asset index 19')?.sha1,
+    'dd44',
+    'the index is verified like any other file'
+  )
+  expectEqual(plan.assetIndex?.id, '19', 'the index the plan was built from')
+  expectEqual(plan.nativeJars.length, 1, 'the natives come through the chain as well')
+
+  // Without the index parsed there are no objects — but the index file is still
+  // planned, so a first pass over an empty game directory fetches it and the
+  // next one can plan what it lists.
+  const withoutIndex = planInstallation({ gameDir: planDir, chain: [loader, game], ctx: planCtx })
+  expect(
+    withoutIndex.files.some((file) => file.dest.endsWith(join('assets', 'indexes', '19.json'))),
+    'the index is planned even when its objects are not'
+  )
+  expectEqual(
+    withoutIndex.files.filter((file) => file.dest.startsWith(join(planDir, 'assets', 'objects'))).length,
+    0,
+    'and no object is invented from an index that was not read'
+  )
+})
+
+check('refreshes only what is absent or the wrong size', () => {
+  const files = [
+    { url: 'u', dest: '/g/whole.jar', size: 100, label: 'whole' },
+    { url: 'u', dest: '/g/truncated.jar', size: 100, label: 'truncated' },
+    { url: 'u', dest: '/g/gone.jar', size: 100, label: 'gone' },
+    { url: 'u', dest: '/g/unknown.jar', label: 'unknown size' }
+  ]
+  const sizes: Record<string, number> = {
+    '/g/whole.jar': 100,
+    // What a half-finished download leaves behind: a file, the wrong size.
+    '/g/truncated.jar': 40,
+    '/g/unknown.jar': 7
+  }
+  const stale = needsRefresh(files, (path) => (path in sizes ? sizes[path] : null)).map((file) => file.label)
+  expectEqual(stale, ['truncated', 'gone'], 'a file with no declared size is taken as it is')
+})
+
 check('lets a loader win over its base version for the same destination', () => {
   const child: VersionJson = {
     id: 'fabric-loader-0.16.9-1.21.4',
@@ -1113,10 +1190,12 @@ check('addresses every asset by its own hash', () => {
   const files = planAssetObjects(planDir, {
     objects: {
       'minecraft/sounds/click.ogg': { hash: 'aabbcc', size: 5 },
-      'icons/icon_16x16.png': { hash: 'ddeeff', size: 9 }
+      'icons/icon_16x16.png': { hash: 'ddeeff', size: 9 },
+      // What 1.12.2 and 1.20.1 really ship: two names, one hash, one file.
+      'minecraft/icons/icon_16x16.png': { hash: 'ddeeff', size: 9 }
     }
   })
-  expectEqual(files.length, 2, 'one file per object')
+  expectEqual(files.length, 2, 'one file per object, not one per name')
   expectEqual(
     files[0].dest,
     join(planDir, 'assets', 'objects', 'aa', 'aabbcc'),
@@ -1124,6 +1203,11 @@ check('addresses every asset by its own hash', () => {
   )
   expectEqual(files[0].url, 'https://resources.download.minecraft.net/aa/aabbcc', 'the object host')
   expectEqual(files[0].sha1, 'aabbcc', 'the hash is the checksum as well as the path')
+  expectEqual(
+    new Set(files.map((file) => file.dest)).size,
+    files.length,
+    'no destination is planned twice, which is what had two downloads racing for one file'
+  )
 })
 
 check('reads the version manifest, filters it and finds a version by id', () => {
@@ -1712,6 +1796,67 @@ console.log('\njava')
     )
     expectEqual(selectJava([{ path: '/unknown/bin/java', major: null }], 17)?.path, '/unknown/bin/java', 'unprobed fallback')
     expectEqual(selectJava([], 17), null, 'nothing at all')
+  })
+
+  check('matches a version that names no component to a runtime Mojang publishes', () => {
+    expectEqual(runtimeComponentsForMajor(8)[0], 'jre-legacy', 'Java 8')
+    expectEqual(runtimeComponentsForMajor(16), ['java-runtime-alpha'], 'Java 16')
+    expectEqual(runtimeComponentsForMajor(17)[0], 'java-runtime-gamma', 'Java 17, current build first')
+    expectEqual(runtimeComponentsForMajor(21)[0], 'java-runtime-delta', 'Java 21')
+    expectEqual(runtimeComponentsForMajor(25)[0], 'java-runtime-epsilon', 'Java 25')
+    expect(
+      runtimeComponentsForMajor(null).length > 1,
+      'a version that names neither a component nor a major still has something to try'
+    )
+  })
+
+  check('reads the Java a version needs off the release when its json does not say', () => {
+    expectEqual(inferJavaMajor('1.12.2'), 8, 'the 1.12 era ran on Java 8')
+    expectEqual(inferJavaMajor('1.16.5'), 8, 'and so did 1.16.5')
+    expectEqual(inferJavaMajor('1.17'), 16, '1.17 moved to 16')
+    expectEqual(inferJavaMajor('1.19.4'), 17, '1.18 and 1.19 on 17')
+    expectEqual(inferJavaMajor('1.20.1'), 17, '1.20.1 still 17')
+    expectEqual(inferJavaMajor('1.20.5'), 21, '1.20.5 was the first 21')
+    expectEqual(inferJavaMajor('1.21.4'), 21, '1.21 on 21')
+    expectEqual(inferJavaMajor('26.3'), null, 'a modern version json names its own Java')
+    expectEqual(inferJavaMajor('custom-build'), null, 'and a name that is not a version gets no guess')
+    expectEqual(inferJavaMajor(null), null, 'nothing to read')
+  })
+
+  await acheck('ignores a java path that no longer answers, and says so', async () => {
+    const warnings: string[] = []
+    const service = new JavaService(
+      {
+        userDataDir: root,
+        defaultInstancesDir: join(root, 'instances'),
+        defaultGameDir: gameDir,
+        launcherName: 'mc-launcher',
+        launcherVersion: 'selfcheck',
+        platform: 'linux',
+        arch: 'x64'
+      },
+      (message) => warnings.push(message)
+    )
+    // A real binary that is not a JVM: it starts, is asked for its version, and
+    // answers with something that is not one. That is what a JDK that was since
+    // uninstalled leaves behind in Settings.
+    let chosen: string | null = null
+    try {
+      const resolved = await service.resolve({
+        instanceDir: join(root, 'no-runtime-here'),
+        component: null,
+        requiredMajor: 17,
+        explicitPath: process.execPath
+      })
+      chosen = resolved.path
+    } catch {
+      // A machine with no java at all failing here is also correct behaviour.
+    }
+    expect(chosen !== process.execPath, 'the path that does not answer is not used')
+    expect(
+      warnings.some((message) => message.includes('java path in Settings')),
+      'and the log says why it was passed over'
+    )
   })
 
   check('looks inside the instance first, then JAVA_HOME, then the system', () => {

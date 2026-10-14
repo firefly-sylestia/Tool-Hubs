@@ -39,17 +39,64 @@ export function runtimePlatformDir(platform: NodeJS.Platform): string {
 
 /**
  * Mojang's bundled runtimes are named by component, and the version json says
- * which component it wants. These are the majors each component ships, so a
- * runtime directory can be reported without spawning it.
+ * which component it wants. These are the majors each component ships as a
+ * *hint* for describing a runtime found on disk without starting it; anything on
+ * disk is asked directly before it is used, because a component's name does not
+ * change when the Java behind it does — `java-runtime-epsilon` shipped 21 and
+ * ships 25 under the same name.
  */
 export const RUNTIME_COMPONENT_MAJORS: Record<string, number> = {
   'java-runtime-alpha': 16,
   'java-runtime-beta': 17,
   'java-runtime-gamma': 17,
+  'java-runtime-gamma-snapshot': 17,
   'java-runtime-delta': 21,
-  'java-runtime-epsilon': 21,
+  'java-runtime-epsilon': 25,
   'jre-legacy': 8,
   'java-runtime-epsilon-legacy': 8
+}
+
+/**
+ * The components to try for a Java major, best first.
+ *
+ * A version json that names no component still says which Java it runs on (or
+ * the release it is can say it for them), and Mojang publishes one runtime per
+ * era. The order matters where two components ship the same major: gamma is the
+ * current 17 and beta the older build of it.
+ */
+export function runtimeComponentsForMajor(major: number | null): string[] {
+  if (major === null) return ['java-runtime-epsilon', 'java-runtime-delta', 'java-runtime-gamma', 'jre-legacy']
+  if (major <= 8) return ['jre-legacy']
+  if (major <= 16) return ['java-runtime-alpha']
+  if (major <= 17) return ['java-runtime-gamma', 'java-runtime-beta']
+  if (major <= 21) return ['java-runtime-delta', 'java-runtime-gamma']
+  return ['java-runtime-epsilon', 'java-runtime-delta']
+}
+
+/**
+ * The Java a game version needs when its json does not say.
+ *
+ * Every version json from 1.14 onward names its Java, so this only answers for
+ * older ones and for loader profiles written before that field existed. Getting
+ * it wrong is not cosmetic: 1.12.2 on Java 25 fails at class loading, which is
+ * why the launcher stops at the newest version that Java 8 was right for rather
+ * than picking whatever the machine has.
+ */
+export function inferJavaMajor(versionId: string | null): number | null {
+  if (!versionId) return null
+  const match = /^(\d+)\.(\d+)(?:\.(\d+))?/.exec(versionId)
+  if (!match) return null
+  const major = Number(match[1])
+  const minor = Number(match[2])
+  const patch = match[3] ? Number(match[3]) : 0
+  // 1.x is the numbering that predates the year-based ids, and none of those
+  // declare a Java version; anything else is a modern json that names one.
+  if (major !== 1) return null
+  if (minor < 17) return 8
+  if (minor === 17) return 16
+  if (minor < 20) return 17
+  if (minor === 20 && patch < 5) return 17
+  return 21
 }
 
 /** `<instanceDir>/runtime/<component>/<platform>/<component>/bin/java`. */
@@ -63,6 +110,7 @@ export function runtimeCandidate(instanceDir: string, component: string, platfor
   }
 }
 
+/** `java -version` for a path that answers, or null when nothing does. */
 function majorFromPath(path: string): number | null {
   const match = /(?:jdk|jre|java)[-_]?(\d+)/i.exec(path)
   if (match) {

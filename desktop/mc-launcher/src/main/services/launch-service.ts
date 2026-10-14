@@ -1,10 +1,12 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { LaunchPlan, Profile } from '@shared/types'
 import type { Readable } from 'node:stream'
+import { inferJavaMajor } from '../minecraft/java'
 import { type LaunchTarget, buildLaunchPlan } from '../minecraft/launch-plan'
 import { ruleContextFor } from '../minecraft/rules'
 import { resolveVersionChain } from '../minecraft/version-json'
 import type { AppEnvironment } from './env'
+import type { InstallService } from './install-service'
 import type { JavaService } from './java-service'
 import type { LogService } from './log-service'
 import type { ServerService } from './server-service'
@@ -26,7 +28,8 @@ export class LaunchService {
     private readonly log: LogService,
     private readonly tasks: TaskService,
     private readonly servers: ServerService,
-    private readonly java: JavaService
+    private readonly java: JavaService,
+    private readonly install: InstallService
   ) {}
 
   /**
@@ -55,12 +58,15 @@ export class LaunchService {
     const component =
       resolved.chain.map((version) => version.javaVersion?.component).find((value) => typeof value === 'string') ??
       null
+    // A version json from before 1.14 names no Java at all. Reading it off the
+    // release is what keeps 1.12.2 off Java 25, which it cannot start on.
+    const requiredMajor = resolved.merged.javaMajorVersion ?? inferJavaMajor(instance.versionId)
     // Nothing installed on this machine is not a dead end: Mojang's own runtime
     // for this version is downloaded, exactly as the official launcher does.
     const java = await this.java.ensure({
       instanceDir: instance.dir,
       component,
-      requiredMajor: resolved.merged.javaMajorVersion,
+      requiredMajor,
       explicitPath: snapshot.settings.javaPath,
       onProgress: (progress, message) => this.log.append('stdout', `${Math.round(progress * 100)}% ${message}`)
     })
@@ -88,11 +94,28 @@ export class LaunchService {
     if (this.child) throw new Error('A game process is already running. Stop it before launching again.')
 
     return this.tasks.run('Launch', async (report) => {
-      report(0.2, 'Finding a Java runtime and building the command')
+      report(0.1, 'Checking the installation')
+      const instanceIdToCheck = instanceId ?? this.state.snapshot().selectedInstanceId
+      const completion = await this.install.complete({
+        instanceId: instanceIdToCheck,
+        report: (progress, message) => report(0.1 + progress * 0.5, message)
+      })
+      if (completion.changed) {
+        this.log.append(
+          'stdout',
+          `Completed ${completion.versionId}: ${completion.refreshed} file(s) fetched ` +
+            `(${formatMegabytes(completion.bytes)})` +
+            (completion.nativesExtracted > 0
+              ? `, ${completion.nativesExtracted} native libraries unpacked`
+              : '')
+        )
+      }
+
+      report(0.6, 'Finding a Java runtime and building the command')
       const plan = await this.plan(profileId, serverId, instanceId)
       const profile = this.requireProfile(profileId)
 
-      report(0.5, `Starting ${plan.javaPath}`)
+      report(0.75, `Starting ${plan.javaPath}`)
       this.log.append('stdout', `Launching ${profile.name} on ${plan.versionId} (java: ${plan.javaPath})`)
       if (plan.connect) {
         this.log.append('stdout', `Joining ${plan.connect.host}:${plan.connect.port} after start-up`)
@@ -170,6 +193,11 @@ export class LaunchService {
       })
     })
   }
+}
+
+function formatMegabytes(bytes: number): string {
+  if (bytes <= 0) return '0 MB'
+  return `${(bytes / 1048576).toFixed(1)} MB`
 }
 
 function explainSpawnFailure(error: Error, plan: LaunchPlan): string {

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { InstallRequest, InstallResult, LoaderOption, RemoteVersion } from '@shared/types'
 import {
@@ -9,13 +9,10 @@ import {
   type FetchLike
 } from '../minecraft/download'
 import {
-  mergePlans,
   nativesDirFor,
-  planAssetObjects,
-  planVersionFiles,
-  type AssetIndexJson,
-  type PlannedFile,
-  type VersionFilePlan
+  needsRefresh,
+  planInstallation,
+  type AssetIndexJson
 } from '../minecraft/install-plan'
 import {
   loaderListUrl,
@@ -25,7 +22,7 @@ import {
   type LoaderKind
 } from '../minecraft/loader'
 import { ruleContextFor, type RuleContext } from '../minecraft/rules'
-import { versionDir, type VersionJson } from '../minecraft/version-json'
+import { resolveVersionChain, versionDir, type VersionJson } from '../minecraft/version-json'
 import {
   VERSION_MANIFEST_URL,
   findManifestVersion,
@@ -37,6 +34,21 @@ import type { AppEnvironment } from './env'
 import type { InstallationService } from './installation-service'
 import type { InstanceService } from './instance-service'
 import type { TaskService } from './task-service'
+
+/** What was wrong with an installation, and what it took to put right. */
+export interface InstallCompletion {
+  versionId: string
+  /** Files the version needs in total. */
+  files: number
+  /** Files that were absent or not the size the manifest declared. */
+  refreshed: number
+  downloaded: number
+  reused: number
+  bytes: number
+  nativesExtracted: number
+  /** False when nothing had to be done, so a launch can stay quiet about it. */
+  changed: boolean
+}
 
 /**
  * Installs game versions and mod loaders.
@@ -102,6 +114,125 @@ export class InstallService {
     return this.performInstall({ ...input, instanceId }, report)
   }
 
+  /**
+   * Makes an installation whole again, and says what it had to fetch.
+   *
+   * The official launcher checks its files before a launch for the same reason:
+   * an installation is thousands of files written by several programs, and every
+   * way it breaks is silent — a download interrupted, a jar deleted to free
+   * space, a game directory copied from another machine without its assets. Each
+   * of those used to surface as the game failing to start with nothing to explain
+   * it. This is the installer's own plan, so the only files it touches are ones
+   * that are absent or the wrong size, and a complete installation costs a walk
+   * over the tree and no requests at all.
+   */
+  async complete(input: {
+    instanceId?: string | null
+    report?: (progress: number, message: string) => void
+  }): Promise<InstallCompletion> {
+    const report = input.report ?? ((): void => {})
+    const instance = this.instances.require(input.instanceId)
+    if (!instance.versionId) {
+      throw new Error(`Instance "${instance.name}" has no version yet. Install one, then launch.`)
+    }
+
+    const resolved = resolveVersionChain(instance.dir, instance.versionId)
+    const ctx: RuleContext = ruleContextFor(this.environment.platform, this.environment.arch, {
+      is_demo_user: false,
+      has_custom_resolution: false,
+      has_quick_plays_support: true
+    })
+    const assetIndex = await this.readAssetIndex(instance.dir, resolved.chain)
+    const plan = planInstallation({ gameDir: instance.dir, chain: resolved.chain, ctx, assetIndex })
+
+    const stale = needsRefresh(plan.files, (path) => sizeOf(path))
+    const nativesDir = nativesDirFor(instance.dir, instance.versionId)
+    const nativesMissing = plan.nativeJars.length > 0 && !hasEntries(nativesDir)
+
+    if (stale.length === 0 && !nativesMissing) {
+      report(1, `Every one of ${plan.files.length} files is in place`)
+      return {
+        versionId: instance.versionId,
+        files: plan.files.length,
+        refreshed: 0,
+        downloaded: 0,
+        reused: plan.files.length,
+        bytes: 0,
+        nativesExtracted: 0,
+        changed: false
+      }
+    }
+
+    const nativesNote = nativesMissing ? ` and ${plan.nativeJars.length} native libraries to unpack` : ''
+    report(0.05, `${stale.length} of ${plan.files.length} files are missing or incomplete${nativesNote}`)
+
+    const result =
+      stale.length > 0
+        ? await downloadAll(stale, {
+            fetchImpl: this.fetchImpl,
+            concurrency: this.options.concurrency,
+            onProgress: (progress: DownloadProgress) => {
+              const fraction =
+                progress.bytesTotal > 0
+                  ? progress.bytesDone / progress.bytesTotal
+                  : progress.total > 0
+                    ? progress.completed / progress.total
+                    : 0
+              report(0.05 + 0.9 * Math.min(1, fraction), `${progress.completed}/${progress.total} files`)
+            }
+          })
+        : { downloaded: 0, reused: 0, bytes: 0 }
+
+    let nativesExtracted = 0
+    if (nativesMissing) {
+      for (const jar of plan.nativeJars) {
+        if (!existsSync(jar.path)) continue
+        nativesExtracted += extractZip(readFileSync(jar.path), nativesDir, {
+          exclude: jar.exclude,
+          filter: (name) => isNativeLibraryEntry(name, ctx.os)
+        })
+      }
+    }
+
+    report(1, `Repaired ${instance.name}: ${stale.length} file(s) fetched`)
+    return {
+      versionId: instance.versionId,
+      files: plan.files.length,
+      refreshed: stale.length,
+      downloaded: result.downloaded,
+      reused: result.reused,
+      bytes: result.bytes,
+      nativesExtracted,
+      changed: true
+    }
+  }
+
+  /**
+   * The asset index for a chain, from disk when it is there and from Mojang when
+   * it is not. Null means the objects cannot be planned at all, which is reported
+   * rather than passed off as an installation with nothing missing.
+   */
+  private async readAssetIndex(gameDir: string, chain: VersionJson[]): Promise<AssetIndexJson | null> {
+    const owner = chain.find((version) => version.assetIndex?.url)
+    const id = owner?.assetIndex?.id ?? owner?.assets ?? null
+    if (!owner?.assetIndex?.url || !id) return null
+
+    const path = join(gameDir, 'assets', 'indexes', `${id}.json`)
+    if (existsSync(path)) {
+      try {
+        return JSON.parse(readFileSync(path, 'utf8')) as AssetIndexJson
+      } catch {
+        // A truncated index is re-fetched below rather than trusted.
+      }
+    }
+    try {
+      return await fetchJson<AssetIndexJson>(owner.assetIndex.url, { fetchImpl: this.fetchImpl })
+    } catch (error) {
+      this.warn(`Could not read the ${id} asset index: ${(error as Error).message}`)
+      return null
+    }
+  }
+
   private async loadManifest(refresh: boolean): Promise<VersionManifest> {
     if (this.manifest && !refresh) return this.manifest
     const manifest = parseVersionManifest(
@@ -165,27 +296,17 @@ export class InstallService {
     }
 
     report(0.1, 'Working out which files are needed')
-    const plans: VersionFilePlan[] = []
-    if (loaderJson) plans.push(planVersionFiles(gameDir, loaderJson, ctx))
-    plans.push(planVersionFiles(gameDir, baseJson, ctx))
-    const versionPlan = mergePlans(plans)
-
-    const files: PlannedFile[] = [...versionPlan.files]
-    const indexId = baseJson.assetIndex?.id ?? baseJson.assets ?? null
-    if (baseJson.assetIndex?.url && indexId) {
+    const chain = loaderJson ? [loaderJson, baseJson] : [baseJson]
+    let assetIndex: AssetIndexJson | null = null
+    if (baseJson.assetIndex?.url) {
       report(0.12, 'Fetching the asset index')
-      const index = await fetchJson<AssetIndexJson>(baseJson.assetIndex.url, {
+      assetIndex = await fetchJson<AssetIndexJson>(baseJson.assetIndex.url, {
         fetchImpl: this.fetchImpl
       })
-      files.push({
-        url: baseJson.assetIndex.url,
-        dest: join(gameDir, 'assets', 'indexes', `${indexId}.json`),
-        sha1: baseJson.assetIndex.sha1,
-        size: baseJson.assetIndex.size,
-        label: `asset index ${indexId}`
-      })
-      files.push(...planAssetObjects(gameDir, index))
-    } else {
+    }
+    const versionPlan = planInstallation({ gameDir, chain, ctx, assetIndex })
+    const files = versionPlan.files
+    if (!versionPlan.assetIndex) {
       this.warn(`${input.versionId} declares no asset index; the game may not render correctly.`)
     }
 
@@ -251,6 +372,24 @@ export class InstallService {
       bytes: result.bytes,
       nativesExtracted
     }
+  }
+}
+
+/** A file's size, or null when there is no file there. */
+function sizeOf(path: string): number | null {
+  try {
+    return statSync(path).size
+  } catch {
+    return null
+  }
+}
+
+/** True when a directory exists and holds at least something. */
+function hasEntries(dir: string): boolean {
+  try {
+    return readdirSync(dir).length > 0
+  } catch {
+    return false
   }
 }
 

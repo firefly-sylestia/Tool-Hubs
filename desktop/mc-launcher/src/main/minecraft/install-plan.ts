@@ -108,11 +108,23 @@ export function planVersionFiles(gameDir: string, version: VersionJson, ctx: Rul
  * Minecraft stores assets content-addressed under `assets/objects/<first two
  * hex digits>/<hash>`, which is why one index entry is all the information a
  * download needs: the hash is the path, the file name and the checksum.
+ *
+ * A hash is planned once however many names point at it, because this is where
+ * the addressing pays off and where it bit: real indexes do list the same
+ * content twice — 1.12.2 has both `icons/icon_16x16.png` and
+ * `minecraft/icons/icon_16x16.png` for one hash, and 1.20.1 has a sound shared
+ * by two mobs — so the plan held the same destination twice and two downloads
+ * raced for one file, one of them resuming a `.part` its neighbour had already
+ * finished and being answered with HTTP 416. Found by installing a real version
+ * and starting it, not by reading the index.
  */
 export function planAssetObjects(gameDir: string, index: AssetIndexJson): PlannedFile[] {
   const files: PlannedFile[] = []
+  const seen = new Set<string>()
   for (const [name, object] of Object.entries(index.objects ?? {})) {
     if (!object?.hash) continue
+    if (seen.has(object.hash)) continue
+    seen.add(object.hash)
     const prefix = object.hash.slice(0, 2)
     files.push({
       url: `${RESOURCES_HOST}/${prefix}/${object.hash}`,
@@ -123,6 +135,50 @@ export function planAssetObjects(gameDir: string, index: AssetIndexJson): Planne
     })
   }
   return files
+}
+
+/**
+ * Everything one version chain needs, as a single plan.
+ *
+ * A chain rather than one json, because that is what a launch resolves: the
+ * loader's json first, then the game version it inherits from. Both the install
+ * and the check before a launch go through here, so "what a version needs" has
+ * exactly one answer — a launch that repaired an installation against a
+ * different list than the installer wrote would be a slow, confusing bug.
+ *
+ * The asset index is passed in rather than fetched: the caller already has it
+ * (or has decided not to download the 500 MB of objects it describes), and an
+ * index that is on disk is one fewer request before a launch.
+ */
+export function planInstallation(input: {
+  gameDir: string
+  /** Child first, as `resolveVersionChain` returns it. */
+  chain: VersionJson[]
+  ctx: RuleContext
+  assetIndex?: AssetIndexJson | null
+}): { files: PlannedFile[]; nativeJars: NativeJar[]; assetIndex: VersionJson['assetIndex'] & { id: string } | null } {
+  const merged = mergePlans(input.chain.map((version) => planVersionFiles(input.gameDir, version, input.ctx)))
+  const files: PlannedFile[] = [...merged.files]
+
+  // The game version declares the asset index; a loader profile inheriting from
+  // it does not, so the first entry that names one is the one that owns it.
+  const owner = input.chain.find((version) => version.assetIndex?.url) ?? null
+  const declared = owner?.assetIndex ?? null
+  const indexId = declared?.id ?? owner?.assets ?? null
+  const assetIndex = declared?.url && indexId ? { ...declared, id: indexId } : null
+
+  if (assetIndex) {
+    files.push({
+      url: assetIndex.url!,
+      dest: join(input.gameDir, 'assets', 'indexes', `${assetIndex.id}.json`),
+      sha1: assetIndex.sha1,
+      size: assetIndex.size,
+      label: `asset index ${assetIndex.id}`
+    })
+    if (input.assetIndex) files.push(...planAssetObjects(input.gameDir, input.assetIndex))
+  }
+
+  return { files, nativeJars: merged.nativeJars, assetIndex }
 }
 
 /**
@@ -159,4 +215,27 @@ export function mergePlans(plans: VersionFilePlan[]): VersionFilePlan {
  */
 export function missingFrom(files: PlannedFile[], exists: (dest: string) => boolean): PlannedFile[] {
   return files.filter((file) => !exists(file.dest))
+}
+
+/**
+ * The files a launch has to fetch before it can start, from what is on disk.
+ *
+ * A file counts as present when it is there and its size is what the manifest
+ * declared. That is deliberately a size check and not a hash check: hashing
+ * 3000 assets and a 40 MB client jar before every launch would take longer than
+ * starting the game, and it is not needed either — an asset's file name *is* its
+ * sha1, so its existence proves its contents, and a jar from a half-finished
+ * download has the wrong size and is caught here. The hash is still what the
+ * download itself is verified against.
+ */
+export function needsRefresh(
+  files: PlannedFile[],
+  sizeOf: (path: string) => number | null
+): PlannedFile[] {
+  return files.filter((file) => {
+    const size = sizeOf(file.dest)
+    if (size === null) return true
+    if (typeof file.size === 'number' && file.size > 0 && size !== file.size) return true
+    return false
+  })
 }

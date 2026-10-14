@@ -9,11 +9,29 @@
  * It needs the network, so it is a diagnostic and not part of `npm run verify`,
  * and it keeps its downloads small — the client jar is the one big file, and
  * `--fast` skips it.
+ *
+ * `--launch` adds the one check that cannot be small: it installs a whole real
+ * version, hides the machine's own Java so the runtime has to be downloaded, and
+ * then starts the game with the command the launcher builds. That is a few
+ * hundred megabytes and a couple of minutes, which is why it is opt-in, and why
+ * CI does not run it.
  */
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { downloadAll, fetchJson } from '../src/main/minecraft/download'
+import { buildLaunchPlan } from '../src/main/minecraft/launch-plan'
+import { offlineUuid } from '../src/main/minecraft/offline-uuid'
+import { resolveVersionChain } from '../src/main/minecraft/version-json'
+import { nativesDirFor } from '../src/main/minecraft/install-plan'
+import { InstallationService } from '../src/main/services/installation-service'
+import { InstallService } from '../src/main/services/install-service'
+import { InstanceService } from '../src/main/services/instance-service'
+import { ServiceRegistry } from '../src/main/services/registry'
+import { SettingsService } from '../src/main/services/settings-service'
+import { StateStore, defaultState } from '../src/main/services/state-store'
+import { TaskService } from '../src/main/services/task-service'
 import { planAssetObjects, planVersionFiles } from '../src/main/minecraft/install-plan'
 import {
   loaderListUrl,
@@ -46,6 +64,7 @@ import { parseJavaMajorVersion } from '../src/main/minecraft/java'
 import { JavaService, runVersion } from '../src/main/services/java-service'
 
 const fast = process.argv.includes('--fast')
+const launch = process.argv.includes('--launch')
 const root = mkdtempSync(join(tmpdir(), 'mc-launcher-netcheck-'))
 const failures: string[] = []
 let downloaded = 0
@@ -69,6 +88,80 @@ async function step(name: string, run: () => Promise<string>): Promise<void> {
 }
 
 const ctx = ruleContextFor(process.platform, process.arch, {})
+
+/** One asset object the install wrote, so a launch check can delete it again. */
+function assetSample(objectsDir: string): string | null {
+  try {
+    for (const prefix of readdirSync(objectsDir)) {
+      for (const name of readdirSync(join(objectsDir, prefix))) {
+        return join(objectsDir, prefix, name)
+      }
+    }
+  } catch {
+    // No assets at all, which the caller reports as a failure of its own.
+  }
+  return null
+}
+
+interface GameRun {
+  code: number | null
+  /** True when it was still running when the timeout ran out. */
+  timedOut: boolean
+  seconds: string
+  output: string
+  lines: string[]
+}
+
+/**
+ * Starts the game with the command the launcher built and waits for it to stop.
+ *
+ * Nothing here is a fake: the java binary, the arguments and the working
+ * directory are exactly what `launch.start` hands to `spawn`.
+ */
+function startGame(
+  plan: { javaPath: string; args: string[]; cwd: string },
+  timeoutMs = 120_000
+): Promise<GameRun> {
+  return new Promise((resolve) => {
+    const startedAt = Date.now()
+    const lines: string[] = []
+    let output = ''
+    let timedOut = false
+    const settle = (code: number | null): void => {
+      clearTimeout(timer)
+      resolve({ code: timedOut ? null : code, timedOut, seconds: ((Date.now() - startedAt) / 1000).toFixed(0), output, lines })
+    }
+    const collect = (chunk: Buffer): void => {
+      const text = chunk.toString('utf8')
+      output += text
+      for (const line of text.split(/\r?\n/)) {
+        if (line.trim() !== '') lines.push(line.trim())
+      }
+    }
+
+    const child = spawn(plan.javaPath, plan.args, { cwd: plan.cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+    child.stdout?.on('data', collect)
+    child.stderr?.on('data', collect)
+    const timer = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGKILL')
+    }, timeoutMs)
+
+    child.once('error', (error) => {
+      lines.push(error.message)
+      output += error.message
+      settle(null)
+    })
+    child.once('exit', (code) => settle(code))
+  })
+}
+
+/** The line a marker was found on, so a failure says what actually happened. */
+function firstLineWith(text: string, marker: string): string {
+  const needle = marker.toLowerCase()
+  const line = text.split(/\r?\n/).find((candidate) => candidate.toLowerCase().includes(needle)) ?? ''
+  return line.trim().slice(0, 200)
+}
 
 await step('read the version manifest', async () => {
   const manifest = parseVersionManifest(await fetchJson<unknown>(VERSION_MANIFEST_URL))
@@ -260,6 +353,161 @@ await step("download Mojang's own Java runtime and run it", async () => {
     `runs, and is then found automatically`
   )
 })
+
+if (launch) {
+  await step('install a whole real version, repair it, and start it', async () => {
+    const launchRoot = join(root, 'launch')
+    const instanceDir = join(launchRoot, 'instance')
+    mkdirSync(instanceDir, { recursive: true })
+
+    // The same graph the app builds, so this is the install the app would do.
+    const registry = new ServiceRegistry()
+    const launchEnv = {
+      userDataDir: launchRoot,
+      defaultInstancesDir: join(launchRoot, 'instances'),
+      defaultGameDir: instanceDir,
+      launcherName: 'mc-launcher',
+      launcherVersion: 'netcheck',
+      platform: process.platform,
+      arch: process.arch
+    }
+    const store = new StateStore(
+      join(launchRoot, 'state.json'),
+      defaultState(launchEnv.defaultInstancesDir),
+      registry
+    )
+    const installations = new InstallationService(store, () => {})
+    const instances = new InstanceService(store, launchEnv, installations, new SettingsService(store), () => {})
+    const tasks = new TaskService(store, registry)
+    const installer = new InstallService(launchEnv, tasks, installations, instances, () => {})
+    const instance = instances.create({ name: 'Launch check', dir: instanceDir, source: 'created' })
+
+    // A version that still ships natives, still spells its arguments the legacy
+    // way, and does not name its Java: the three things most likely to be skipped
+    // by a launcher that runs one modern version and calls it done.
+    const versionId = ['1.12.2', '1.16.5', '1.20.1'].find((id) => findManifestVersion(manifest, id))
+    if (!versionId) throw new Error('the manifest has no version from that era any more')
+    const installed = await installer.install({ versionId, loader: 'vanilla', instanceId: instance.id })
+    downloaded += installed.bytes
+    // A fresh game directory has nothing to reuse, so anything counted as reused
+    // would be a file the installer decided not to check.
+    if (installed.reused !== 0) {
+      throw new Error(`${installed.reused} file(s) were called reused in an empty game directory`)
+    }
+    if (installed.files < 100) throw new Error(`only ${installed.files} files were planned for ${versionId}`)
+
+    // What a launch sends when the machine has been tidied up: a jar deleted to
+    // free space, an asset lost to a half-finished copy. The launcher is expected
+    // to notice and put them back rather than fail.
+    const resolved = resolveVersionChain(instanceDir, installed.targetId)
+    const clientJar = resolved.merged.clientJar
+    if (!clientJar) throw new Error('the installed version has no client jar to delete')
+    const assetIndex = resolved.merged.assetsIndex ?? 'legacy'
+    const assetDir = join(instanceDir, 'assets', 'objects')
+    const asset = assetSample(assetDir)
+    rmSync(clientJar, { force: true })
+    rmSync(nativesDirFor(instanceDir, installed.targetId), { recursive: true, force: true })
+    if (asset) rmSync(asset, { force: true })
+
+    const completion = await installer.complete({ instanceId: instance.id })
+    if (!completion.changed) throw new Error('a deleted client jar was not seen as missing')
+    if (!existsSync(clientJar)) throw new Error(`the client jar was not fetched again to ${clientJar}`)
+    if (asset && !existsSync(asset)) throw new Error('the deleted asset was not fetched again')
+    if (completion.nativesExtracted === 0) throw new Error('the deleted natives were not unpacked again')
+
+    // A second pass has nothing to do, which is what keeps a launch from walking
+    // the whole tree and re-hashing it.
+    const second = await installer.complete({ instanceId: instance.id })
+    if (second.changed || second.refreshed !== 0) {
+      throw new Error(`a repaired installation was still reported as ${second.refreshed} file(s) short`)
+    }
+
+    const javaService = new JavaService(launchEnv, () => {})
+    // Pretend this machine has no Java at all. Blanking PATH and JAVA_HOME is
+    // what makes the launcher's own download the only runtime that can answer,
+    // which is the path a Windows machine with no JDK takes.
+    const savedPath = process.env.PATH
+    const savedHome = process.env.JAVA_HOME
+    process.env.PATH = ''
+    delete process.env.JAVA_HOME
+    let java: { path: string; major: number | null }
+    try {
+      java = await javaService.ensure({
+        instanceDir,
+        component: undefined,
+        requiredMajor: resolved.merged.javaMajorVersion,
+        onProgress: () => {}
+      })
+    } finally {
+      process.env.PATH = savedPath
+      if (savedHome === undefined) delete process.env.JAVA_HOME
+      else process.env.JAVA_HOME = savedHome
+    }
+    const plan = buildLaunchPlan({
+      gameDir: instanceDir,
+      profile: {
+        id: 'netcheck',
+        name: 'Netcheck',
+        uuid: offlineUuid('Netcheck'),
+        createdAt: new Date(0).toISOString(),
+        lastPlayedAt: null
+      },
+      versionId: installed.targetId,
+      settings: { instancesDir: launchRoot, javaPath: null, maxMemoryMb: 2048, width: 854, height: 480 },
+      connect: null,
+      ctx,
+      launcherName: 'mc-launcher',
+      launcherVersion: 'netcheck',
+      javaPath: java.path
+    })
+
+    const run = await startGame(plan)
+    // Everything that means the launcher got it wrong rather than the machine:
+    // a main class the classpath does not have, a class the libraries are
+    // missing, a native this launcher never unpacked, a Java too old for the
+    // class files it is being handed, or a command line the JVM does not accept.
+    const broken = [
+      'Could not find or load main class',
+      'NoClassDefFoundError',
+      'ClassNotFoundException',
+      'UnsupportedClassVersionError',
+      'ClassFormatError',
+      'Error occurred during initialization of VM',
+      'Unrecognized option',
+      'no lwjgl in java.library.path'
+    ].find((marker) => run.output.includes(marker))
+    if (broken) {
+      throw new Error(`the game's own code did not load — ${firstLineWith(run.output, broken)}`)
+    }
+    if (run.timedOut) {
+      // A game that is still running after two minutes is a game that started.
+      return (
+        `${versionId} installed (${installed.files} files), repaired after deleting three, ` +
+        `Java ${java.major ?? '?'} downloaded with no java on PATH, and the game kept running ` +
+        `for ${run.seconds}s (asset index ${assetIndex}, logging ${run.lines.length} lines)`
+      )
+    }
+    // Past that, the furthest this can go is the window itself: a machine with
+    // no display stops the game in its graphics code — GLFW with no display, or,
+    // as here, the X11 client libraries that LWJGL's own native links against.
+    // Either way the game's code ran, which is what this step is for.
+    const reached = ['lwjgl', 'glfw', 'display', 'x11', 'x cursor', 'opengl', 'pixel format'].find((marker) =>
+      run.output.toLowerCase().includes(marker)
+    )
+    if (!reached) {
+      throw new Error(
+        `the JVM stopped before the game's window code ran (exit ${run.code}): ` +
+          `${run.lines.slice(-4).join(' | ') || 'no output'}`
+      )
+    }
+    return (
+      `${versionId} installed (${installed.files} files), repaired after deleting three, ` +
+      `Java ${java.major ?? '?'} downloaded with no java on PATH, and the game reached its ` +
+      `window: ${firstLineWith(run.output, reached)} (no display in this environment) · ` +
+      `asset index ${assetIndex}`
+    )
+  })
+}
 
 rmSync(root, { recursive: true, force: true })
 

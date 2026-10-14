@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, symlinkSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, statSync, symlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fetchJson, downloadAll, type DownloadProgress } from '../minecraft/download'
@@ -9,6 +9,7 @@ import {
   javaExecutableName,
   parseJavaMajorVersion,
   runtimeCandidate,
+  runtimeComponentsForMajor,
   runtimePlatformDir,
   RUNTIME_COMPONENT_MAJORS,
   selectJava,
@@ -61,8 +62,15 @@ export class JavaService {
     explicitPath?: string | null
   }): Promise<ResolvedJava> {
     if (input.explicitPath && input.explicitPath.trim() !== '') {
-      const path = input.explicitPath.trim()
-      return { path, major: await this.majorOf(path), source: 'the java path set in Settings' }
+      const configured = await this.explicit(input.explicitPath.trim())
+      if (configured) return configured
+      // A path that no longer answers must not be a dead end. It was a real
+      // runtime when it was set, and uninstalling a JDK, moving a folder or
+      // copying the launcher's settings to another machine all leave it behind.
+      this.warn(
+        `The java path in Settings (${input.explicitPath.trim()}) is not a runtime that runs; ` +
+          `looking for another one.`
+      )
     }
 
     const probed = await this.probe(input)
@@ -97,6 +105,11 @@ export class JavaService {
    * game directory, where it stays for that instance. The download is a source
    * build of OpenJDK from Mojang, every file verified against the sha1 the
    * manifest declares.
+   *
+   * A version that names its component is followed exactly. One that does not —
+   * anything before 1.14, and the older loader profiles — is matched by the Java
+   * major it needs instead, so “no runtime found” ends in a download rather than
+   * in a list of folders to go and search.
    */
   async ensure(input: {
     instanceDir: string
@@ -108,17 +121,53 @@ export class JavaService {
     try {
       return await this.resolve(input)
     } catch (error) {
-      if (!input.component) throw error
-      const installed = await this.installRuntime({
-        instanceDir: input.instanceDir,
-        component: input.component,
-        onProgress: input.onProgress
-      })
-      this.warn(
-        `Installed ${input.component} (Java ${installed.major ?? 'unknown'}) into ${input.instanceDir}.`
+      const components = input.component
+        ? [input.component]
+        : runtimeComponentsForMajor(input.requiredMajor)
+      const failures: string[] = []
+      for (const component of components) {
+        try {
+          const installed = await this.installRuntime({
+            instanceDir: input.instanceDir,
+            component,
+            onProgress: input.onProgress
+          })
+          this.warn(
+            `Installed ${component} (Java ${installed.major ?? 'unknown'}) into ${input.instanceDir}.`
+          )
+          return installed
+        } catch (failure) {
+          // A component Mojang does not publish for this platform is the
+          // expected way to reach the next candidate; a network failure looks
+          // the same here and is worth one more try the same way.
+          failures.push(`${component}: ${(failure as Error).message}`)
+        }
+      }
+      throw new Error(
+        `${(error as Error).message} Downloading a runtime also failed — ${failures.join('; ')}`
       )
-      return installed
     }
+  }
+
+  /**
+   * The java path set in Settings, when it is one that runs.
+   *
+   * Both spellings are accepted: the executable itself, and the JDK folder it
+   * lives in — a JAVA_HOME directory is what people usually have to hand, and
+   * `bin/java` inside it is the same thing.
+   */
+  private async explicit(path: string): Promise<ResolvedJava | null> {
+    const candidates = [path]
+    if (existsSync(path) && statSync(path).isDirectory()) {
+      candidates.push(join(path, 'bin', javaExecutableName(this.env.platform)))
+    }
+    for (const candidate of candidates) {
+      const major = await this.majorOf(candidate)
+      if (major !== null) {
+        return { path: candidate, major, source: 'the java path set in Settings' }
+      }
+    }
+    return null
   }
 
   /**
@@ -296,9 +345,9 @@ export class JavaService {
   private missingJavaMessage(input: { instanceDir: string; requiredMajor: number | null }): string {
     const wanted = input.requiredMajor === null ? 'a JDK' : `Java ${input.requiredMajor}`
     return (
-      `This instance needs ${wanted} and none was found on this machine. ` +
-      `Install ${wanted}, set the path to java in Settings, or let the launcher download ` +
-      `Mojang's own runtime — that is what the Launch button does when nothing is found.`
+      `This instance needs ${wanted} and none was found on this machine. Launching downloads ` +
+      `Mojang's own runtime, so this only means the download could not help either — set the ` +
+      `path to java in Settings, or install ${wanted}.`
     )
   }
 }

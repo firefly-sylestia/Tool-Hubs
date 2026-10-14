@@ -98,8 +98,10 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   const servers = new ServerService(state)
   const tasks = new TaskService(state, registry)
   const java = new JavaService(environment, warn)
-  const launch = new LaunchService(state, environment, log, tasks, servers, java)
   const install = new InstallService(environment, tasks, installations, instances, warn)
+  // A launch checks the installation and repairs it before it builds a command,
+  // which means it owns the same installer every other path uses.
+  const launch = new LaunchService(state, environment, log, tasks, servers, java, install)
   const modpacks = new ModpackService(install, instances, tasks, warn)
   const modrinth = new ModrinthService(environment, instances, modpacks, tasks, warn)
   const windows = new WindowController()
