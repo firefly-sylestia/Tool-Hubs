@@ -1,15 +1,6 @@
 import type { FilePickerKind } from './types'
 
-/**
- * What each file dialog looks for.
- *
- * One list serves the main process, which builds the dialog, and the checks,
- * which prove each picker offers the extensions its own importer accepts —
- * Modrinth publishes `.mrpack`, CurseForge packs are plain `.zip` archives, a
- * mod is a `.jar`, and everything the game reads out of a folder of packs is a
- * `.zip`. `any` is not in here: it is the dialog with no filter at all, which is
- * what choosing a Java binary needs.
- */
+
 export interface FilePickerPreset {
   title: string
   /** The filter's name, as the OS dialog shows it. */
