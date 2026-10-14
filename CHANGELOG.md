@@ -11,6 +11,43 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.13.0]
+
+An instance can leave the launcher as a modpack someone else can install, the store opens on the
+catalogue instead of waiting to be searched, and the interface says what the launcher is doing from
+any page.
+
+### Added
+- **Export an instance as a modpack.** The selected instance writes out as a self-contained `.mrpack`:
+its mods, resource packs, shader packs, `config`, `defaultconfigs`, `scripts` and `options.txt` under
+`overrides/`, and an index naming the game version and the loader so an importer knows what to install
+underneath the pack. It is self-contained rather than linked, because the launcher does not record where
+a file came from and a made-up download URL would be worse than a larger archive. The game files, the
+worlds, the backups and the logs stay behind, the pack is named and versioned (a date stamp when left
+empty), and a folder is picked after the form so a cancelled pick writes nothing. An instance with
+nothing of its own to carry is refused by name instead of exported as an empty file.
+- **A running indicator, visible from every page.** The title bar carries the profile that is playing
+with a dot that pulses and a Stop button beside it, plus a chip for whatever install, download or launch
+is still working with its percentage. The Play page replaces the launch button with the same state while
+the game runs, and its activity list says which task is working, which finished and which failed, with
+how long it took.
+- **State as an icon rather than a sentence.** Versions are tagged as releases or snapshots, worlds and
+their backups carry their own icons, resources show their kind and whether the game will load them,
+servers show what the last ping said, a Java runtime says it is in use, and every crash finding is
+stamped with its severity. Buttons throughout say what they do with an icon as well as a word.
+- **The store opens on the catalogue.** It used to need a search word and a selected instance before it
+would show anything; it now lists the most downloaded content on the tab that is open, narrows to the
+selected instance's version and loader, and says so with a way to pick an instance when there is none.
+
+### Fixed
+- **The icon font was never loaded**, so every icon the interface asked Vuetify to draw rendered as its
+own name in text. The Material Design Icons stylesheet is now imported with the rest of the shell.
+- **A Fabric instance exported the wrong game version.** The loader profile id
+`fabric-loader-0.16.9-1.21.4` was read as `0.16.9-1.21.4`, which an importer cannot install; the game
+version is now the last version number in the id. The new check for the export is what caught it.
+- The store no longer installs nothing at all when no instance is selected: it says so and offers to go
+and pick one.
+
 ## [MC Launcher 0.12.0]
 
 A crash report is a hundred lines of stack trace with the actual cause buried in a `Caused by:` chain. The
