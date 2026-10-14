@@ -227,11 +227,18 @@ Verified locally on Linux with Node 24.21:
 
 ## License
 
-MIT. This is an original implementation: the architecture was studied from a
-shipped Electron application, but no third-party source or assets were copied
-into it. That application, XMCL, is itself MIT, so borrowing from it would be
-legal with attribution — but nothing here is borrowed, and keeping it that way
-keeps the licensing of this repository simple.
+MIT. This is an original implementation: no third-party source or assets were
+copied into it.
+
+It does stand on the shoulders of one: **XMCL** (X Minecraft Launcher,
+[voxelum/x-minecraft-launcher](https://github.com/voxelum/x-minecraft-launcher)),
+which is MIT. The IPC architecture here — a single generic service channel, a
+snapshot state protocol, the bootstrap/commit/revalidate handshake — was studied
+from it, and its source is now the reference for how features are meant to
+behave: the Modrinth client, the per-version Java runtime download from Mojang's
+own index, and the store and instance pages still to come. Reading a reference
+and writing your own code is what happens here; if that ever changes and code is
+adapted rather than learned from, the MIT attribution goes in this section first.
 
 **Not verified here:** the app was never launched and no game was ever started.
 The build environment is a headless container with no display, so `npm run dev`
