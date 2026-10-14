@@ -40,6 +40,12 @@ snapshot state protocol, and a launch pipeline built from the version json.
   would not load is refused with the reason (a `.jar` in `resourcepacks/` says
   "did you mean to add it to mods?") instead of being copied and ignored, and
   each folder opens in the OS file manager.
+- **A Modrinth page.** Search with a sort (relevance, downloads, followers,
+  newest, recently updated) across four tabs — mods, resource packs, shaders and
+  modpacks — with result cards and each project's own page: its published
+  description, gallery, client/server requirements, licence, links to source,
+  issues, wiki and Discord, and its whole version list. Installing a modpack
+  from there downloads the `.mrpack` and imports it as a new instance.
 - **Install from Modrinth.** Mods, resource packs and shader packs are found by
   search and installed into the selected instance, filtered by its game version
   and loader (a Quilt instance is offered Fabric mods, because Quilt runs them).
@@ -180,7 +186,8 @@ src/main/            Electron main process
                      modrinth api, jar metadata, resource folders, game
                      options, java discovery, mojang java runtimes, zip, manifest
 src/preload/         contextBridge: serviceChannels, windowController, bootstrap, taskMonitor
-src/renderer/        Vue 3 + Vuetify UI
+src/renderer/        Vue 3 + Vuetify UI (Play, Modrinth, Instances, Servers,
+                     Settings, Logs)
 src/shared/          types and channel constants shared by all three
 scripts/selfcheck.ts logic checks, runnable under plain Node
 scripts/netcheck.ts  the installer against the live metadata services
@@ -196,7 +203,7 @@ as a snapshot event, so the UI keeps a working copy instead of guessing.
 Verified locally on Linux with Node 24.21:
 
 - `npm run typecheck` — clean for main, preload, shared and the Vue renderer.
-- `npm run selfcheck` — 84 checks: the offline UUID, rule evaluation,
+- `npm run selfcheck` — 85 checks: the offline UUID, rule evaluation,
   inheritance, classpath and natives resolution (including a library listed twice
   with the natives on the second listing), argument substitution, the launch
   plan and its failure paths, zip reading and extraction (including a modpack's
@@ -218,11 +225,13 @@ Verified locally on Linux with Node 24.21:
   LWJGL), the 39.6 MB client jar fetched and verified, real Fabric and Quilt
   loader profiles parsed, Modrinth searched and resolved for the current release
   (a real Sodium build downloaded with its hash verified and its name read back
-  out of the jar), and Mojang's own Java runtime downloaded, unpacked, marked
-  executable, run to confirm its version, and then found again by the resolver.
-- `npm run test` — 6 renderer tests: boot from the bridge, snapshot rendering, a
-  UI action reaching the service bridge, error surfacing, navigation, and the
-  install picker installing what it offers into the selected instance.
+  out of the jar, plus a real project page and a modpack search), and Mojang's own
+  Java runtime downloaded, unpacked, marked executable, run to confirm its
+  version, and then found again by the resolver.
+- `npm run test` — 7 renderer tests: boot from the bridge, snapshot rendering, a
+  UI action reaching the service bridge, error surfacing, navigation, the install
+  picker installing what it offers into the selected instance, and the Modrinth
+  page searching and opening a project page.
 - `npm run build` — main, preload and renderer bundles build.
 
 ## License

@@ -11,6 +11,33 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.7.0]
+
+Browsing was a dialog inside one instance, which put the catalogue behind the thing you were supposed to
+choose from it. It is a page of its own now: search, sort, four tabs, result cards, each project's own
+page with its description, gallery, links and version list, and an install button on every one.
+
+### Added
+- **A Modrinth page**, in the sidebar next to Play. Search with a sort — relevance, downloads,
+followers, newest, recently updated — and four tabs: mods, resource packs, shaders and **modpacks**. It
+says which instance it is filtering for and where a file would land, because that is the question a
+search cannot answer by itself.
+- **Result cards and a project page.** Cards carry the icon, the description, downloads and followers,
+the loaders and categories. Opening one shows the project's published description, its gallery, its
+client/server requirements, its licence, links to source, issues, wiki and Discord, and its whole
+version list — the newest release that fits first, each other version installable, with the count of
+required dependencies named before you click.
+- **Modpacks install from the page.** A pack is not a file in an instance, it *is* an instance: the
+`.mrpack` is downloaded (hash-verified), handed to the modpack importer, and the game, the loader, the
+pack's own files and its overrides are installed into a new instance. The Modpacks tab needs no instance
+selected for exactly that reason.
+- **Load more**, so a search is not capped at the first page, with the count of what is shown.
+
+### Fixed
+- **The licence was missing from every project page.** Modrinth answers with the licence as an object on
+some routes and as a plain string on others; only the object was read. Found by asking the real API, not
+by reading the documentation — the same way the `/version` endpoint was found.
+
 ## [MC Launcher 0.6.0]
 
 The launcher could find a Java runtime but not provide one, so on a machine with no JDK — the usual case

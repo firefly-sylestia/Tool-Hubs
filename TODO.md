@@ -1,5 +1,23 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.7.0, the Modrinth store page
+
+- [x] A Modrinth page of its own: search, sort (relevance/downloads/followers/newest/updated), four
+      tabs (mods, resource packs, shaders, modpacks), result cards with icon, stats, loaders and
+      categories, and “Load more”.
+- [x] A project page: published description, gallery, client/server requirements, licence, links to
+      source/issues/wiki/Discord, and every version with an install button and its required-dependency
+      count.
+- [x] Modpacks install from the store: the `.mrpack` is downloaded and verified, then imported as a new
+      instance — which is why that tab needs no instance selected.
+- [x] Fixed at the cause: the licence showed as missing because Modrinth returns it as an object on some
+      routes and a string on others; both are read now. Found by asking the live API.
+- [x] Version bumped to `0.7.0` in `desktop/mc-launcher/package.json`, lockfile included.
+
+### Still to verify on a desktop
+- [ ] Installing a modpack from the store end to end (the store path downloads the pack and hands it to
+      the importer, which is the part that has only been checked up to the download).
+
 ## Desktop launcher — MC Launcher 0.6.0, Java without a system JDK
 
 - [x] Download Mojang's own Java runtime in-app, from the official index, into the instance's game
@@ -43,8 +61,6 @@
 
 ### Still to build on this wave (chosen, not started)
 
-- [ ] Modrinth browse page like XMCL's: a dedicated page with sort/category filters and result cards,
-      instead of a dialog inside an instance.
 - [ ] Forge and NeoForge installation by running their installers.
 - [ ] CurseForge browsing and pack files — needs an API key.
 - [ ] Saves and worlds: list per instance, export/import, and a backup before a pack change.
