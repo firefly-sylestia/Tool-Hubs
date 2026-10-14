@@ -1,5 +1,17 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.12.0, crash help
+
+- [x] “What went wrong” reads each instance's `crash-reports/` and `logs/latest.log` and names the cause:
+      memory, the wrong Java, graphics, a mod built against another version, a failed mixin, duplicate
+      mods, a missing dependency with the mod ids read out of the loader's own block, an incomplete
+      installation, or a dropped connection — each with the line it was read from and what to do.
+- [x] Reports listed newest first and selectable, the log as the fallback, nothing ever modified, and no
+      findings at all from a log that is not a crash — including a mod that prints the word “error”.
+- [x] Fixed at the cause, both found by the new checks against real report shapes: the mod list was read
+      with spaces where every loader indents with a tab, and a mod id in typographic quotes kept them.
+- [x] Version bumped to `0.12.0` in `desktop/mc-launcher/package.json`, lockfile included.
+
 ## Desktop launcher — MC Launcher 0.11.0, the shell XMCL's interface has
 
 - [x] The launch pill: the play control set into its leading edge, spinning once when clicked, the
@@ -132,7 +144,6 @@
 - [ ] CurseForge browsing and pack files — needs an API key.
 - [ ] Export an instance as a `.mrpack` (the other half of the modpack story).
 - [ ] Disk efficiency: hard links for files shared between instances, and ranged multi-part downloads.
-- [ ] Crash report and log help: turn a stack into the likely cause.
 - [ ] Localization and themes.
 - [ ] Auto-update from a release feed (chosen: yes).
 - [ ] Code signing stays out of scope until a certificate exists; the installers remain unsigned.

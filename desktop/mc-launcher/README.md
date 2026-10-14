@@ -27,6 +27,13 @@ snapshot state protocol, and a launch pipeline built from the version json.
   a download that is interrupted keeps its `.part` file and resumes with a range
   request next time, and a hash mismatch keeps the bytes and fails loudly instead
   of leaving a corrupt jar behind a working-looking install.
+- **Crash help instead of a stack trace.** Each instance's own `crash-reports/`
+  and `logs/latest.log` are read and turned into findings — out of memory, the
+  wrong Java, the graphics driver, a mod built against another version, a mixin
+  that failed, two copies of one mod, a missing dependency with the mod ids to
+  install, an incomplete installation, a dropped connection — each with the line
+  it was read from and what to do about it. Reports are listed newest first and
+  are never modified, and a log with no failure in it produces no findings.
 - **An interface that moves, the way XMCL's does.** The launch pill has the play
   control set into it and spins it once when clicked; pages fade up as they
   arrive; cards transition their border towards the primary colour on hover
@@ -241,7 +248,7 @@ as a snapshot event, so the UI keeps a working copy instead of guessing.
 Verified locally on Linux with Node 24.21:
 
 - `npm run typecheck` — clean for main, preload, shared and the Vue renderer.
-- `npm run selfcheck` — 105 checks: the offline UUID, rule evaluation,
+- `npm run selfcheck` — 111 checks: the offline UUID, rule evaluation,
   inheritance, classpath and natives resolution (including a library listed twice
   with the natives on the second listing), argument substitution, the launch
   plan and its failure paths, zip reading and extraction (including a modpack's
@@ -269,7 +276,9 @@ Verified locally on Linux with Node 24.21:
   flattened and its colour codes stripped, a status turned into the line the list
   shows, the addresses the game writes (including bracketed IPv6), and
   `servers.dat` merged, round tripped through a real file, and refused when it is
-  not a server list at all.
+  not a server list at all, and the crash reader: a report's own description and
+  the deepest `Caused by`, the mod list and the missing-dependency block in the
+  shapes loaders actually write, and a clean log that produces nothing.
 - `npm run netcheck` — the same install path against live services: Mojang's
   manifest and a real version json, a real asset index, libraries and assets
   downloaded and hash-checked (664 KB), a real native jar unpacked (1.16.5's

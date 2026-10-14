@@ -11,6 +11,27 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.12.0]
+
+A crash report is a hundred lines of stack trace with the actual cause buried in a `Caused by:` chain. The
+launcher now reads it and says what went wrong, with the line it read that from.
+
+### Added
+- **“What went wrong”, above the log.** Each instance's own `crash-reports/` and `logs/latest.log` are
+read and turned into findings: memory, the wrong Java, a graphics driver, a mod built against another
+version, a mod that failed to patch the game, two copies of one mod, a missing dependency (with the mod
+ids to install, read out of the loader's own block), an incomplete installation, or a dropped connection.
+Each finding carries the line of the file it came from and what to do about it, so a wrong reading can be
+seen to be wrong. Crash reports are listed newest first and can be chosen, the whole file is never
+modified, and the folders open from the same card.
+- **It stays quiet when there is nothing to say**: a log with no failure in it produces no findings, and a
+mod mentioning “error” in its own output is not a crash.
+
+### Fixed
+- Two things the checks found in the new reader, both from real report shapes: the mod list was read with
+spaces where Forge, NeoForge and Fabric all indent with a tab, and a mod id quoted with typographic
+quotes (`Mod ID: ‘create’`) kept its quotes as part of the id.
+
 ## [MC Launcher 0.11.0]
 
 The launcher worked, but it looked like a form. This is the shell XMCL's interface has, brought over:
