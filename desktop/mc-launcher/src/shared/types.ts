@@ -266,6 +266,54 @@ export interface ServerEntry {
   port: number
 }
 
+export interface ServerPlayerSample {
+  name: string
+  id: string | null
+}
+
+/** What a server list ping answered, or why it could not. */
+export interface ServerStatus {
+  online: boolean
+  host: string
+  port: number
+  /** Milliseconds between the status request and the answer. */
+  latencyMs: number | null
+  version: string | null
+  protocol: number | null
+  players: { online: number; max: number; sample: ServerPlayerSample[] } | null
+  /** The description, with its colour codes stripped. */
+  motd: string | null
+  /** The server's icon as the `data:image/png;base64,…` string it publishes. */
+  icon: string | null
+  /** Why it is not online, when it is not. */
+  error: string | null
+}
+
+/** A server in the game's own `servers.dat`. */
+export interface GameServer {
+  name: string
+  host: string
+  port: number
+  /** The `ip` field exactly as the file spells it, port included when it is not default. */
+  address: string
+  /** Players the game recorded for it, when a status ping was written in. */
+  players: string[]
+}
+
+/** The game's own server list for an instance, and what a sync did to it. */
+export interface ServersDatResult {
+  instanceId: string
+  path: string
+  /** Launcher servers the game's list did not have. */
+  added: number
+  /** Servers the game's list already had and still has. */
+  kept: number
+  total: number
+  servers: GameServer[]
+  /** Set when the file could not be read, in which case nothing was written. */
+  problem: string | null
+}
+
 /**
  * Modrinth's API, as the renderer reads it. These are shared rather than owned
  * by the main process so the UI shows exactly what the API returned instead of

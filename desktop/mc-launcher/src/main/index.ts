@@ -96,7 +96,7 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   const profiles = new ProfileService(state)
   const installations = new InstallationService(state, warn)
   const instances = new InstanceService(state, environment, installations, settings, warn)
-  const servers = new ServerService(state)
+  const servers = new ServerService(state, instances, warn)
   const tasks = new TaskService(state, registry)
   const java = new JavaService(environment, warn)
   const saves = new SaveService(instances, warn)
@@ -255,7 +255,15 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
     list: () => servers.list(),
     add: (params) => servers.add(as<AddServerInput>(params)),
     remove: (params) => servers.remove(as<{ id: string }>(params).id),
-    setPending: (params) => servers.setPending(as<{ id: string | null }>(params).id)
+    setPending: (params) => servers.setPending(as<{ id: string | null }>(params).id),
+    /** A status ping: the reply is reported, not thrown, so a list can show it. */
+    ping: (params) => servers.ping(as<{ id?: string | null; host?: string; port?: number }>(params) ?? {}),
+    gameServers: (params) => servers.gameServers(as<{ instanceId?: string | null } | undefined>(params) ?? {}),
+    syncGameServers: (params) => servers.syncGameServers(as<{ instanceId?: string | null } | undefined>(params) ?? {}),
+    importGameServers: (params) => {
+      const input = as<{ instanceId?: string | null } | undefined>(params) ?? {}
+      return servers.importGameServers(input)
+    }
   })
   registry.register('launch', {
     plan: (params) => {

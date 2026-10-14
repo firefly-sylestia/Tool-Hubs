@@ -73,6 +73,26 @@ import {
   uniqueWorldFolder
 } from '../src/main/minecraft/saves'
 import { SaveService } from '../src/main/services/save-service'
+import {
+  expectedFrameLength,
+  flattenChat,
+  handshakePacket,
+  offlineStatus,
+  parseServerStatus,
+  readVarInt,
+  statusJsonFromFrame,
+  statusRequestPacket,
+  writeVarInt
+} from '../src/main/minecraft/server-status'
+import {
+  joinAddress,
+  mergeServerEntries,
+  readServersDat,
+  serverCompound,
+  splitAddress,
+  writeServersDat
+} from '../src/main/minecraft/servers-dat'
+import { describeStatus } from '../src/shared/server-text'
 import type { NbtValue } from '../src/main/minecraft/nbt'
 import {
   detectModpackFormat,
@@ -568,10 +588,12 @@ const state = new StateStore(
   registry
 )
 const profiles = new ProfileService(state)
-const servers = new ServerService(state)
 const settings = new SettingsService(state)
 const installations = new InstallationService(state, () => {})
 const instances = new InstanceService(state, environment, installations, settings, () => {})
+// The server list reads and writes the game's own `servers.dat`, which lives in
+// an instance's directory, so it is built after the instances.
+const servers = new ServerService(state, instances, () => {})
 const tasks = new TaskService(state, registry)
 const installer = new InstallService(environment, tasks, installations, instances, () => {})
 
@@ -964,6 +986,178 @@ console.log('\nzip reading')
 
   check('refuses a truncated archive, the way a part-downloaded zip looks', () => {
     expectThrows(() => listZipEntries(archive.subarray(0, archive.length - 24)), 'partially downloaded')
+  })
+}
+
+console.log('\nservers')
+{
+  check('writes and reads the varints and the two ping packets', () => {
+    for (const value of [0, 1, 127, 128, 255, 300, 25565, 0x7fffffff]) {
+      const bytes = writeVarInt(value)
+      expectEqual(readVarInt(bytes).value, value, `varint ${value}`)
+      expectEqual(readVarInt(bytes).bytes, bytes.length, `and its length, ${value}`)
+    }
+    expectEqual(writeVarInt(0), Buffer.from([0]), 'zero is one byte')
+    expectEqual(writeVarInt(127), Buffer.from([127]), '127 still fits')
+    expectEqual(writeVarInt(128), Buffer.from([0x80, 0x01]), '128 takes two')
+    expectEqual(readVarInt(writeVarInt(-1)).value, 0xffffffff, 'a negative int is its unsigned self')
+    expectThrows(() => readVarInt(Buffer.from([0x80, 0x80, 0x80, 0x80, 0x80, 0x01])), 'longer than five bytes')
+    expectThrows(() => readVarInt(Buffer.from([0x80])), 'cut off')
+
+    const handshake = handshakePacket('mc.example.net', 25565)
+    let offset = 0
+    const length = readVarInt(handshake, offset)
+    expectEqual(length.value, handshake.length - length.bytes, 'the frame length is the rest of it')
+    offset += length.bytes
+    const id = readVarInt(handshake, offset)
+    offset += id.bytes
+    expectEqual(id.value, 0, 'packet id 0')
+    const protocol = readVarInt(handshake, offset)
+    offset += protocol.bytes
+    expectEqual(protocol.value, 47, 'the protocol version a status ping sends')
+    const hostLength = readVarInt(handshake, offset)
+    offset += hostLength.bytes
+    expectEqual(handshake.toString('utf8', offset, offset + hostLength.value), 'mc.example.net', 'the host')
+    offset += hostLength.value
+    expectEqual(handshake.readUInt16BE(offset), 25565, 'the port, big endian')
+    offset += 2
+    expectEqual(readVarInt(handshake, offset).value, 1, 'next state: status')
+
+    const request = statusRequestPacket()
+    expectEqual(request.length, 2, 'the status request is a length and an id')
+  })
+
+  check('reads a status response out of the frame it arrives in', () => {
+    const payload = JSON.stringify({ version: { name: '1.21.4', protocol: 769 } })
+    const bytes = Buffer.from(payload, 'utf8')
+    const body = Buffer.concat([writeVarInt(0), writeVarInt(bytes.length), bytes])
+    const frame = Buffer.concat([writeVarInt(body.length), body])
+    expectEqual(statusJsonFromFrame(frame), payload, 'the JSON comes back out')
+    expectEqual(expectedFrameLength(frame), frame.length, 'and the frame length is known')
+
+    // A response longer than 127 bytes has a two-byte length header, which is
+    // the case where a first chunk can hold half of it.
+    const long = Buffer.from(JSON.stringify({ description: 'x'.repeat(300) }), 'utf8')
+    const longBody = Buffer.concat([writeVarInt(0), writeVarInt(long.length), long])
+    const longFrame = Buffer.concat([writeVarInt(longBody.length), longBody])
+    expectEqual(expectedFrameLength(longFrame.subarray(0, 1)), null, 'a half-read length header is not guessed at')
+    expectEqual(expectedFrameLength(longFrame), longFrame.length, 'and is known once it is whole')
+  })
+
+  check('flattens a server description the way the game renders it', () => {
+    expectEqual(flattenChat('A Minecraft Server'), 'A Minecraft Server', 'plain text')
+    expectEqual(flattenChat({ text: 'Hello ', extra: ['world'] }), 'Hello world', 'text plus extra')
+    expectEqual(
+      flattenChat({ text: '§aGreen§r', extra: [{ text: ' and §lbold' }] }),
+      'Green and bold',
+      'colour codes are stripped, not shown'
+    )
+    expectEqual(flattenChat({ translate: 'multiplayer.status.old' }), 'multiplayer.status.old', 'a translatable one')
+    expectEqual(flattenChat(undefined), '', 'nothing to show')
+  })
+
+  check('reads a status response into what the list shows', () => {
+    const status = parseServerStatus(
+      {
+        version: { name: 'Paper 1.21.4', protocol: 769 },
+        players: { online: 3, max: 20, sample: [{ name: 'Steve', id: 'uuid' }, {}, 'junk'] },
+        description: { text: 'A real server' },
+        favicon: 'data:image/png;base64,AAAA'
+      },
+      { host: 'mc.example.net', port: 25565, latencyMs: 42 }
+    )
+    expectEqual(status.version, 'Paper 1.21.4', 'the version')
+    expectEqual(status.players, { online: 3, max: 20, sample: [{ name: 'Steve', id: 'uuid' }] }, 'the players, without the junk')
+    expectEqual(status.motd, 'A real server', 'the description')
+    expectEqual(status.icon, 'data:image/png;base64,AAAA', 'the icon')
+    expectEqual(describeStatus(status), 'Paper 1.21.4 · 3/20 players · 42 ms', 'and how it reads')
+    expectEqual(
+      describeStatus(offlineStatus({ host: 'x', port: 1, error: 'Nothing is listening there.' })),
+      'Nothing is listening there.',
+      'an offline server says why'
+    )
+  })
+
+  check('splits and joins the addresses the game writes', () => {
+    expectEqual(splitAddress('mc.example.net'), { host: 'mc.example.net', port: 25565 }, 'no port')
+    expectEqual(splitAddress('mc.example.net:25566'), { host: 'mc.example.net', port: 25566 }, 'a port')
+    expectEqual(splitAddress('[::1]:25566'), { host: '::1', port: 25566 }, 'bracketed IPv6')
+    expectEqual(splitAddress('::1'), { host: '::1', port: 25565 }, 'bare IPv6 is not a port')
+    expectEqual(splitAddress('host:notaport'), { host: 'host:notaport', port: 25565 }, 'a port that is not one')
+    expectEqual(joinAddress('mc.example.net', 25565), 'mc.example.net', 'the default port is left out')
+    expectEqual(joinAddress('mc.example.net', 25566), 'mc.example.net:25566', 'and a real one is kept')
+  })
+
+  check("adds the launcher's servers to the game's own list without losing any", () => {
+    const first = writeServersDat([
+      serverCompound({ name: 'In-game', host: 'mc.example.net', port: 25565 }),
+      {
+        // A server the launcher knows nothing about, with fields it does not use.
+        name: { tag: 'string', value: 'Someone else\u2019s' },
+        ip: { tag: 'string', value: 'other.example.net:25566' },
+        icon: { tag: 'string', value: 'data:image/png;base64,BBBB' },
+        acceptTextures: { tag: 'byte', value: 1 }
+      }
+    ])
+    const existing = readServersDat(first)
+    expectEqual(existing.servers.length, 2, 'both read back')
+    expectEqual(existing.servers[1].port, 25566, 'including the non-default port')
+
+    const merged = mergeServerEntries(existing.entries, [
+      { name: 'Renamed', host: 'mc.example.net', port: 25565 },
+      { name: 'New', host: 'new.example.net', port: 25565 }
+    ])
+    expectEqual(merged.added, 1, 'only the one that was not there arrives')
+    expectEqual(merged.entries.length, 3, 'and nothing is lost')
+    const after = readServersDat(writeServersDat(merged.entries))
+    expectEqual(after.servers[0].name, 'Renamed', 'the launcher\u2019s name wins for a server it has')
+    expect(
+      after.entries[1].icon !== undefined && after.entries[1].acceptTextures !== undefined,
+      'an untouched server keeps every field it had'
+    )
+
+    // Round tripped through the file itself, which is the shape that matters.
+    const bytes = writeNbt({ name: '', root: writeServersDat(merged.entries) })
+    expectEqual(readServersDat(readNbt(bytes).root).servers.length, 3, 'three servers through a real file')
+  })
+
+  await acheck('reads and writes the game\u2019s own servers.dat, and refuses one it cannot read', async () => {
+    const datInstance = instances.create({ name: 'Servers', dir: join(root, 'servers-game'), source: 'created' })
+    expectEqual(servers.gameServers({ instanceId: datInstance.id }).total, 0, 'no file yet')
+
+    servers.add({ name: 'Hypixel', host: 'mc.hypixel.net', port: 25565 })
+    const launcherList = servers.list().length
+    const written = servers.syncGameServers({ instanceId: datInstance.id })
+    expectEqual(written.added, launcherList, 'every server this launcher has is written')
+    expect(existsSync(written.path), 'servers.dat exists now')
+    expectEqual(written.total, launcherList, 'and the game\u2019s list is empty otherwise')
+
+    // A server added in the game itself must survive the next sync.
+    const existing = readServersDat(readNbt(readFileSync(written.path)).root)
+    const gameOnly = mergeServerEntries(existing.entries, [
+      { name: 'From the game', host: 'lan.example.net', port: 25565 }
+    ])
+    writeFileSync(written.path, writeNbt({ name: '', root: writeServersDat(gameOnly.entries) }))
+    const second = servers.syncGameServers({ instanceId: datInstance.id })
+    expectEqual(second.added, 0, 'nothing new the second time')
+    expectEqual(second.total, launcherList + 1, 'and the game\u2019s own server is still there')
+    expect(
+      second.servers.some((server) => server.name === 'From the game'),
+      'by name'
+    )
+
+    // A file that is not a server list is reported, never overwritten.
+    writeFileSync(written.path, Buffer.from('not nbt at all'))
+    expect(servers.gameServers({ instanceId: datInstance.id }).problem !== null, 'the read says what is wrong')
+    expectThrows(() => servers.syncGameServers({ instanceId: datInstance.id }), 'Rename it and sync again')
+    expectEqual(
+      readFileSync(written.path, 'utf8'),
+      'not nbt at all',
+      'and the file is left exactly as it was'
+    )
+    servers.remove(servers.list()[0].id)
+    servers.remove(servers.list()[0].id)
+    instances.select(instance.id)
   })
 }
 

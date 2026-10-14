@@ -26,6 +26,8 @@ import type {
   ResourceKind,
   SaveBackup,
   ServerEntry,
+  ServerStatus,
+  ServersDatResult,
   TaskRecord,
   WorldExportResult,
   WorldImportResult
@@ -216,6 +218,19 @@ export function useLauncher() {
       call<ServerEntry>('server', 'add', { name, host, port }),
     removeServer: (id: string) => call<{ removed: string }>('server', 'remove', { id }),
     setPendingServer: (id: string | null) => call('server', 'setPending', { id }),
+    /** A server list ping: the answer says why it failed rather than throwing. */
+    pingServer: (input: { id?: string | null; host?: string; port?: number }) =>
+      call<ServerStatus>('server', 'ping', input),
+    gameServers: (instanceId?: string | null) =>
+      call<ServersDatResult>('server', 'gameServers', instanceId ? { instanceId } : undefined),
+    syncGameServers: (instanceId?: string | null) =>
+      call<ServersDatResult>('server', 'syncGameServers', instanceId ? { instanceId } : undefined),
+    importGameServers: (instanceId?: string | null) =>
+      call<{ added: number; servers: ServerEntry[] }>(
+        'server',
+        'importGameServers',
+        instanceId ? { instanceId } : undefined
+      ),
     planLaunch: (profileId: string, serverId?: string | null, instanceId?: string | null) =>
       call<LaunchPlan>('launch', 'plan', { profileId, serverId, instanceId }),
     startLaunch: (profileId: string, serverId?: string | null, instanceId?: string | null) =>

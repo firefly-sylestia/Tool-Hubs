@@ -29,6 +29,8 @@ import { InstallationService } from '../src/main/services/installation-service'
 import { InstallService } from '../src/main/services/install-service'
 import { InstanceService } from '../src/main/services/instance-service'
 import { ServiceRegistry } from '../src/main/services/registry'
+import { ServerService } from '../src/main/services/server-service'
+import { describeStatus } from '../src/shared/server-text'
 import { SettingsService } from '../src/main/services/settings-service'
 import { StateStore, defaultState } from '../src/main/services/state-store'
 import { TaskService } from '../src/main/services/task-service'
@@ -312,6 +314,37 @@ await step('resolve a required dependency chain the way an install does', async 
   if (!best) throw new Error(`Fabric API has no version for ${releaseId}`)
   const required = requiredDependencies(best, { installedProjectIds: [] })
   return `${best.name}: ${required.length} required dependency(ies)` + (required[0]?.projectId ? ` (e.g. ${required[0].projectId})` : '')
+})
+
+await step('ping a real server the way the server list does', async () => {
+  // The two packets every server list speaks, against a server that is up more
+  // often than not. A refusal here is the server's, not the protocol's, so the
+  // check reports what it answered rather than only pass or fail.
+  const registry = new ServiceRegistry()
+  const pingRoot = join(root, 'ping')
+  mkdirSync(pingRoot, { recursive: true })
+  const pingEnv = {
+    userDataDir: pingRoot,
+    defaultInstancesDir: join(pingRoot, 'instances'),
+    defaultGameDir: join(pingRoot, 'game'),
+    launcherName: 'mc-launcher',
+    launcherVersion: 'netcheck',
+    platform: process.platform,
+    arch: process.arch
+  }
+  const store = new StateStore(join(pingRoot, 'state.json'), defaultState(pingEnv.defaultInstancesDir), registry)
+  const pingInstances = new InstanceService(
+    store,
+    pingEnv,
+    new InstallationService(store, () => {}),
+    new SettingsService(store),
+    () => {}
+  )
+  const pingServers = new ServerService(store, pingInstances, () => {})
+  const status = await pingServers.ping({ host: 'mc.hypixel.net', port: 25565 }, 8000)
+  if (!status.online) return `mc.hypixel.net is not answering right now: ${status.error}`
+  if (!status.version && !status.players) throw new Error(`a status with neither a version nor players: ${JSON.stringify(status)}`)
+  return `mc.hypixel.net answered in ${status.latencyMs} ms — ${describeStatus(status)}`
 })
 
 await step('read a project page the way the store shows it', async () => {
