@@ -178,7 +178,12 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   })
   registry.register('modpack', {
     inspect: (params) => modpacks.inspect(as<{ path: string }>(params).path),
-    import: (params) => modpacks.import(as<{ path: string }>(params).path)
+    import: (params) => modpacks.import(as<{ path: string }>(params).path),
+    /** The other half of the modpack story: this instance as a pack. */
+    export: (params) =>
+      modpacks.export(
+        as<{ instanceId?: string | null; destDir: string; name?: string; versionId?: string }>(params)
+      )
   })
   registry.register('modrinth', {
     search: (params) => modrinth.search(as<SearchInput>(params)),

@@ -122,6 +122,12 @@ import {
   runtimeOsKey
 } from '../src/main/minecraft/java-runtime'
 import { splitResourceName, resourceFileName, isResourceFile } from '../src/main/minecraft/resources'
+import {
+  buildPackIndex,
+  packArchivePath,
+  packIncludes,
+  packVersionId
+} from '../src/main/minecraft/pack-export'
 import { optionValue, parseOptions, patchOptions, quickOptionValues } from '../src/main/minecraft/options'
 import { formatJvmArgs, parseJvmArgs } from '../src/shared/jvm-args'
 import { AtomicJsonStore } from '../src/main/services/atomic-store'
@@ -131,6 +137,7 @@ import { InstallService } from '../src/main/services/install-service'
 import { ServiceRegistry } from '../src/main/services/registry'
 import { StateStore, defaultState, migrateState } from '../src/main/services/state-store'
 import { ProfileService } from '../src/main/services/profile-service'
+import { ModpackService, baseGameVersion } from '../src/main/services/modpack-service'
 import { ServerService } from '../src/main/services/server-service'
 import { SettingsService } from '../src/main/services/settings-service'
 import { TaskService } from '../src/main/services/task-service'
@@ -2249,7 +2256,7 @@ console.log('\nModrinth')
   })
 }
 
-console.log('\nmodpack archives')
+console.log('\nmodpack archives, and packs this launcher writes')
 {
   check('tells the two pack formats apart, and by their index only', () => {
     expectEqual(detectModpackFormat(['modrinth.index.json', 'overrides/']), 'modrinth', 'modrinth')
@@ -2357,6 +2364,123 @@ console.log('\nmodpack archives')
       'would be written outside'
     )
     expect(!existsSync(join(root, 'escape.txt')), 'nothing escaped the destination')
+  })
+
+  check('carries what makes an instance an instance, and leaves the rest behind', () => {
+    expect(packIncludes('mods/sodium.jar'), 'a mod goes in')
+    expect(packIncludes('resourcepacks/x.zip'), 'a resource pack goes in')
+    expect(packIncludes('config/fabric.json'), 'config goes in')
+    expect(packIncludes('options.txt'), 'and the game\u2019s own options')
+    expect(!packIncludes('saves/world/level.dat'), 'a world does not: a pack is something you send')
+    expect(!packIncludes('backups/before.zip'), 'nor a backup of one')
+    expect(!packIncludes('logs/latest.log'), 'nor a log')
+    expect(!packIncludes('versions/1.21.4/1.21.4.json'), 'nor the game itself')
+    expect(!packIncludes('libraries/org/example/x.jar'), 'nor its libraries')
+    expect(!packIncludes('assets/objects/aa'), 'nor its assets')
+    expect(!packIncludes('mods/.hidden.jar'), 'and never a dot-file, which is some tool\u2019s own state')
+    expectEqual(
+      packArchivePath('mods\\sodium.jar'),
+      'overrides/mods/sodium.jar',
+      'every file it carries is written under overrides/'
+    )
+  })
+
+  check('reads the game version out of a loader profile id', () => {
+    expectEqual(baseGameVersion('fabric-loader-0.16.9-1.21.4'), '1.21.4', 'the game under a loader')
+    expectEqual(baseGameVersion('1.21.4'), '1.21.4', 'a plain version is already the game')
+    expectEqual(baseGameVersion('1.21.4-pre1'), '1.21.4-pre1', 'a pre-release keeps its suffix')
+  })
+
+  check('builds an index an importer can read', () => {
+    const vanilla = buildPackIndex({
+      name: 'Plain',
+      versionId: '1.0.0',
+      gameVersion: '1.21.4',
+      loader: null,
+      loaderVersion: null
+    })
+    expectEqual(vanilla.formatVersion, 1, 'the format it writes')
+    expectEqual(
+      vanilla.dependencies,
+      { minecraft: '1.21.4' },
+      'a vanilla instance names no loader rather than inventing one'
+    )
+    expectEqual(vanilla.files, [], 'the files are in the archive, not behind a made-up url')
+
+    const modded = buildPackIndex({
+      name: 'Modded',
+      versionId: '2.0.0',
+      gameVersion: '1.21.4',
+      loader: 'fabric',
+      loaderVersion: '0.16.9',
+      summary: 'a pack'
+    })
+    expectEqual(
+      modded.dependencies,
+      { minecraft: '1.21.4', 'fabric-loader': '0.16.9' },
+      'the loader an importer has to install first'
+    )
+    expectEqual(modded.summary, 'a pack', 'a summary rides along when there is one')
+
+    expectEqual(
+      packVersionId(new Date(2026, 9, 14, 15, 3)),
+      '20261014-1503',
+      'a pack exported without a version of its own is stamped'
+    )
+  })
+
+  const modpacks = new ModpackService(installer, instances, tasks, () => {})
+
+  await acheck('writes an instance out as a pack, and refuses one with nothing in it', async () => {
+    const source = instances.create({
+      name: 'Share me',
+      versionId: 'fabric-loader-0.16.9-1.21.4',
+      loader: 'fabric',
+      loaderVersion: '0.16.9'
+    })
+    mkdirSync(join(source.dir, 'config'), { recursive: true })
+    mkdirSync(join(source.dir, 'saves', 'world'), { recursive: true })
+    writeFileSync(join(source.dir, 'mods', 'sodium.jar'), 'jar')
+    writeFileSync(join(source.dir, 'config', 'fabric.json'), '{"x":1}')
+    writeFileSync(join(source.dir, 'options.txt'), 'fov:0.5\n')
+    writeFileSync(join(source.dir, 'saves', 'world', 'level.dat'), 'save')
+
+    const destDir = join(root, 'pack-export')
+    mkdirSync(destDir, { recursive: true })
+    const exported = await modpacks.export({
+      instanceId: source.id,
+      destDir,
+      name: 'Share me',
+      versionId: '1.0.0'
+    })
+    expectEqual(exported.path, join(destDir, 'Share me.mrpack'), 'the pack is named after itself')
+    expectEqual(exported.gameVersion, '1.21.4', 'the index names the game, not the loader profile')
+    expectEqual(exported.loader, 'fabric', 'and the loader underneath it')
+
+    const buffer = readFileSync(exported.path)
+    const entries = listZipEntries(buffer)
+    const names = entries.map((entry) => entry.name)
+    expect(names.includes('modrinth.index.json'), 'the index is in the archive')
+    expectEqual(
+      names.filter((name) => name.startsWith('overrides/')),
+      ['overrides/config/fabric.json', 'overrides/mods/sodium.jar', 'overrides/options.txt'],
+      'the instance files are carried under overrides/, and its world is not one of them'
+    )
+
+    const indexEntry = entries.find((entry) => entry.name === 'modrinth.index.json')
+    expect(indexEntry !== undefined, 'the index entry is readable back')
+    const index = JSON.parse(readZipEntry(buffer, indexEntry!).toString('utf8'))
+    expectEqual(
+      index.dependencies,
+      { minecraft: '1.21.4', 'fabric-loader': '0.16.9' },
+      'what an importer installs before the pack'
+    )
+    expectEqual(index.versionId, '1.0.0', 'the pack version it was given')
+
+    // An instance with nothing of its own to carry is a mistake to export, not
+    // an empty file to hand to someone.
+    const empty = instances.create({ name: 'Nothing to share' })
+    await expectRejects(() => modpacks.export({ instanceId: empty.id, destDir }), 'nothing to export')
   })
 }
 

@@ -36,6 +36,7 @@ const {
   saveGameOptions,
   inspectModpack,
   importModpack,
+  exportPack,
   modrinthSearch,
   modrinthVersions,
   installFromModrinth,
@@ -83,10 +84,15 @@ const tabKinds: { title: string; value: ResourceKind }[] = [
 const savesInfo = ref<InstanceSaves | null>(null)
 const worldsBusy = ref(false)
 
-/** Modpack. */
+/** Modpack.
+ *
+ * Importing a pack creates an instance; exporting one writes this instance out as
+ * a `.mrpack` somebody else can import.
+ */
 const modpackSummary = ref<ModpackSummary | null>(null)
 const modpackPath = ref<string | null>(null)
 const showModpack = ref(false)
+const exportForm = reactive({ open: false, busy: false, name: '', versionId: '' })
 
 /** Modrinth browsing, scoped to the instance and the tab that is open. */
 const browse = reactive({
@@ -103,7 +109,7 @@ const browse = reactive({
 })
 
 const loaderChoices = [
-  { title: 'Vanilla — the game alone', value: 'vanilla' },
+  { title: 'Vanilla, the game on its own', value: 'vanilla' },
   { title: 'Fabric', value: 'fabric' },
   { title: 'Quilt', value: 'quilt' }
 ]
@@ -140,6 +146,17 @@ function entryTitle(entry: ResourceEntry): string {
   const metadata = entry.metadata
   if (!metadata?.name) return entry.title
   return `${metadata.name}${metadata.version ? ` ${metadata.version}` : ''}`
+}
+
+/** The icon a resource row leads with, so a folder of files reads by kind. */
+const KIND_ICONS: Record<ResourceKind, string> = {
+  mod: 'mdi-puzzle-outline',
+  resourcepack: 'mdi-palette-outline',
+  shaderpack: 'mdi-shimmer'
+}
+
+function kindIcon(kind: ResourceKind): string {
+  return KIND_ICONS[kind] ?? 'mdi-file-outline'
 }
 
 function entrySubtitle(entry: ResourceEntry): string {
@@ -612,6 +629,47 @@ async function chooseModpack(): Promise<void> {
   }
 }
 
+/** Opens the export form, named after the instance it would write. */
+function openExport(): void {
+  const instance = selectedInstance.value
+  if (!instance) return
+  exportForm.open = true
+  exportForm.name = instance.name
+  exportForm.versionId = ''
+}
+
+/**
+ * Writes the instance out as a pack, into a folder the user picks.
+ *
+ * The folder is chosen after the form, so a canceled pick leaves nothing behind
+ * and the pack never lands somewhere nobody named.
+ */
+async function runExport(): Promise<void> {
+  const instance = selectedInstance.value
+  if (!instance) return
+  exportForm.open = false
+  const picked = await pickFolder()
+  if (!picked.path) return
+  exportForm.busy = true
+  try {
+    const result = await exportPack({
+      instanceId: instance.id,
+      destDir: picked.path,
+      name: exportForm.name.trim() === '' ? undefined : exportForm.name.trim(),
+      versionId: exportForm.versionId.trim() === '' ? undefined : exportForm.versionId.trim()
+    })
+    report(
+      `Wrote ${result.name} ${result.versionId} to ${result.path}: ${result.files} file(s), ` +
+        `${(result.bytes / 1048576).toFixed(1)} MB.`,
+      'success'
+    )
+  } catch {
+    // Reported in the snackbar, and in the log while the task runs.
+  } finally {
+    exportForm.busy = false
+  }
+}
+
 async function installModpack(): Promise<void> {
   const path = modpackPath.value
   if (!path) return
@@ -668,7 +726,10 @@ onMounted(async () => {
   <v-row>
     <v-col cols="12" md="6">
       <v-card>
-        <v-card-title>Instances</v-card-title>
+        <v-card-title class="d-flex align-center">
+          <v-icon icon="mdi-cube-outline" size="small" class="mr-2" />
+          Instances
+        </v-card-title>
         <v-card-text>
           <v-select
             :items="instances"
@@ -697,23 +758,49 @@ onMounted(async () => {
           <v-alert v-if="note" :type="noteType" variant="tonal" class="mt-4">{{ note }}</v-alert>
 
           <div v-if="runningTask" class="mt-4">
-            <v-progress-linear :model-value="Math.round(runningTask.progress * 100)" height="8" rounded />
-            <p class="text-medium-emphasis mt-2 mb-0">{{ runningTask.name }} — {{ runningTask.message }}</p>
+            <div class="d-flex align-center ga-2 mb-2">
+              <span class="status-dot status-dot--live" />
+              <span class="text-body-2">{{ runningTask.name }}: {{ runningTask.message }}</span>
+              <v-spacer />
+              <v-chip class="state-chip" size="small" color="primary" variant="tonal">
+                {{ Math.round(runningTask.progress * 100) }}%
+              </v-chip>
+            </div>
+            <v-progress-linear :model-value="Math.round(runningTask.progress * 100)" height="6" rounded />
           </div>
         </v-card-text>
-        <v-card-actions>
-          <v-btn :disabled="busy" @click="showNewInstance = true">New instance</v-btn>
-          <v-btn :disabled="busy" @click="importFolder">Import a folder</v-btn>
-          <v-btn :disabled="busy" @click="chooseModpack">Import a modpack</v-btn>
+        <v-card-actions class="flex-wrap ga-1">
+          <v-btn :disabled="busy" prepend-icon="mdi-plus" @click="showNewInstance = true">New instance</v-btn>
+          <v-btn :disabled="busy" prepend-icon="mdi-folder-outline" @click="importFolder">Import a folder</v-btn>
+          <v-btn :disabled="busy" prepend-icon="mdi-package-variant-closed" @click="chooseModpack">
+            Import a modpack
+          </v-btn>
+          <v-btn
+            :disabled="!selectedInstance || exportForm.busy"
+            :loading="exportForm.busy"
+            prepend-icon="mdi-export-variant"
+            @click="openExport"
+          >
+            Export as modpack
+          </v-btn>
           <v-spacer />
-          <v-btn variant="text" color="error" :disabled="!selectedInstance" @click="removeSelected">
+          <v-btn
+            variant="text"
+            color="error"
+            prepend-icon="mdi-trash-can-outline"
+            :disabled="!selectedInstance"
+            @click="removeSelected"
+          >
             Remove
           </v-btn>
         </v-card-actions>
       </v-card>
 
       <v-card class="mt-4">
-        <v-card-title>Install a version here</v-card-title>
+        <v-card-title class="d-flex align-center">
+          <v-icon icon="mdi-download" size="small" class="mr-2" />
+          Install a version here
+        </v-card-title>
         <v-card-text>
           <p class="text-medium-emphasis">
             Installing goes into
@@ -764,15 +851,33 @@ onMounted(async () => {
           </p>
         </v-card-text>
         <v-card-actions>
-          <v-btn color="primary" :disabled="!canInstall" :loading="busy" @click="install">Install</v-btn>
-          <v-btn variant="text" :disabled="loadingVersions" @click="loadVersions(true)">Refresh list</v-btn>
+          <v-btn
+            color="primary"
+            prepend-icon="mdi-download"
+            :disabled="!canInstall"
+            :loading="busy"
+            @click="install"
+          >
+            Install
+          </v-btn>
+          <v-btn
+            variant="text"
+            prepend-icon="mdi-refresh"
+            :disabled="loadingVersions"
+            @click="loadVersions(true)"
+          >
+            Refresh list
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-col>
 
     <v-col cols="12" md="6">
       <v-card>
-        <v-card-title>Mods, packs and shaders</v-card-title>
+        <v-card-title class="d-flex align-center">
+          <v-icon icon="mdi-puzzle-outline" size="small" class="mr-2" />
+          Mods, packs and shaders
+        </v-card-title>
         <v-card-text>
           <v-tabs v-model="resourceTab" density="comfortable">
             <v-tab v-for="kind in tabKinds" :key="kind.value" :value="kind.value">{{ kind.title }}</v-tab>
@@ -788,7 +893,7 @@ onMounted(async () => {
           <template v-else>
             <p v-if="entries.length === 0" class="text-medium-emphasis mt-4">
               Nothing in this folder yet. Add files, take something from Modrinth, or drop them in
-              yourself — turning one off renames it with a <code>.disabled</code> suffix, which every
+              yourself. Turning one off renames it with a <code>.disabled</code> suffix, which every
               loader and pack list ignores.
             </p>
 
@@ -796,62 +901,111 @@ onMounted(async () => {
               <p v-for="warning in entryWarnings" :key="warning" class="mb-2">{{ warning }}</p>
             </v-alert>
 
-            <v-list v-if="entries.length > 0" density="compact" class="mt-2">
-            <v-list-item v-for="entry in entries" :key="entry.name" :title="entryTitle(entry)">
-              <template #subtitle>
-                <span>{{ entrySubtitle(entry) }}</span>
-                <span v-if="entry.metadata?.warnings.length" class="text-warning">
-                  — {{ entry.metadata.warnings.join(' ') }}
-                </span>
-              </template>
-              <template #append>
-                <v-switch
-                  :model-value="entry.enabled"
-                  color="primary"
-                  density="compact"
-                  hide-details
-                  class="mr-2"
-                  @update:model-value="toggleResource(entry)"
-                />
-                <v-btn size="small" variant="text" @click="deleteResource(entry)">Remove</v-btn>
+            <v-list v-if="entries.length > 0" density="comfortable" class="mt-2 app-stagger">
+              <v-list-item v-for="entry in entries" :key="entry.name" :title="entryTitle(entry)">
+                <template #prepend>
+                  <div class="row-icon" :class="entry.enabled ? 'row-icon--primary' : ''">
+                    <v-icon :icon="kindIcon(entry.kind)" size="20" />
+                  </div>
+                </template>
+                <template #subtitle>
+                  <span>{{ entrySubtitle(entry) }}</span>
+                  <span v-if="entry.metadata?.warnings.length" class="text-warning">
+                    <v-icon icon="mdi-alert-outline" size="x-small" />
+                    {{ entry.metadata.warnings.join(' ') }}
+                  </span>
+                </template>
+                <template #append>
+                  <v-switch
+                    :model-value="entry.enabled"
+                    color="primary"
+                    density="compact"
+                    hide-details
+                    class="mr-2"
+                    :aria-label="`${entry.enabled ? 'Disable' : 'Enable'} ${entry.name}`"
+                    @update:model-value="toggleResource(entry)"
+                  />
+                  <v-btn
+                    size="small"
+                    variant="text"
+                    icon="mdi-trash-can-outline"
+                    :aria-label="`Remove ${entry.name}`"
+                    @click="deleteResource(entry)"
+                  />
                 </template>
               </v-list-item>
             </v-list>
           </template>
         </v-card-text>
-        <v-card-actions>
-          <v-btn color="primary" :disabled="!selectedInstance || busy" @click="openBrowse">
+        <v-card-actions class="flex-wrap ga-1">
+          <v-btn
+            color="primary"
+            prepend-icon="mdi-storefront-outline"
+            :disabled="!selectedInstance || busy"
+            @click="openBrowse"
+          >
             Add from Modrinth
           </v-btn>
-          <v-btn :disabled="!selectedInstance || busy" @click="addResourceFiles">Add files</v-btn>
-          <v-btn variant="text" :disabled="!selectedInstance" @click="openResourceFolder">
+          <v-btn
+            prepend-icon="mdi-file-plus-outline"
+            :disabled="!selectedInstance || busy"
+            @click="addResourceFiles"
+          >
+            Add files
+          </v-btn>
+          <v-btn
+            variant="text"
+            prepend-icon="mdi-folder-open-outline"
+            :disabled="!selectedInstance"
+            @click="openResourceFolder"
+          >
             Open folder
           </v-btn>
         </v-card-actions>
       </v-card>
 
       <v-card class="mt-4">
-        <v-card-title>Versions in this instance</v-card-title>
+        <v-card-title class="d-flex align-center">
+          <v-icon icon="mdi-tag-multiple-outline" size="small" class="mr-2" />
+          Versions in this instance
+        </v-card-title>
         <v-card-text>
           <v-alert v-if="installations.length === 0" type="info" variant="tonal" class="mb-2">
             Nothing under <code>versions/</code> yet.
           </v-alert>
-          <v-list v-else density="compact">
+          <v-list v-else density="comfortable">
             <v-list-item
               v-for="version in installations"
               :key="version.id"
               :title="version.id"
               :subtitle="`${version.type ?? 'unknown type'} · java ${version.javaMajorVersion ?? 'any'} · assets ${version.assetsIndex ?? 'none'}${version.inheritsFrom ? ' · inherits ' + version.inheritsFrom : ''}`"
-            />
+            >
+              <template #prepend>
+                <div
+                  class="row-icon"
+                  :class="version.type === 'release' ? 'row-icon--success' : 'row-icon--warning'"
+                >
+                  <v-icon
+                    :icon="version.type === 'release' ? 'mdi-tag-check-outline' : 'mdi-flask-outline'"
+                    size="20"
+                  />
+                </div>
+              </template>
+            </v-list-item>
           </v-list>
         </v-card-text>
         <v-card-actions>
-          <v-btn variant="text" :disabled="!selectedInstance" @click="rescan()">Rescan</v-btn>
+          <v-btn variant="text" prepend-icon="mdi-refresh" :disabled="!selectedInstance" @click="rescan()">
+            Rescan
+          </v-btn>
         </v-card-actions>
       </v-card>
 
       <v-card class="mt-4">
-        <v-card-title>Worlds and backups</v-card-title>
+        <v-card-title class="d-flex align-center">
+          <v-icon icon="mdi-earth" size="small" class="mr-2" />
+          Worlds and backups
+        </v-card-title>
         <v-card-text>
           <p v-if="!selectedInstance" class="text-medium-emphasis">
             Select an instance first.
@@ -866,13 +1020,18 @@ onMounted(async () => {
             <v-alert v-if="savesInfo && savesInfo.worlds.length === 0" type="info" variant="tonal">
               No worlds yet. Play the instance once, or import one you already have.
             </v-alert>
-            <v-list v-else density="compact" class="app-stagger">
+            <v-list v-else density="comfortable" class="app-stagger">
               <v-list-item
                 v-for="world in savesInfo?.worlds ?? []"
                 :key="world.folder"
                 :title="world.name"
                 :subtitle="worldSubtitle(world)"
               >
+                <template #prepend>
+                  <div class="row-icon" :class="world.problem ? 'row-icon--warning' : 'row-icon--primary'">
+                    <v-icon :icon="world.problem ? 'mdi-alert-outline' : 'mdi-earth'" size="20" />
+                  </div>
+                </template>
                 <template #append>
                   <v-btn
                     size="small"
@@ -891,13 +1050,24 @@ onMounted(async () => {
               Backups, newest first. <strong>before-</strong> ones were taken automatically because the
               game underneath the worlds was about to change.
             </p>
-            <v-list v-if="savesInfo && savesInfo.backups.length > 0" density="compact">
+            <v-list v-if="savesInfo && savesInfo.backups.length > 0" density="comfortable">
               <v-list-item
                 v-for="backup in savesInfo.backups"
                 :key="backup.path"
                 :title="backup.name"
                 :subtitle="`${backup.kind === 'before-change' ? 'before an install' : 'taken by hand'} · ${backup.at.slice(0, 16).replace('T', ' ')} · ${(backup.bytes / 1048576).toFixed(1)} MB`"
               >
+                <template #prepend>
+                  <div
+                    class="row-icon"
+                    :class="backup.kind === 'before-change' ? 'row-icon--warning' : 'row-icon--success'"
+                  >
+                    <v-icon
+                      :icon="backup.kind === 'before-change' ? 'mdi-shield-alert-outline' : 'mdi-shield-check-outline'"
+                      size="20"
+                    />
+                  </div>
+                </template>
                 <template #append>
                   <v-btn size="small" variant="text" @click="openPath(backup.path)">Show</v-btn>
                 </template>
@@ -905,20 +1075,36 @@ onMounted(async () => {
             </v-list>
           </template>
         </v-card-text>
-        <v-card-actions>
-          <v-btn variant="text" :disabled="!selectedInstance" @click="selectedInstance && openPath(savesInfo?.dir ?? selectedInstance.dir)">
+        <v-card-actions class="flex-wrap ga-1">
+          <v-btn
+            variant="text"
+            prepend-icon="mdi-folder-open-outline"
+            :disabled="!selectedInstance"
+            @click="selectedInstance && openPath(savesInfo?.dir ?? selectedInstance.dir)"
+          >
             Saves folder
           </v-btn>
           <v-spacer />
-          <v-btn variant="text" :disabled="!selectedInstance || worldsBusy" @click="importWorldNow()">
-            Import a world…
+          <v-btn
+            variant="text"
+            prepend-icon="mdi-import"
+            :disabled="!selectedInstance || worldsBusy"
+            @click="importWorldNow()"
+          >
+            Import a world
           </v-btn>
-          <v-btn variant="text" :disabled="!selectedInstance || worldsBusy" @click="importWorldZip()">
-            Import a zip…
+          <v-btn
+            variant="text"
+            prepend-icon="mdi-folder-zip-outline"
+            :disabled="!selectedInstance || worldsBusy"
+            @click="importWorldZip()"
+          >
+            Import a zip
           </v-btn>
           <v-btn
             color="primary"
             variant="tonal"
+            prepend-icon="mdi-shield-plus-outline"
             :disabled="!selectedInstance || worldsBusy"
             @click="backupWorldsNow()"
           >
@@ -928,14 +1114,17 @@ onMounted(async () => {
       </v-card>
 
       <v-card class="mt-4">
-        <v-card-title>Game and java options</v-card-title>
+        <v-card-title class="d-flex align-center">
+          <v-icon icon="mdi-tune-variant" size="small" class="mr-2" />
+          Game and java options
+        </v-card-title>
         <v-card-text>
           <p v-if="!selectedInstance" class="text-medium-emphasis">
             Select an instance first.
           </p>
           <template v-else>
             <p class="text-medium-emphasis">
-              These are this instance's own <code>options.txt</code> — the file the game writes in
+              These are this instance's own <code>options.txt</code>, the file the game writes in
               {{ selectedInstance.dir }}. Only what you change is written, and every other line is
               kept exactly where it was.
             </p>
@@ -1008,6 +1197,7 @@ onMounted(async () => {
         <v-card-actions>
           <v-btn
             color="primary"
+            prepend-icon="mdi-content-save-outline"
             :disabled="!selectedInstance || savingOptions"
             :loading="savingOptions"
             @click="saveOptions"
@@ -1021,7 +1211,10 @@ onMounted(async () => {
 
   <v-dialog v-model="showNewInstance" max-width="520">
     <v-card>
-      <v-card-title>New instance</v-card-title>
+      <v-card-title class="d-flex align-center">
+        <v-icon icon="mdi-cube-outline" size="small" class="mr-2" />
+        New instance
+      </v-card-title>
       <v-card-text>
         <v-text-field
           v-model="newInstanceName"
@@ -1038,7 +1231,12 @@ onMounted(async () => {
       <v-card-actions>
         <v-spacer />
         <v-btn variant="text" @click="showNewInstance = false">Cancel</v-btn>
-        <v-btn color="primary" :disabled="busy || newInstanceName.trim() === ''" @click="createInstanceFromName">
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-plus"
+          :disabled="busy || newInstanceName.trim() === ''"
+          @click="createInstanceFromName"
+        >
           Create
         </v-btn>
       </v-card-actions>
@@ -1047,7 +1245,10 @@ onMounted(async () => {
 
   <v-dialog v-model="browse.open" max-width="820" scrollable>
     <v-card>
-      <v-card-title>Add {{ tabKindLabel.toLowerCase() }} from Modrinth</v-card-title>
+      <v-card-title class="d-flex align-center">
+        <v-icon icon="mdi-storefront-outline" size="small" class="mr-2" />
+        Add {{ tabKindLabel.toLowerCase() }} from Modrinth
+      </v-card-title>
       <v-card-text>
         <p class="text-medium-emphasis">
           Searching for {{ selectedInstance?.versionId ?? 'the instance version' }}
@@ -1095,7 +1296,7 @@ onMounted(async () => {
         <template v-if="browse.selected">
           <v-divider class="my-4" />
           <p>
-            <strong>{{ browse.selected.title }}</strong> — pick a version. Required dependencies are
+            <strong>{{ browse.selected.title }}</strong>: pick a version. Required dependencies are
             installed with it, and every file is checked against the hash Modrinth published.
           </p>
           <v-btn
@@ -1136,7 +1337,10 @@ onMounted(async () => {
 
   <v-dialog v-model="showModpack" max-width="620">
     <v-card>
-      <v-card-title>{{ modpackSummary?.name ?? 'Modpack' }}</v-card-title>
+      <v-card-title class="d-flex align-center">
+        <v-icon icon="mdi-package-variant-closed" size="small" class="mr-2" />
+        {{ modpackSummary?.name ?? 'Modpack' }}
+      </v-card-title>
       <v-card-text v-if="modpackSummary">
         <v-list density="compact">
           <v-list-item title="Format" :subtitle="modpackSummary.format" />
@@ -1160,7 +1364,52 @@ onMounted(async () => {
       <v-card-actions>
         <v-spacer />
         <v-btn variant="text" @click="showModpack = false">Cancel</v-btn>
-        <v-btn color="primary" :loading="busy" @click="installModpack">Import</v-btn>
+        <v-btn color="primary" prepend-icon="mdi-download" :loading="busy" @click="installModpack">
+          Import
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-dialog v-model="exportForm.open" max-width="560">
+    <v-card>
+      <v-card-title class="d-flex align-center ga-2">
+        <v-icon icon="mdi-export-variant" size="small" />
+        Export as a modpack
+      </v-card-title>
+      <v-card-text>
+        <p class="text-medium-emphasis">
+          Writes <strong>{{ selectedInstance?.name }}</strong> out as a <code>.mrpack</code>: the mods,
+          resource packs, shader packs, config and <code>options.txt</code> that make it what it is.
+          The game files, the worlds and the backups stay behind, and the index names the game
+          version and the loader so an importer knows what to build underneath the pack.
+        </p>
+        <v-text-field
+          v-model="exportForm.name"
+          label="Pack name"
+          density="comfortable"
+          hide-details
+          class="mt-4"
+        />
+        <v-text-field
+          v-model="exportForm.versionId"
+          label="Pack version"
+          density="comfortable"
+          hide-details
+          hint="Optional. Left empty, the export stamps the date and time."
+          persistent-hint
+          class="mt-4"
+        />
+        <p class="text-medium-emphasis mt-6 mb-0">
+          Nothing is uploaded anywhere: the file is written into the folder you pick next.
+        </p>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="exportForm.open = false">Cancel</v-btn>
+        <v-btn color="primary" prepend-icon="mdi-folder-outline" @click="runExport">
+          Choose a folder
+        </v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>

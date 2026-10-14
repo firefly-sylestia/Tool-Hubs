@@ -22,6 +22,7 @@ import type {
   ModrinthProjectDetail,
   ModrinthSearch,
   ModrinthVersion,
+  PackExportResult,
   Profile,
   RemoteVersion,
   ResourceKind,
@@ -173,6 +174,9 @@ export function useLauncher() {
       call<WorldImportResult>('save', 'importWorld', input),
 
     inspectModpack: (path: string) => call<ModpackSummary>('modpack', 'inspect', { path }),
+    /** Writes the selected instance out as a `.mrpack`. */
+    exportPack: (input: { instanceId?: string | null; destDir: string; name?: string; versionId?: string }) =>
+      call<PackExportResult>('modpack', 'export', input),
     importModpack: (path: string) => call<ModpackImportResult>('modpack', 'import', { path }),
 
     modrinthSearch: (input: {

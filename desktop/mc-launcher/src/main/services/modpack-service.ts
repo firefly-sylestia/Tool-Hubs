@@ -1,7 +1,14 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { basename } from 'node:path'
-import type { ModpackImportResult, ModpackSummary } from '@shared/types'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { basename, join, relative, sep } from 'node:path'
+import type { ModpackImportResult, ModpackSummary, PackExportResult } from '@shared/types'
 import { downloadAll, type DownloadProgress } from '../minecraft/download'
+import {
+  MODRINTH_INDEX_FILE as PACK_INDEX_FILE,
+  buildPackIndex,
+  packArchivePath,
+  packIncludes,
+  packVersionId
+} from '../minecraft/pack-export'
 import {
   CURSEFORGE_MANIFEST_FILE,
   MODRINTH_INDEX_FILE,
@@ -12,6 +19,7 @@ import {
   type ModpackPlan
 } from '../minecraft/modpack'
 import { extractZip, listZipEntries, readZipEntry } from '../minecraft/zip'
+import { writeZip, type ZipEntrySource } from '../minecraft/zip-writer'
 import type { InstanceService } from './instance-service'
 import type { InstallService } from './install-service'
 import type { TaskService } from './task-service'
@@ -35,6 +43,73 @@ export class ModpackService {
   /** Reads a pack without writing anything, so the UI can say what it is first. */
   inspect(path: string): ModpackSummary {
     return this.read(path).plan.summary
+  }
+
+  /**
+   * Writes an instance out as a `.mrpack` someone else can import.
+   *
+   * The pack is self-contained: every file is carried under `overrides/` rather
+   * than linked, because the launcher does not record where a file came from and
+   * a made-up URL would be worse than a larger archive. The index still names
+   * the game version and the loader, which is what an importer needs to build
+   * the instance this one runs.
+   */
+  export(input: {
+    instanceId?: string | null
+    destDir: string
+    name?: string
+    versionId?: string
+  }): Promise<PackExportResult> {
+    const instance = this.instances.require(input.instanceId)
+    if (!existsSync(input.destDir) || !statSync(input.destDir).isDirectory()) {
+      throw new Error(`Choose an existing folder to export into: ${input.destDir} is not one.`)
+    }
+    return this.tasks.run(`Export ${instance.name} as a pack`, async (report) => {
+      report(0.1, 'Working out what the pack carries')
+      const files = walkIncluded(instance.dir)
+      if (files.length === 0) {
+        throw new Error(
+          `${instance.name} has nothing to export: no mods, no resource packs, no shader packs and no ` +
+            `config. A pack is those files; install the game in it or add something first.`
+        )
+      }
+
+      const versionId = input.versionId?.trim() || packVersionId(new Date())
+      const name = input.name?.trim() || instance.name
+      const index = buildPackIndex({
+        name,
+        versionId,
+        gameVersion: instance.versionId ? baseGameVersion(instance.versionId) : null,
+        loader: instance.loader,
+        loaderVersion: instance.loaderVersion
+      })
+
+      const entries: ZipEntrySource[] = [
+        { name: PACK_INDEX_FILE, contents: Buffer.from(`${JSON.stringify(index, null, 2)}\n`, 'utf8') },
+        ...files.map((file) => ({
+          name: packArchivePath(relative(instance.dir, file).split(sep).join('/')),
+          path: file
+        }))
+      ]
+
+      const target = `${input.destDir.replace(/[\\/]+$/, '')}/${sanitizePackName(name)}.mrpack`
+      report(0.35, `Writing ${entries.length - 1} file(s) into ${basename(target)}`)
+      const written = await writeZip(target, entries)
+      report(1, 'Done')
+      this.warn(`Exported ${name} ${versionId} to ${target} (${written.files} files).`)
+
+      return {
+        path: target,
+        name,
+        versionId,
+        instanceId: instance.id,
+        gameVersion: (index.dependencies as Record<string, string>).minecraft ?? null,
+        loader: instance.loader,
+        loaderVersion: instance.loaderVersion,
+        files: written.files,
+        bytes: statSync(target).size
+      }
+    })
   }
 
   import(path: string): Promise<ModpackImportResult> {
@@ -172,6 +247,60 @@ export class ModpackService {
     }
     return `${name} ${Date.now()}`
   }
+}
+
+/**
+ * The instance's own files a pack carries, depth first.
+ *
+ * `save/`, `logs/` and `versions/` are excluded by {@link packIncludes}, so this
+ * walks everything and lets that decide, rather than walking only the folders it
+ * expects and missing whatever a mod added beside them.
+ */
+function walkIncluded(root: string): string[] {
+  const found: string[] = []
+  const visit = (dir: string): void => {
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of [...entries].sort((left, right) => left.name.localeCompare(right.name))) {
+      const path = join(dir, entry.name)
+      const relativePath = relative(root, path).split(sep).join('/')
+      if (entry.isDirectory()) {
+        if (packIncludes(relativePath)) visit(path)
+        continue
+      }
+      if (entry.isFile() && packIncludes(relativePath)) found.push(path)
+    }
+  }
+  visit(root)
+  return found
+}
+
+/**
+ * The game version a pack's index should name.
+ *
+ * The instance's version id may be a loader profile, such as
+ * `fabric-loader-0.16.9-1.21.4`, and an importer needs the game underneath it
+ * rather than the loader that sits on top. Both ends of that id are version
+ * numbers, so the game is taken as the last run of segments that starts one; a
+ * plain `1.21.4-pre1` therefore keeps its pre-release suffix.
+ */
+export function baseGameVersion(versionId: string): string | null {
+  if (versionId === '') return null
+  const segments = versionId.split('-')
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    if (/^\d+(\.\d+)+/.test(segments[index])) return segments.slice(index).join('-')
+  }
+  return null
+}
+
+/** A file name from a pack name, so an export lands next to its own kind. */
+function sanitizePackName(name: string): string {
+  const cleaned = name.replace(/[\\/:*?"<>|]/g, '-').trim()
+  return cleaned === '' ? 'pack' : cleaned
 }
 
 /**

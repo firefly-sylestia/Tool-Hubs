@@ -320,6 +320,21 @@ export interface ServerEntry {
   port: number
 }
 
+/** An instance written out as a `.mrpack` someone else can import. */
+export interface PackExportResult {
+  path: string
+  name: string
+  /** The pack's own version, which is not the game's. */
+  versionId: string
+  instanceId: string
+  /** The game version the index names, for the importer to install first. */
+  gameVersion: string | null
+  loader: InstallLoader | null
+  loaderVersion: string | null
+  files: number
+  bytes: number
+}
+
 export interface ServerPlayerSample {
   name: string
   id: string | null
