@@ -75,8 +75,10 @@
 - [x] Version bumped to `0.3.0` in `desktop/mc-launcher/package.json`, lockfile included.
 
 ### Still to verify on a desktop
-- [ ] Launch on a machine where `PATH` has no java, which is the case the reported failure came from:
-      discovery, the chosen runtime, native loading and the spawn all need a real desktop.
+- [ ] Launch on a Windows desktop where `PATH` has no java, which is the machine the reported failure
+      came from. The runtime download itself is now covered by `netcheck` (it downloads Mojang's build,
+      unpacks it, runs it and finds it again on Linux); what still needs Windows is the download, the
+      `java.exe` spawn and native loading there.
 - [ ] Import a real modpack end to end (a several-hundred-megabyte `.mrpack`), including its overrides
       landing in the instance and the loader it names being installed first.
 
