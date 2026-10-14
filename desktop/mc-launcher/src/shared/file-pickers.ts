@@ -12,7 +12,7 @@ export const FILE_PICKERS: Record<Exclude<FilePickerKind, 'any'>, FilePickerPres
   // got the pack, not on anything the file name says.
   modpack: {
     title: "Choose a pack to import",
-    label: ["Modpacks", "(.mrpack, .zip)"].join(" "),
+    label: "Modpacks (.mrpack, .zip)",
     extensions: ["mrpack", "zip"]
   },
   mod: { title: "Choose mods to add",     label: ["Mods", "(.jar)"].join(" "), extensions: ["jar"] },
