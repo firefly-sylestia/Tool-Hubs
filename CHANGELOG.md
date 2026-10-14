@@ -11,6 +11,24 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.10.0]
+
+The server list was a private list next to the game's own: a server added while playing was invisible to
+the launcher, and one added in the launcher was invisible to the game. It now reads and writes the
+file the game itself uses, and it can say whether a server is up.
+
+### Added
+- **Ping a server** the way the game's own multiplayer screen does — handshake, status request, one JSON
+answer — showing its version, how many players are on it, the round trip in milliseconds, its icon and
+its description with the colour codes stripped. A server that refuses, times out or answers with
+something that is not a status is reported as offline *with the reason*, because that is the normal case
+for a server list rather than an exception. **Ping all** does the list in one go.
+- **The game's own `servers.dat`**, read and written with the NBT reader: **Write the launcher's list
+into it** adds the launcher's servers to the ones already there and renames a server both know, and
+**Import from the game** brings back the servers someone added in the multiplayer screen. An untouched
+server keeps every field it had — its icon, whether it accepts textures — and a file the launcher
+cannot read is reported and left exactly as it is rather than written over.
+
 ## [MC Launcher 0.9.0]
 
 The worlds are the one thing in a game directory that cannot be downloaded again, and the launcher

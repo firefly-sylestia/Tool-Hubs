@@ -1,5 +1,19 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.10.0, servers that the game can see too
+
+- [x] A server list ping the way the game does it — handshake, status request, one JSON response —
+      showing version, players, round trip, the icon and the description with colour codes stripped; a
+      refusal or a timeout is reported as offline with the reason. **Ping all** at the top of the list.
+      Verified against a live server by `netcheck` (mc.hypixel.net answered in 70 ms).
+- [x] The game's own `servers.dat` is read and written: the launcher's list goes into it, the game's
+      list comes back out, a server both know is renamed rather than duplicated, an untouched server
+      keeps every field it had, and a file this launcher cannot read is reported and left exactly as it
+      was rather than written over.
+- [x] Found at the cause while checking the protocol: a varint of six bytes was accepted instead of
+      refused, and `::1` was read as host `:` with port 1 — both are now right.
+- [x] Version bumped to `0.10.0` in `desktop/mc-launcher/package.json`, lockfile included.
+
 ## Desktop launcher — MC Launcher 0.9.0, worlds and backups
 
 - [x] Worlds are read from each instance's own `saves/` folder and described by the world's own
@@ -105,7 +119,6 @@
 
 - [ ] Forge and NeoForge installation by running their installers.
 - [ ] CurseForge browsing and pack files — needs an API key.
-- [ ] Server list parity: ping for status and latency, read and write the game's own `servers.dat`.
 - [ ] Export an instance as a `.mrpack` (the other half of the modpack story).
 - [ ] Disk efficiency: hard links for files shared between instances, and ranged multi-part downloads.
 - [ ] Crash report and log help: turn a stack into the likely cause.

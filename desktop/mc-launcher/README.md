@@ -27,6 +27,16 @@ snapshot state protocol, and a launch pipeline built from the version json.
   a download that is interrupted keeps its `.part` file and resumes with a range
   request next time, and a hash mismatch keeps the bytes and fails loudly instead
   of leaving a corrupt jar behind a working-looking install.
+- **Servers: pinged, and shared with the game.** A server in the list is pinged the
+  way the game's own multiplayer screen does it — handshake, status request, one
+  JSON answer — so the list shows its version, player count, round trip, icon and
+  its description with the colour codes stripped; a refusal, a timeout or an
+  answer that is not a status is reported as offline *with the reason*. The
+  launcher's servers are also written into the instance's own `servers.dat` and
+  read back out of it, so a server added while playing shows up here and one
+  added here shows up in the game. Servers only the game knows are kept exactly
+  as they are, and a `servers.dat` this launcher cannot read is reported rather
+  than overwritten.
 - **Worlds.** Each instance's `saves/` folder is listed with what each world's own
   `level.dat` says about it — the name the game shows, the version that last wrote
   it, when it was last played, the game mode, hardcore — and a world that cannot be
@@ -225,7 +235,7 @@ as a snapshot event, so the UI keeps a working copy instead of guessing.
 Verified locally on Linux with Node 24.21:
 
 - `npm run typecheck` — clean for main, preload, shared and the Vue renderer.
-- `npm run selfcheck` — 98 checks: the offline UUID, rule evaluation,
+- `npm run selfcheck` — 105 checks: the offline UUID, rule evaluation,
   inheritance, classpath and natives resolution (including a library listed twice
   with the natives on the second listing), argument substitution, the launch
   plan and its failure paths, zip reading and extraction (including a modpack's
@@ -248,7 +258,12 @@ Verified locally on Linux with Node 24.21:
   refused by name), the zip writer round-tripped through the zip reader, and the
   worlds path: a world described by its own `level.dat`, a backup, an export and
   both imports, including the name collision and the backup taken before an
-  install that then fails.
+  install that then fails, then the server list: the varints and the two ping
+  packets byte by byte, a status response read out of its frame, a description
+  flattened and its colour codes stripped, a status turned into the line the list
+  shows, the addresses the game writes (including bracketed IPv6), and
+  `servers.dat` merged, round tripped through a real file, and refused when it is
+  not a server list at all.
 - `npm run netcheck` — the same install path against live services: Mojang's
   manifest and a real version json, a real asset index, libraries and assets
   downloaded and hash-checked (664 KB), a real native jar unpacked (1.16.5's
@@ -257,7 +272,9 @@ Verified locally on Linux with Node 24.21:
   (a real Sodium build downloaded with its hash verified and its name read back
   out of the jar, plus a real project page and a modpack search), and Mojang's own
   Java runtime downloaded, unpacked, marked executable, run to confirm its
-  version, and then found again by the resolver.
+  version, and then found again by the resolver. Plus a real status ping:
+  `mc.hypixel.net` answered in 70 ms during the last run, with its version and
+  14870/200000 players.
 - `npm run netcheck --launch` — opt-in, because it installs a whole version and
   takes a couple of minutes: 1.12.2 (1327 files, including the natives it still
   needs) is installed, the client jar, an asset and the natives directory are
