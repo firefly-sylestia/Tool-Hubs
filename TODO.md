@@ -1,5 +1,29 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.3.0, instances, resources and modpacks
+
+- [x] Instances: one game directory each, with its own version, loader and resource folders. Create,
+      rename-free naming (folder derived from the name, collision-proof), select, remove (files kept
+      unless the directory is inside the launcher's own instances folder), and a migration that turns
+      the old single game directory into an instance instead of forgetting it.
+- [x] Per-instance mods, resource packs and shader packs: list, add from the OS picker, turn off by
+      renaming to `<name>.disabled`, remove, and open the folder. A file the folder would not load is
+      refused with the reason rather than copied.
+- [x] Modpack import: Modrinth `.mrpack` (index files downloaded with hashes, `env.client` exclusions
+      honoured, `overrides/` unpacked), CurseForge `manifest.json` (overrides imported, the file list
+      reported because it needs CurseForge's API key), inspected before anything is written, and always
+      into a new instance.
+- [x] Java is discovered rather than assumed: Mojang's runtime inside the instance, `JAVA_HOME`, the
+      platform's JDK folders, SDKMAN, then PATH; the smallest runtime that is new enough is chosen, and
+      Settings lists what was found. Fixes the reported `Could not start java at "java"`.
+- [x] Version bumped to `0.3.0` in `desktop/mc-launcher/package.json`, lockfile included.
+
+### Still to verify on a desktop
+- [ ] Launch on a machine where `PATH` has no java, which is the case the reported failure came from:
+      discovery, the chosen runtime, native loading and the spawn all need a real desktop.
+- [ ] Import a real modpack end to end (a several-hundred-megabyte `.mrpack`), including its overrides
+      landing in the instance and the loader it names being installed first.
+
 ## Desktop launcher — MC Launcher 0.2.0, install the game
 
 - [x] Install a version from Mojang's manifest: version json, client jar, rule-filtered libraries, asset

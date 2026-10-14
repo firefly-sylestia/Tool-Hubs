@@ -65,16 +65,20 @@ file, and QR scanning runs on-device through CameraX and the bundled ML Kit barc
 
 ## MC Launcher (desktop)
 
-An Electron + Vue 3 Minecraft launcher. It **downloads and installs** game versions from Mojang's
-manifest and Fabric or Quilt loaders from their metadata — verifying every file against the hash its
-version json declares, resuming interrupted downloads, and unpacking native libraries — then resolves
-the version json (`inheritsFrom` chains, per-OS library rules), builds the classpath, shows the exact
-java command, and launches. It can also take an installation from a folder: a game directory is used
-in place, a single version folder is copied in.
+An Electron + Vue 3 Minecraft launcher built around **instances**: one game directory each, with its
+own version, loader, mods, resource packs and shader packs. It **downloads and installs** game versions
+from Mojang's manifest and Fabric or Quilt loaders from their metadata — verifying every file against
+the hash its version json declares, resuming interrupted downloads, and unpacking native libraries —
+resolves the version json (`inheritsFrom` chains, per-OS library rules), builds the classpath, shows
+the exact java command, and launches. It finds a Java runtime itself (Mojang's own runtime in the game
+directory, `JAVA_HOME`, or an installed JDK) instead of assuming one is on PATH. It imports a folder
+(a game directory is used in place, a single version folder is copied in) and a modpack (Modrinth
+`.mrpack`, or a CurseForge pack's overrides, into a new instance). Mods, resource packs and shader
+packs are turned on and off from the app, which renames them rather than keeping a list.
 
 It is **local profiles only**: the UUID is the standard offline derivation, there is no account,
 session or token, so it can only join servers configured with `online-mode=false`. There is no
-marketplace, and no Forge, NeoForge or OptiFine installation.
+marketplace or mod browsing, and no Forge, NeoForge or OptiFine installation.
 
 Its own README, including the full layout and requirements, is at
 [`desktop/mc-launcher/README.md`](desktop/mc-launcher/README.md). Its version lives in

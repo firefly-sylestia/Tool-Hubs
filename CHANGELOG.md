@@ -11,6 +11,64 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.3.0]
+
+An instance is now the unit of play, and it owns its own mods, resource packs and shader packs. Before
+this there was one shared game directory and a version on each profile, which cannot express "this mod
+only in this pack" at all — and importing a modpack, the thing modded play actually starts from, could
+not be expressed either.
+
+### Added
+- **Instances.** One game directory each, with its own version, loader, `mods/`, `resourcepacks/` and
+`shaderpacks/`. Create one, name it (the folder is derived from the name and cannot collide), select
+it, and install a version into it. A profile is now only an identity, so several profiles can play the
+same instance and one profile can play any instance.
+- **Manage mods, resource packs and shader packs per instance.** Each folder lists what is in it and
+what the game will actually load: a mod may be a `.jar` or a `.zip`, a resource pack and a shader pack
+must be zips. Turning one off renames it to `<name>.disabled` — the trick every loader ignores — so the
+toggle matches the files on disk instead of a list that can drift. Files that the folder would not
+load are refused with the reason, rather than copied and silently ignored: a `.jar` in `resourcepacks/`
+answers "did you mean to add it to mods?". Each folder can also be opened in the OS file manager.
+- **Modpack import, for both formats that exist.** A Modrinth `.mrpack` is read from its
+`modrinth.index.json`: the game version, the loader and every file with a URL and hashes are installed
+for you, `env.client: "unsupported"` entries are excluded as the pack intends, and the `overrides/`
+tree is unpacked into the instance root. A CurseForge pack is read from its `manifest.json`, and
+because its files are identified only by project and file id — which needs CurseForge's keyed API —
+the overrides are imported and the rest is reported honestly instead of half-installed. A pack is
+inspected before anything is written (format, Minecraft version, loader, file counts), and it is
+always imported into a **new** instance so it cannot disturb the ones you have.
+- **Java is found, not assumed.** The launcher used to run `java` from PATH, which fails on any machine
+where PATH has no java — the usual case on Windows. It now looks inside the game directory for the
+runtime Mojang installed (`runtime/<component>/...`, matched against the `javaVersion.component` the
+version json names), then `JAVA_HOME`, then the JDK folders for the platform and SDKMAN, and picks the
+**smallest runtime that is new enough** for the version. Settings lists what was found, with a `Use`
+button, and `java -version` is only spawned for candidates that cannot be identified from their path.
+- **An instance is never deleted by accident.** Removing one forgets it and leaves its files alone;
+deletion is only offered for a directory inside the launcher's own instances folder, and an imported
+directory elsewhere is refused with the path, since a directory the user pointed us at is not ours.
+
+### Changed
+- **Settings: the game directory became the instances folder.** New instances are created under it; an
+imported instance keeps the path it was given.
+- An older state file is brought forward instead of being ignored: the one global game directory
+becomes an imported instance, taking its version from the profile, and the fields nothing reads any
+more are dropped. A directory that no longer exists is not resurrected as a broken entry.
+- Installing a version now updates the instance it went into, so the next step is Play rather than
+hunting for the version again.
+- The launcher's copy no longer claims it does not download game files, and the Instances page says
+what an instance is rather than assuming one.
+
+### Fixed
+- **"Could not start java at \"java\"" on every launch.** Reported from a real launch attempt: the plan
+fell back to the bare name `java`, which only works when PATH has one. Java resolution is now the
+service described above, and when there is genuinely nothing to run, the failure names every place
+that was searched rather than telling you to "set an absolute java path".
+
+### Not in this pass
+- No Forge or NeoForge, and no OptiFine.
+- No modpack marketplace or browsing: a pack is imported from a file you already have.
+- CurseForge file download, which needs their API key and terms.
+
 ## [MC Launcher 0.2.0]
 
 The launcher can install the game now. Before this it could only run an installation that already

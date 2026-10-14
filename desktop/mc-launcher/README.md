@@ -1,9 +1,11 @@
 # MC Launcher
 
-A desktop Minecraft launcher with **local profiles only**. It downloads game
-versions and Fabric or Quilt loaders from the official metadata services, runs
-an installation it finds on disk, and joins offline-mode servers. Electron +
-Vue 3 + Vuetify, TypeScript throughout.
+A desktop Minecraft launcher with **local profiles only**, built around
+**instances**: one game directory each, with its own version, loader, mods,
+resource packs and shader packs. It downloads game versions and Fabric or Quilt
+loaders from the official metadata services, imports folders and modpacks,
+manages what is in each instance's resource folders, and joins offline-mode
+servers. Electron + Vue 3 + Vuetify, TypeScript throughout.
 
 It exists because the architecture is worth having in your own hands: an
 isolated renderer, a preload bridge, a single generic service RPC channel, a
@@ -25,17 +27,42 @@ snapshot state protocol, and a launch pipeline built from the version json.
   a download that is interrupted keeps its `.part` file and resumes with a range
   request next time, and a hash mismatch keeps the bytes and fails loudly instead
   of leaving a corrupt jar behind a working-looking install.
-- **Runs an installation that is already on disk.** It scans
-  `<gameDir>/versions`, resolves `inheritsFrom` chains (vanilla + a mod loader),
-  evaluates the per-OS `rules` on libraries, builds the classpath, and
-  substitutes the version json's launch placeholders.
-- **Takes an installation from somewhere else.** *Add from a folder* accepts a
+- **Instances.** An instance is one game directory with its own version,
+  loader, `mods/`, `resourcepacks/` and `shaderpacks/`. Create one (the folder
+  name is derived from its name and cannot collide), select it, install a
+  version into it. A profile is only an identity, so several profiles can play
+  one instance and one profile can play any instance.
+- **Mods, resource packs and shader packs, per instance.** Each folder lists
+  what is in it and what the game will load — a mod may be a `.jar` or `.zip`, a
+  resource pack or shader pack must be a zip. Turning one off renames it to
+  `<name>.disabled`, which every loader and pack list ignores, so the switch
+  matches the files on disk rather than a list that can drift. A file the folder
+  would not load is refused with the reason (a `.jar` in `resourcepacks/` says
+  "did you mean to add it to mods?") instead of being copied and ignored, and
+  each folder opens in the OS file manager.
+- **Modpack import.** A Modrinth `.mrpack` is read from its index: Minecraft
+  version, loader, and every file with a URL and hashes are installed, entries
+  the pack excludes from the client are skipped, and its `overrides/` tree is
+  unpacked into the instance. A CurseForge pack's files are identified only by
+  project and file id, which needs their keyed API, so its overrides are
+  imported and the rest is reported rather than half-installed. The pack is
+  inspected before anything is written, and always goes into a new instance.
+- **Finds Java instead of assuming it.** The runtime Mojang installed inside the
+  game directory (`runtime/<component>`, matched against the `javaVersion` the
+  version json names), then `JAVA_HOME`, then the platform's JDK folders and
+  SDKMAN. It picks the smallest runtime that is new enough for the version, and
+  Settings lists everything it found.
+- **Runs an installation that is already on disk.** It scans an instance's
+  `versions/`, resolves `inheritsFrom` chains (vanilla + a mod loader), evaluates
+  the per-OS `rules` on libraries, builds the classpath, and substitutes the
+  version json's launch placeholders.
+- **Takes an installation from somewhere else.** *Import a folder* accepts a
   game directory — which it then uses in place, because copying one is several
   gigabytes — or a single version folder, which it copies in. That is how a
   version downloaded elsewhere gets in.
 - **Server list and join.** Saved addresses plus a queued join. Modern versions
   get `--quickPlayMultiplayer host:port`; older ones get `--server/--port`.
-- **Log view, task list, settings** (game directory, java binary, memory,
+- **Log view, task list, settings** (instances folder, java binary, memory,
   window size), and a preview of the exact java command before launching.
 
 ## What it deliberately does not do
@@ -48,9 +75,12 @@ snapshot state protocol, and a launch pipeline built from the version json.
   a local profile has none, so those servers will refuse the join. That is
   expected, and it is the reason the server list can only be useful against
   servers that you or someone else configured with `online-mode=false`.
-- **No marketplace.** Mods, resource packs, shader packs, modpacks and
-  CurseForge/Modrinth browsing are not here. This launcher installs the game and
-  a loader; everything else goes in the instance folder by hand.
+- **No mod catalogue or browsing.** There is no search across Modrinth or
+  CurseForge and no "install" button on a project page: a mod, resource pack or
+  shader pack is added from a file you already have, and a modpack is imported
+  from an archive you downloaded. CurseForge packs are the exception in the other
+  direction — their file list needs CurseForge's API key, so only the overrides
+  are imported.
 - **No Forge or NeoForge installation.** Both publish installers that have to be
   run as a Java process and edit the version json themselves. Fabric and Quilt
   publish a finished profile json instead, which is why they are the two that
@@ -74,7 +104,9 @@ independently of Chime and Network Switcher.
 
 - Node.js 22.12+ (developed on 24)
 - A JDK for the game: 17 for ≤1.20.4-era versions, 21 for 1.20.5+; the version
-  json records what it wants (`javaVersion.majorVersion`)
+  json records what it wants (`javaVersion.majorVersion`). It does **not** have
+  to be on `PATH` — the launcher looks in the game directory, `JAVA_HOME` and
+  the usual install locations, and Settings will list what it found.
 - Network access for installing. Nothing else needs it: launching an installed
   version is entirely offline, and no account is contacted either way.
 
@@ -111,9 +143,11 @@ always need a desktop.
 src/main/            Electron main process
   index.ts           window creation, IPC wiring, service registration
   window-controller.ts
-  services/          profile, installation, install, server, launch, task, log, settings
+  services/          profile, instance, installation, install, modpack, java,
+                     server, launch, task, log, settings
   minecraft/         version json, rules, classpath, arguments, launch plan,
-                     download, install plan, loader metadata, zip, manifest
+                     download, install plan, loader metadata, modpack indexes,
+                     resource folders, java discovery, zip, manifest
 src/preload/         contextBridge: serviceChannels, windowController, bootstrap, taskMonitor
 src/renderer/        Vue 3 + Vuetify UI
 src/shared/          types and channel constants shared by all three
@@ -131,13 +165,17 @@ as a snapshot event, so the UI keeps a working copy instead of guessing.
 Verified locally on Linux with Node 24.21:
 
 - `npm run typecheck` — clean for main, preload, shared and the Vue renderer.
-- `npm run selfcheck` — 51 checks: the offline UUID, rule evaluation,
+- `npm run selfcheck` — 66 checks: the offline UUID, rule evaluation,
   inheritance, classpath and natives resolution (including a library listed twice
   with the natives on the second listing), argument substitution, the launch
-  plan and its failure paths, zip reading and extraction, install planning,
-  loader metadata, the downloader (resume, checksum rejection, retries, byte
-  progress), importing a folder, profile/server/settings validation and the
-  state store.
+  plan and its failure paths, zip reading and extraction (including a modpack's
+  `overrides/` tree and an archive that tries to climb out of the instance),
+  install planning, loader metadata, the downloader (resume, checksum rejection,
+  retries, byte progress), instance creation and naming, resource classification
+  and the `.disabled` toggle, importing a folder, both modpack index formats and
+  what each refuses, java version parsing and runtime selection, profile/server/
+  settings validation, the state store and the migration from the old
+  single-directory state file.
 - `npm run netcheck` — the same install path against live services: Mojang's
   manifest and a real version json, a real asset index, libraries and assets
   downloaded and hash-checked (664 KB), a real native jar unpacked (1.16.5's
@@ -145,7 +183,7 @@ Verified locally on Linux with Node 24.21:
   loader profiles parsed.
 - `npm run test` — 6 renderer tests: boot from the bridge, snapshot rendering, a
   UI action reaching the service bridge, error surfacing, navigation, and the
-  install picker installing what it offers.
+  install picker installing what it offers into the selected instance.
 - `npm run build` — main, preload and renderer bundles build.
 
 ## License
