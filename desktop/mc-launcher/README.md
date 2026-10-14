@@ -329,11 +329,12 @@ Verified locally on Linux with Node 24.21:
   and stops there because this environment has no display and no X11 client
   libraries. That is as far as a headless machine can go; the window itself has
   only been checked on a desktop.
-- `npm run test` — 8 renderer tests: boot from the bridge, snapshot rendering, a
+- `npm run test` — 9 renderer tests: boot from the bridge, snapshot rendering, a
   UI action reaching the service bridge, error surfacing, navigation, the install
   picker installing what it offers into the selected instance, the worlds card
-  listing a world and asking for a backup, and the Modrinth page opening on the
-  catalogue and then opening a project page.
+  listing a world and asking for a backup, the Modrinth page opening on the
+  catalogue and then opening a project page, and the store loading the catalogue
+  with no instance selected and no search word.
 - `npm run build` — main, preload and renderer bundles build.
 
 ## License

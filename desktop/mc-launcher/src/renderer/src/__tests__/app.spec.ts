@@ -415,6 +415,25 @@ describe('renderer shell', () => {
     expect(dialog).toContain('mc1.21.4-0.6.13')
   })
 
+  it('opens the store with nothing selected and no search word', async () => {
+    const { wrapper, router } = await mountApp()
+    // Nothing is selected here, which is exactly when the page used to show a
+    // warning and nothing else: the catalogue has to load regardless.
+    pushSnapshot(baseState)
+    await router.push('/store')
+    await flushPromises()
+
+    expect(calls).toContainEqual({
+      service: 'modrinth',
+      method: 'search',
+      params: { query: '', kind: 'mod', sort: 'downloads', limit: 20, offset: 0 }
+    })
+    expect(wrapper.text()).toContain('Sodium')
+    // And an install says where things go instead of looking inert.
+    expect(wrapper.text()).toContain('no instance selected')
+    expect(wrapper.text()).toContain('Choose an instance')
+  })
+
   it('navigates between the views', async () => {
     const { wrapper, router } = await mountApp()
     await router.push('/servers')
