@@ -28,6 +28,7 @@ export type ServiceName =
   | 'task'
   | 'settings'
   | 'log'
+  | 'diagnostics'
   | 'window'
 
 export interface ServiceCallMessage {

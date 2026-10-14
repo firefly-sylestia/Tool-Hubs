@@ -1,6 +1,7 @@
 import { computed, ref, shallowRef } from 'vue'
 import type {
   GameInstance,
+  InstanceDiagnostics,
   InstanceGameOptions,
   InstanceSaves,
   InstallRequest,
@@ -236,6 +237,10 @@ export function useLauncher() {
     startLaunch: (profileId: string, serverId?: string | null, instanceId?: string | null) =>
       call<{ plan: LaunchPlan; pid: number }>('launch', 'start', { profileId, serverId, instanceId }),
     stopLaunch: () => call<{ stopped: boolean }>('launch', 'stop'),
+    /** The game's own crash reports and log, read and diagnosed. */
+    diagnostics: (instanceId?: string | null, name?: string | null) =>
+      call<InstanceDiagnostics>('diagnostics', 'report', { instanceId, name }),
+
     saveSettings: (patch: Partial<LauncherSettings>) => call<LauncherSettings>('settings', 'update', patch),
     clearLogs: () => call<{ cleared: number }>('log', 'clear').then(() => {
       lines.value = []

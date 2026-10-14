@@ -140,6 +140,60 @@ export interface InstanceResources {
   entries: Record<ResourceKind, ResourceEntry[]>
 }
 
+export type FindingSeverity = 'error' | 'warning' | 'info'
+
+/** One thing that looks wrong in a crash report or a log, with what to do about it. */
+export interface LogFinding {
+  id: string
+  severity: FindingSeverity
+  title: string
+  /** The line of the file it was read from, so a wrong reading can be seen. */
+  evidence: string
+  hints: string[]
+}
+
+/** One `crash-reports/crash-*.txt`, read. */
+export interface CrashFile {
+  name: string
+  path: string
+  bytes: number
+  at: string
+  /** The report's own `Description:` line. */
+  description: string | null
+  /** The root cause of the `Caused by:` chain. */
+  exception: string | null
+  /** The frame that threw it. */
+  at_line: string | null
+  minecraftVersion: string | null
+  javaVersion: string | null
+  /** How many mods the report listed, when it listed any. */
+  mods: number
+  findings: LogFinding[]
+  /** The one the view opened. */
+  selected: boolean
+}
+
+/** Everything the game left behind in an instance when it went wrong. */
+export interface InstanceDiagnostics {
+  instanceId: string
+  instanceDir: string
+  crashDir: string
+  logPath: string
+  crashes: CrashFile[]
+  latestLog: {
+    path: string
+    exists: boolean
+    bytes: number
+    /** Lines in the file, of which only the tail was read. */
+    lines: number
+    findings: LogFinding[]
+  }
+  /** What the view should show: the selected crash, or the log. */
+  findings: LogFinding[]
+  /** Which of the two the findings came from. */
+  source: string | null
+}
+
 /**
  * A world in an instance's `saves/` folder, described by the world's own
  * `level.dat` rather than by its folder name wherever that file says more.

@@ -14,6 +14,7 @@ import type { AddServerInput } from './services/server-service'
 import type { CreateProfileInput, UpdateProfileInput } from './services/profile-service'
 import type { CreateInstanceInput } from './services/instance-service'
 import type { InstallInput as ModrinthInstallInput, SearchInput } from './services/modrinth-service'
+import { DiagnosticService } from './services/diagnostic-service'
 import { InstallationService } from './services/installation-service'
 import { InstallService } from './services/install-service'
 import { InstanceService } from './services/instance-service'
@@ -100,6 +101,7 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   const tasks = new TaskService(state, registry)
   const java = new JavaService(environment, warn)
   const saves = new SaveService(instances, warn)
+  const diagnostics = new DiagnosticService(instances)
   const install = new InstallService(environment, tasks, installations, instances, warn, {}, saves)
   // A launch checks the installation and repairs it before it builds a command,
   // which means it owns the same installer every other path uses.
@@ -283,6 +285,13 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   registry.register('log', {
     recent: (params) => log.recent(as<{ limit?: number } | undefined>(params)?.limit),
     clear: () => log.clear()
+  })
+  registry.register('diagnostics', {
+    /** What the game left behind: the newest crash, or the tail of its log. */
+    report: (params) => {
+      const input = as<{ instanceId?: string | null; name?: string | null } | undefined>(params) ?? {}
+      return diagnostics.report(input)
+    }
   })
   registry.register('window', {
     minimize: () => windows.minimize(),

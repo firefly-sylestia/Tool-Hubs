@@ -73,6 +73,8 @@ import {
   uniqueWorldFolder
 } from '../src/main/minecraft/saves'
 import { SaveService } from '../src/main/services/save-service'
+import { DiagnosticService } from '../src/main/services/diagnostic-service'
+import { diagnose, missingDependencies, summarizeReport } from '../src/main/minecraft/crash-report'
 import {
   expectedFrameLength,
   flattenChat,
@@ -986,6 +988,162 @@ console.log('\nzip reading')
 
   check('refuses a truncated archive, the way a part-downloaded zip looks', () => {
     expectThrows(() => listZipEntries(archive.subarray(0, archive.length - 24)), 'partially downloaded')
+  })
+}
+
+console.log('\ncrash reports')
+{
+  const report = [
+    '---- Minecraft Crash Report ----',
+    '// Uh...',
+    '',
+    'Time: 2026-10-14 12:00:00',
+    'Description: Rendering overlay',
+    '',
+    'java.lang.NullPointerException: Rendering overlay',
+    '\tat net.minecraft.client.renderer.LevelRenderer.render(LevelRenderer.java:1234)',
+    'Caused by: java.lang.RuntimeException: Could not execute entrypoint stage',
+    '\tat net.fabricmc.loader.impl.entrypoint.EntrypointUtils.invoke(EntrypointUtils.java:51)',
+    'Caused by: java.lang.NoSuchMethodError: net.fabricmod.core.Helper.thing()V',
+    '\tat net.fabricmod.mixin.HelperMixin.method(HelperMixin.java:42)',
+    '',
+    'Minecraft Version: 1.21.4',
+    'Java Version: 21.0.5, Microsoft',
+    '',
+    '-- Mod List --',
+    '\tsodium{0.6.13} [Sodium] (sodium.jar)',
+    '\tfabricmod{1.0} [Fabric Mod] (fabricmod.jar)',
+    ''
+  ].join('\n')
+
+  check('reads a crash report\u2019s own summary and its root cause', () => {
+    const summary = summarizeReport(report)
+    expectEqual(summary.description, 'Rendering overlay', 'the description')
+    expectEqual(
+      summary.exception,
+      'java.lang.NoSuchMethodError: net.fabricmod.core.Helper.thing()V',
+      'the deepest `Caused by`, not the wrapper'
+    )
+    expectEqual(summary.at, 'at net.fabricmod.mixin.HelperMixin.method(HelperMixin.java:42)', 'the frame that threw it')
+    expectEqual(summary.minecraftVersion, '1.21.4', 'the game version')
+    expectEqual(summary.javaVersion, '21.0.5, Microsoft', 'the java version')
+    expectEqual(summary.mods, ['sodium', 'fabricmod'], 'the mod list')
+  })
+
+  check('names the cause instead of handing over the trace', () => {
+    const findings = diagnose(report)
+    expect(findings.length > 0, 'something is found')
+    const incompatible = findings.find((finding) => finding.id === 'incompatible-mod')
+    expect(incompatible !== undefined, 'a mod built against another version is named')
+    expectEqual(incompatible?.severity, 'error', 'as an error')
+    expect(
+      incompatible?.hints.some((hint) => hint.includes('another game version')) === true,
+      'with something to do about it'
+    )
+    expect(
+      incompatible?.evidence.includes('NoSuchMethodError') === true,
+      'and the line it was read from'
+    )
+  })
+
+  check('reads the missing-dependency block a loader writes', () => {
+    const forgeLike = [
+      'net.minecraftforge.fml.ModLoadingException: Missing or unsupported mandatory dependencies:',
+      '\tMod ID: \u2018create\u2019, Requested by: \u2018steam\u2019, Expected range: \u2018[0.5.1,)\u2019, Actual: \u2018missing\u2019',
+      '\tMod ID: \u2018flywheel\u2019, Requested by: \u2018create\u2019, Expected range: \u2018*\u2019, Actual: \u2018missing\u2019'
+    ].join('\n')
+    expectEqual(missingDependencies(forgeLike), ['create', 'flywheel'], 'both mod ids')
+    const findings = diagnose(forgeLike)
+    const missing = findings.find((finding) => finding.id === 'missing-dependency')
+    expect(missing !== undefined, 'the block is diagnosed')
+    expect(
+      missing?.hints[0].includes('create') === true && missing.hints[0].includes('flywheel') === true,
+      'and the hint names what to install'
+    )
+  })
+
+  check('recognises the failures that are not a mod at all', () => {
+    expect(
+      diagnose('java.lang.OutOfMemoryError: Java heap space').some((f) => f.id === 'out-of-memory'),
+      'memory'
+    )
+    expect(
+      diagnose('java.lang.UnsupportedClassVersionError: net/minecraft/client/main/Main has been compiled by a more recent version').some(
+        (f) => f.id === 'wrong-java'
+      ),
+      'the wrong java'
+    )
+    expect(
+      diagnose('[Render thread/ERROR]: Failed to initialize GLFW, error 65542').some((f) => f.id === 'graphics'),
+      'graphics'
+    )
+    expect(
+      diagnose('java.lang.Exception: Duplicate mods found for mod id examplemod').some((f) => f.id === 'duplicate-mods'),
+      'two copies of a mod'
+    )
+    expect(
+      diagnose('org.spongepowered.asm.mixin.injection.throwables.InvalidInjectionException: Mixin apply failed example.mixin.Thing')
+        .some((f) => f.id === 'mixin'),
+      'a mixin that could not apply'
+    )
+    expect(
+      diagnose('[Client thread/WARN]: Disconnected from server: Connection reset').some((f) => f.id === 'disconnected'),
+      'a dropped connection, which is not a broken installation'
+    )
+  })
+
+  check('stays quiet about a log that is not a crash', () => {
+    const healthy = [
+      '[12:00:00] [main/INFO]: Loading Minecraft 1.21.4 with Fabric Loader 0.16.9',
+      '[12:00:00] [main/INFO]: Loading 42 mods:',
+      '[12:00:01] [Render thread/INFO]: Backend library: LWJGL version 3.3.3',
+      '[12:00:04] [Render thread/INFO]: Sound engine started',
+      '[12:00:05] [Render thread/WARN]: Unknown recipe category: mod:thing',
+      '[12:00:09] [Render thread/INFO]: Stopping!'
+    ].join('\n')
+    expectEqual(diagnose(healthy), [], 'no findings from a clean log')
+
+    // A mention is not a crash: the rules look for the shapes a failure has, not
+    // for the word "error" anywhere in a mod's own output.
+    expectEqual(
+      diagnose('[12:00:00] [main/INFO]: examplemod: no errors reported during setup').length,
+      0,
+      'a mod saying "error" is not a crash'
+    )
+  })
+
+  await acheck('reads an instance\u2019s crash reports newest first, and its log as the fallback', async () => {
+    const crashInstance = instances.create({ name: 'Crashes', dir: join(root, 'crash-game'), source: 'created' })
+    const crashDir = join(crashInstance.dir, 'crash-reports')
+    mkdirSync(crashDir, { recursive: true })
+    writeFileSync(join(crashDir, 'crash-2026-10-13_09-00-00-client.txt'), 'java.lang.Exception: older\n')
+    writeFileSync(join(crashDir, 'crash-2026-10-14_12-00-00-client.txt'), report)
+    mkdirSync(join(crashInstance.dir, 'logs'), { recursive: true })
+    writeFileSync(join(crashInstance.dir, 'logs', 'latest.log'), '[12:00:00] [main/INFO]: nothing wrong here')
+
+    const diagnostics = new DiagnosticService(instances)
+    const read = diagnostics.report({ instanceId: crashInstance.id })
+    expectEqual(read.crashes.length, 2, 'both reports are listed')
+    expectEqual(read.source, 'crash-2026-10-14_12-00-00-client.txt', 'the newest one is the source')
+    expectEqual(read.crashes[0].description, 'Rendering overlay', 'with its own description')
+    expect(read.findings.length > 0, 'and findings')
+    expectEqual(read.latestLog.exists, true, 'the log is read too')
+
+    const chosen = diagnostics.report({ instanceId: crashInstance.id, name: 'crash-2026-10-13_09-00-00-client.txt' })
+    expectEqual(chosen.source, 'crash-2026-10-13_09-00-00-client.txt', 'a crash can be chosen by name')
+
+    // With no crash report at all, the log is the evidence.
+    rmSync(crashDir, { recursive: true, force: true })
+    writeFileSync(join(crashInstance.dir, 'logs', 'latest.log'), '[12:00:00] [Render thread/ERROR]: Failed to initialize GLFW, error 65542')
+    const fromLog = diagnostics.report({ instanceId: crashInstance.id })
+    expectEqual(fromLog.source, 'logs/latest.log', 'the log answers when there is no report')
+    expect(fromLog.findings.some((finding) => finding.id === 'graphics'), 'with its own finding')
+
+    const empty = instances.create({ name: 'Nothing crashed', dir: join(root, 'no-crash-game'), source: 'created' })
+    const nothing = diagnostics.report({ instanceId: empty.id })
+    expectEqual(nothing.source, null, 'an instance with neither says so')
+    expectEqual(nothing.findings, [], 'and has nothing to report')
+    instances.select(instance.id)
   })
 }
 
