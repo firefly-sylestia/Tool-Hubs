@@ -1,17 +1,21 @@
+import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import type { LauncherState } from '@shared/types'
 import { AtomicJsonStore } from './atomic-store'
 import type { ServiceRegistry } from './registry'
 
 export const STATE_FILE = 'launcher-state.json'
 
-export function defaultState(gameDir: string): LauncherState {
+export function defaultState(instancesDir: string): LauncherState {
   return {
     profiles: [],
     selectedProfileId: null,
+    instances: [],
+    selectedInstanceId: null,
     servers: [],
     pendingServerId: null,
     settings: {
-      gameDir,
+      instancesDir,
       javaPath: null,
       maxMemoryMb: 4096,
       width: 1280,
@@ -21,6 +25,54 @@ export function defaultState(gameDir: string): LauncherState {
     installations: [],
     runningProfileId: null
   }
+}
+
+/**
+ * Brings an older state file forward.
+ *
+ * Before instances existed there was one game directory and a version on each
+ * profile. A state file from then keeps working by turning that directory into
+ * an imported instance and taking the version from the profile — without this,
+ * upgrading would look like the launcher had forgotten everything.
+ */
+export function migrateState(
+  state: LauncherState,
+  options: { exists?: (path: string) => boolean } = {}
+): LauncherState {
+  const next = state
+  const legacyGameDir = (next.settings as { gameDir?: string }).gameDir ?? null
+  const exists = options.exists ?? (() => true)
+
+  if (!Array.isArray(next.instances)) next.instances = []
+  if (next.selectedInstanceId === undefined) next.selectedInstanceId = null
+
+  // A directory that is still there becomes an instance; one that was deleted
+  // long ago is not worth resurrecting as a broken entry.
+  if (next.instances.length === 0 && legacyGameDir && exists(legacyGameDir)) {
+    const version = (next.profiles.find((profile) => (profile as { versionId?: string }).versionId) as
+      | { versionId?: string }
+      | undefined)?.versionId
+    next.instances = [
+      {
+        id: randomUUID(),
+        name: 'Imported installation',
+        dir: legacyGameDir,
+        source: 'imported',
+        versionId: version ?? null,
+        loader: null,
+        loaderVersion: null,
+        createdAt: new Date().toISOString(),
+        lastPlayedAt: null
+      }
+    ]
+    next.selectedInstanceId = next.instances[0].id
+  }
+
+  // The old fields are gone from the types; drop them so a rewritten state file
+  // does not keep carrying values nothing reads.
+  for (const profile of next.profiles) delete (profile as { versionId?: string }).versionId
+  delete (next.settings as { gameDir?: string }).gameDir
+  return next
 }
 
 /**
@@ -39,7 +91,7 @@ export class StateStore {
     onWarning?: (message: string) => void
   ) {
     this.store = new AtomicJsonStore<LauncherState>(stateFilePath, defaults, onWarning)
-    this.state = { ...defaults, ...this.store.read() }
+    this.state = migrateState({ ...defaults, ...this.store.read() }, { exists: existsSync })
   }
 
   snapshot(): LauncherState {

@@ -1,13 +1,6 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
-import type {
-  ImportResult,
-  InstallRequest,
-  InstallResult,
-  LauncherSettings,
-  LoaderOption,
-  RemoteVersion
-} from '@shared/types'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import type { InstallRequest, InstallResult, LoaderOption, RemoteVersion } from '@shared/types'
 import {
   downloadAll,
   fetchJson,
@@ -42,8 +35,7 @@ import {
 import { extractZip, isNativeLibraryEntry } from '../minecraft/zip'
 import type { AppEnvironment } from './env'
 import type { InstallationService } from './installation-service'
-import type { SettingsService } from './settings-service'
-import type { StateStore } from './state-store'
+import type { InstanceService } from './instance-service'
 import type { TaskService } from './task-service'
 
 /**
@@ -63,11 +55,10 @@ export class InstallService {
   private manifest: VersionManifest | null = null
 
   constructor(
-    private readonly state: StateStore,
     private readonly environment: AppEnvironment,
     private readonly tasks: TaskService,
     private readonly installations: InstallationService,
-    private readonly settings: SettingsService,
+    private readonly instances: InstanceService,
     private readonly warn: (message: string) => void,
     private readonly options: { fetchImpl?: FetchLike; concurrency?: number } = {}
   ) {}
@@ -100,60 +91,15 @@ export class InstallService {
   }
 
   /**
-   * Brings in something that was not installed here.
-   *
-   * A folder holding `versions/` is a Minecraft game directory, and using it in
-   * place is both what "import my installation" means and the only sane option:
-   * copying a game directory is several gigabytes. A folder holding
-   * `<name>.json` is one version, and that is small enough to copy into the
-   * current installation — which is how a version downloaded elsewhere gets in.
+   * The same install with someone else's progress reporting, for a modpack
+   * import that has its own task and its own remaining steps to report.
    */
-  importFrom(path: string): ImportResult {
-    if (!existsSync(path)) throw new Error(`${path} does not exist.`)
-
-    if (existsSync(join(path, 'versions'))) {
-      const versions = readdirSync(join(path, 'versions'), { withFileTypes: true }).filter((entry) =>
-        entry.isDirectory()
-      ).length
-      this.settings.update({ gameDir: path } as Partial<LauncherSettings>)
-      const installed = this.installations.rescan()
-      const missing = ['libraries', 'assets']
-        .filter((name) => !existsSync(join(path, name)))
-        .map((name) => `${name}/`)
-      return {
-        kind: 'gameDirectory',
-        path,
-        message:
-          `Now using ${path} — ${versions} version folder(s) there` +
-          (missing.length > 0
-            ? `, but it has no ${missing.join(' or ')} yet, so an install is still needed.`
-            : '.'),
-        installationCount: installed.length
-      }
-    }
-
-    const name = basename(path)
-    const jsonPath = join(path, `${name}.json`)
-    if (existsSync(jsonPath)) {
-      const dest = versionDir(this.state.snapshot().settings.gameDir, name)
-      if (existsSync(dest)) {
-        throw new Error(`${name} is already installed at ${dest}. Remove it first to replace it.`)
-      }
-      mkdirSync(dirname(dest), { recursive: true })
-      cpSync(path, dest, { recursive: true })
-      const installed = this.installations.rescan()
-      return {
-        kind: 'version',
-        path: dest,
-        message: `Copied ${name} into ${dest}. Its files are not checked; rescan and launch it to see what is there.`,
-        installationCount: installed.length
-      }
-    }
-
-    throw new Error(
-      `Nothing to import in ${path}: expected a game directory (with versions/) or a version ` +
-        `folder (with ${name}.json).`
-    )
+  installInto(
+    instanceId: string,
+    input: InstallRequest,
+    report: (progress: number, message: string) => void
+  ): Promise<InstallResult> {
+    return this.performInstall({ ...input, instanceId }, report)
   }
 
   private async loadManifest(refresh: boolean): Promise<VersionManifest> {
@@ -169,7 +115,8 @@ export class InstallService {
     input: InstallRequest,
     report: (progress: number, message: string) => void
   ): Promise<InstallResult> {
-    const gameDir = this.state.snapshot().settings.gameDir
+    const instance = this.instances.require(input.instanceId)
+    const gameDir = instance.dir
     const ctx: RuleContext = ruleContextFor(this.environment.platform, this.environment.arch, {
       is_demo_user: false,
       has_custom_resolution: false,
@@ -278,17 +225,27 @@ export class InstallService {
       })
     }
 
+    // The instance now plays what was just installed; anything else leaves the
+    // UI showing a version the instance does not actually have.
+    this.instances.update(instance.id, {
+      versionId: targetId,
+      loader: input.loader,
+      loaderVersion: input.loaderVersion ?? null
+    })
+
     report(0.97, 'Rescanning installations')
-    this.installations.rescan()
+    this.installations.rescan(instance.dir)
     this.warn(
-      `Installed ${targetId}: ${result.downloaded} files downloaded, ${result.reused} already present, ` +
-        `${nativesExtracted} native libraries unpacked.`
+      `Installed ${targetId} into ${instance.name}: ${result.downloaded} files downloaded, ` +
+        `${result.reused} already present, ${nativesExtracted} native libraries unpacked.`
     )
     report(1, 'Done')
 
     return {
       versionId: input.versionId,
       targetId,
+      instanceId: instance.id,
+      instanceDir: instance.dir,
       files: files.length,
       reused: result.reused,
       bytes: result.bytes,

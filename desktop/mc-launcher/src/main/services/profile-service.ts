@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { isAbsolute } from 'node:path'
 import type { Profile } from '@shared/types'
 import { offlineUuid } from '../minecraft/offline-uuid'
 import type { StateStore } from './state-store'
@@ -7,16 +6,17 @@ import type { StateStore } from './state-store'
 /** The name rules the game applies to offline profiles. */
 const NAME_PATTERN = /^[A-Za-z0-9_]{3,16}$/
 
+/**
+ * A profile is only an identity: the name the game reports and the UUID derived
+ * from it. Which version and which mods to play is the instance's business, so
+ * one profile can play every instance and an instance can be played by anyone.
+ */
 export interface CreateProfileInput {
   name: string
-  versionId?: string | null
-  gameDir?: string | null
 }
 
 export interface UpdateProfileInput {
   name?: string
-  versionId?: string | null
-  gameDir?: string | null
 }
 
 export class ProfileService {
@@ -32,8 +32,6 @@ export class ProfileService {
       id: randomUUID(),
       name,
       uuid: offlineUuid(name),
-      gameDir: assertGameDir(input.gameDir),
-      versionId: input.versionId ?? null,
       createdAt: new Date().toISOString(),
       lastPlayedAt: null
     }
@@ -61,8 +59,6 @@ export class ProfileService {
         profile.name = name
         profile.uuid = offlineUuid(name)
       }
-      if (patch.versionId !== undefined) profile.versionId = patch.versionId
-      if (patch.gameDir !== undefined) profile.gameDir = assertGameDir(patch.gameDir)
       updated = profile
     })
     if (!updated) throw new Error(`Unknown profile ${id}.`)
@@ -97,10 +93,3 @@ function assertName(value: unknown): string {
   return value
 }
 
-function assertGameDir(value: unknown): string | null {
-  if (value === undefined || value === null || value === '') return null
-  if (typeof value !== 'string' || !isAbsolute(value)) {
-    throw new Error('A profile game directory must be an absolute path.')
-  }
-  return value
-}

@@ -1,7 +1,7 @@
 {
   "name": "mc-launcher",
-  "version": "0.2.0",
-  "description": "Offline-only Minecraft launcher: local profiles, an existing game installation, and offline-mode servers.",
+  "version": "0.3.0",
+  "description": "Offline-only Minecraft launcher: instances with their own version, mods, resource packs and shader packs, modpack import, and offline-mode servers.",
   "license": "MIT",
   "author": {
     "name": "Mohammad Abdul Qadir Khan",

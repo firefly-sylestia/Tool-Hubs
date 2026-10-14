@@ -3,7 +3,9 @@ import type { LaunchPlan, Profile } from '@shared/types'
 import type { Readable } from 'node:stream'
 import { type LaunchTarget, buildLaunchPlan } from '../minecraft/launch-plan'
 import { ruleContextFor } from '../minecraft/rules'
+import { resolveVersionChain } from '../minecraft/version-json'
 import type { AppEnvironment } from './env'
+import type { JavaService } from './java-service'
 import type { LogService } from './log-service'
 import type { ServerService } from './server-service'
 import type { StateStore } from './state-store'
@@ -23,40 +25,70 @@ export class LaunchService {
     private readonly env: AppEnvironment,
     private readonly log: LogService,
     private readonly tasks: TaskService,
-    private readonly servers: ServerService
+    private readonly servers: ServerService,
+    private readonly java: JavaService
   ) {}
 
-  /** Builds the command without running anything, so the UI can show it. */
-  plan(profileId: string, serverId?: string | null): LaunchPlan {
+  /**
+   * Builds the command without running anything, so the UI can show it.
+   *
+   * The instance supplies the game directory and the version; the profile only
+   * supplies an identity. Java is resolved here rather than assumed to be on
+   * PATH, using the version json's required major version to pick between the
+   * runtimes the machine has.
+   */
+  async plan(profileId: string, serverId?: string | null, instanceId?: string | null): Promise<LaunchPlan> {
     const snapshot = this.state.snapshot()
     const profile = snapshot.profiles.find((candidate) => candidate.id === profileId)
     if (!profile) throw new Error(`Unknown profile ${profileId}.`)
-    if (!profile.versionId) {
-      throw new Error(`Profile "${profile.name}" has no version selected. Pick an installed version first.`)
+
+    const targetId = instanceId ?? snapshot.selectedInstanceId
+    const instance = snapshot.instances.find((candidate) => candidate.id === targetId)
+    if (!instance) {
+      throw new Error('No instance is selected. Create one, or import an installation you already have.')
+    }
+    if (!instance.versionId) {
+      throw new Error(`Instance "${instance.name}" has no version yet. Install one, then launch.`)
     }
 
+    const resolved = resolveVersionChain(instance.dir, instance.versionId)
+    const java = await this.java.resolve({
+      instanceDir: instance.dir,
+      component:
+        resolved.chain.map((version) => version.javaVersion?.component).find((value) => typeof value === 'string') ??
+        null,
+      requiredMajor: resolved.merged.javaMajorVersion,
+      explicitPath: snapshot.settings.javaPath
+    })
+
     return buildLaunchPlan({
-      gameDir: snapshot.settings.gameDir,
+      gameDir: instance.dir,
+      instanceId: instance.id,
       profile,
-      versionId: profile.versionId,
+      versionId: instance.versionId,
       settings: snapshot.settings,
       connect: this.resolveTarget(serverId ?? snapshot.pendingServerId),
       ctx: ruleContextFor(this.env.platform, this.env.arch),
       launcherName: this.env.launcherName,
-      launcherVersion: this.env.launcherVersion
+      launcherVersion: this.env.launcherVersion,
+      javaPath: java.path
     })
   }
 
-  async start(profileId: string, serverId?: string | null): Promise<{ plan: LaunchPlan; pid: number }> {
+  async start(
+    profileId: string,
+    serverId?: string | null,
+    instanceId?: string | null
+  ): Promise<{ plan: LaunchPlan; pid: number }> {
     if (this.child) throw new Error('A game process is already running. Stop it before launching again.')
 
     return this.tasks.run('Launch', async (report) => {
-      report(0.2, 'Building the launch command')
-      const plan = this.plan(profileId, serverId)
+      report(0.2, 'Finding a Java runtime and building the command')
+      const plan = await this.plan(profileId, serverId, instanceId)
       const profile = this.requireProfile(profileId)
 
       report(0.5, `Starting ${plan.javaPath}`)
-      this.log.append('stdout', `Launching ${profile.name} (${plan.versionId})`)
+      this.log.append('stdout', `Launching ${profile.name} on ${plan.versionId} (java: ${plan.javaPath})`)
       if (plan.connect) {
         this.log.append('stdout', `Joining ${plan.connect.host}:${plan.connect.port} after start-up`)
       }
@@ -127,6 +159,8 @@ export class LaunchService {
           state.runningProfileId = null
           const profile = state.profiles.find((candidate) => candidate.id === plan.profileId)
           if (profile) profile.lastPlayedAt = new Date().toISOString()
+          const instance = state.instances.find((candidate) => candidate.id === plan.instanceId)
+          if (instance) instance.lastPlayedAt = new Date().toISOString()
         })
       })
     })
@@ -137,8 +171,8 @@ function explainSpawnFailure(error: Error, plan: LaunchPlan): string {
   const code = (error as NodeJS.ErrnoException).code
   if (code === 'ENOENT') {
     return (
-      `Could not start java at "${plan.javaPath}". Set an absolute java path in Settings ` +
-      `(a JDK 17 or newer is recommended), or install java so it is on PATH.`
+      `Java could not be started at "${plan.javaPath}", even though it answered earlier. ` +
+      `Set an explicit java path in Settings, or install a JDK 17 or newer.`
     )
   }
   return `Java could not be started: ${error.message}`

@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog } from 'electron'
+import { BrowserWindow, dialog, shell } from 'electron'
 
 /**
  * Window actions exposed to the renderer as `windowController`. This lives in
@@ -62,5 +62,29 @@ export class WindowController {
       ? await dialog.showOpenDialog(window, options)
       : await dialog.showOpenDialog(options)
     return { path: result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0] }
+  }
+
+  /** The file picker, for adding mods, resource packs and shader packs. */
+  async pickFiles(event?: Electron.IpcMainInvokeEvent): Promise<{ paths: string[] }> {
+    const window = this.windowFor(event)
+    const options: Electron.OpenDialogOptions = {
+      title: 'Choose files',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: 'Mods, packs and shaders', extensions: ['jar', 'zip'] },
+        { name: 'Everything', extensions: ['*'] }
+      ]
+    }
+    const result = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options)
+    return { paths: result.canceled ? [] : result.filePaths }
+  }
+
+  /** Hands a path to the OS, so a folder opens in Explorer, Finder or a file manager. */
+  async openPath(params: { path: string }): Promise<{ opened: boolean; error: string | null }> {
+    if (!params?.path) throw new Error('openPath needs a path.')
+    const error = await shell.openPath(params.path)
+    return { opened: error === '', error: error === '' ? null : error }
   }
 }

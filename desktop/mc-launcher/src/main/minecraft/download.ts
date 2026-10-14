@@ -26,6 +26,8 @@ export interface DownloadRequest {
   url: string
   dest: string
   sha1?: string
+  /** Modrinth packs publish a sha512 as well, and it is the stronger of the two. */
+  sha512?: string
   size?: number
   /** Shown in progress messages; defaults to the file name. */
   label?: string
@@ -52,9 +54,9 @@ export interface DownloadReport {
 const DEFAULT_RETRIES = 3
 const DEFAULT_CONCURRENCY = 6
 
-export function sha1OfFile(path: string): Promise<string> {
+export function hashOfFile(path: string, algorithm: 'sha1' | 'sha512'): Promise<string> {
   return new Promise((resolve, reject) => {
-    const hash = createHash('sha1')
+    const hash = createHash(algorithm)
     const stream = createReadStream(path)
     stream.on('error', reject)
     stream.on('data', (chunk) => hash.update(chunk))
@@ -62,14 +64,40 @@ export function sha1OfFile(path: string): Promise<string> {
   })
 }
 
-/** A file counts as present only when its hash matches; a size check alone is not enough. */
-export async function isFileValid(path: string, sha1?: string): Promise<boolean> {
+export function sha1OfFile(path: string): Promise<string> {
+  return hashOfFile(path, 'sha1')
+}
+
+/** A file counts as present only when every hash it declares matches. */
+export async function isFileValid(path: string, sha1?: string, sha512?: string): Promise<boolean> {
   if (!existsSync(path)) return false
-  if (!sha1) return true
+  if (!sha1 && !sha512) return true
   try {
-    return (await sha1OfFile(path)) === sha1.toLowerCase()
+    if (sha1 && (await hashOfFile(path, 'sha1')) !== sha1.toLowerCase()) return false
+    if (sha512 && (await hashOfFile(path, 'sha512')) !== sha512.toLowerCase()) return false
+    return true
   } catch {
     return false
+  }
+}
+
+/** The hashes a request declares, checked against the file the way `isFileValid` does. */
+async function verifyHashes(path: string, request: DownloadRequest): Promise<void> {
+  if (request.sha1) {
+    const actual = await hashOfFile(path, 'sha1')
+    if (actual !== request.sha1.toLowerCase()) {
+      throw new Error(
+        `Checksum mismatch for ${request.label ?? request.dest}: expected sha1 ${request.sha1}, got ${actual}`
+      )
+    }
+  }
+  if (request.sha512) {
+    const actual = await hashOfFile(path, 'sha512')
+    if (actual !== request.sha512.toLowerCase()) {
+      throw new Error(
+        `Checksum mismatch for ${request.label ?? request.dest}: expected sha512 ${request.sha512}, got ${actual}`
+      )
+    }
   }
 }
 
@@ -135,16 +163,9 @@ async function downloadOnce(
     })
   }
 
-  if (request.sha1) {
-    const actual = await sha1OfFile(part)
-    if (actual !== request.sha1.toLowerCase()) {
-      // Keep the bytes: a retry resumes rather than re-fetching, and the hash is
-      // re-checked before anything is renamed into place.
-      throw new Error(
-        `Checksum mismatch for ${request.label ?? request.dest}: expected ${request.sha1}, got ${actual}`
-      )
-    }
-  }
+  // Keep the bytes on a mismatch: a retry resumes rather than re-fetching, and
+  // the hashes are re-checked before anything is renamed into place.
+  await verifyHashes(part, request)
 
   renameSync(part, request.dest)
   return { bytes: written + offset, reused: false }
@@ -162,7 +183,7 @@ export async function downloadFile(
   const fetchImpl = options.fetchImpl ?? ((url, init) => fetch(url, init))
   const retries = options.retries ?? DEFAULT_RETRIES
 
-  if (await isFileValid(request.dest, request.sha1)) return { bytes: 0, reused: true }
+  if (await isFileValid(request.dest, request.sha1, request.sha512)) return { bytes: 0, reused: true }
 
   let lastError: Error | null = null
   for (let attempt = 1; attempt <= retries; attempt += 1) {

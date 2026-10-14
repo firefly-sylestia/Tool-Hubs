@@ -21,6 +21,14 @@ export interface LaunchPlanInput {
   ctx: RuleContext
   launcherName?: string
   launcherVersion?: string
+  /** The instance this launch belongs to, recorded on the plan for the log. */
+  instanceId?: string | null
+  /**
+   * The java executable to run, already resolved by the launcher. Falling back
+   * to `settings.javaPath` or the bare name `java` is only for callers that
+   * have not looked for a runtime themselves.
+   */
+  javaPath?: string | null
 }
 
 /**
@@ -86,7 +94,7 @@ export function buildLaunchPlan(input: LaunchPlanInput): LaunchPlan {
     user_properties: '[]',
     version_name: versionId,
     version_type: 'release',
-    game_directory: profile.gameDir ?? gameDir,
+    game_directory: gameDir,
     assets_root: assetsDir,
     game_assets: assetsDir,
     assets_index_name: merged.assetsIndex ?? '',
@@ -146,10 +154,16 @@ export function buildLaunchPlan(input: LaunchPlanInput): LaunchPlan {
 
   return {
     profileId: profile.id,
+    instanceId: input.instanceId ?? null,
     versionId,
-    javaPath: settings.javaPath && settings.javaPath.trim() !== '' ? settings.javaPath : 'java',
+    javaPath:
+      input.javaPath && input.javaPath.trim() !== ''
+        ? input.javaPath
+        : settings.javaPath && settings.javaPath.trim() !== ''
+          ? settings.javaPath
+          : 'java',
     args,
-    cwd: profile.gameDir ?? gameDir,
+    cwd: gameDir,
     connect
   }
 }

@@ -5,6 +5,12 @@
  */
 export interface AppEnvironment {
   userDataDir: string
+  /** Where new instances are created: `<userData>/instances`. */
+  defaultInstancesDir: string
+  /**
+   * The conventional game directory. Only used to bring an older state file
+   * forward, where one global directory stood in for today's instances.
+   */
   defaultGameDir: string
   launcherName: string
   launcherVersion: string

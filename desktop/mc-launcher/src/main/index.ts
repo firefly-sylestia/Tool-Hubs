@@ -3,14 +3,23 @@ import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { BrowserWindow, app, ipcMain, shell } from 'electron'
 import { IPC, type ServiceCallMessage } from '@shared/ipc'
-import type { LauncherSettings, LauncherState } from '@shared/types'
+import type {
+  GameInstance,
+  InstallRequest,
+  LauncherSettings,
+  LauncherState,
+  ResourceKind
+} from '@shared/types'
 import type { AddServerInput } from './services/server-service'
 import type { CreateProfileInput, UpdateProfileInput } from './services/profile-service'
-import type { InstallRequest } from '@shared/types'
+import type { CreateInstanceInput } from './services/instance-service'
 import { InstallationService } from './services/installation-service'
 import { InstallService } from './services/install-service'
+import { InstanceService } from './services/instance-service'
+import { JavaService } from './services/java-service'
 import { LaunchService } from './services/launch-service'
 import { LogService } from './services/log-service'
+import { ModpackService } from './services/modpack-service'
 import { ProfileService } from './services/profile-service'
 import { ServiceRegistry } from './services/registry'
 import { ServerService } from './services/server-service'
@@ -64,6 +73,7 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
 
   const environment = {
     userDataDir: app.getPath('userData'),
+    defaultInstancesDir: join(app.getPath('userData'), 'instances'),
     defaultGameDir: join(homedir(), '.minecraft'),
     launcherName: 'mc-launcher',
     launcherVersion: app.getVersion(),
@@ -73,7 +83,7 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
 
   const state = new StateStore(
     join(environment.userDataDir, STATE_FILE),
-    defaultState(environment.defaultGameDir),
+    defaultState(environment.defaultInstancesDir),
     registry,
     warn
   )
@@ -81,17 +91,24 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   const settings = new SettingsService(state)
   const profiles = new ProfileService(state)
   const installations = new InstallationService(state, warn)
+  const instances = new InstanceService(state, environment, installations, settings, warn)
   const servers = new ServerService(state)
   const tasks = new TaskService(state, registry)
-  const launch = new LaunchService(state, environment, log, tasks, servers)
-  const install = new InstallService(state, environment, tasks, installations, settings, warn)
+  const java = new JavaService(environment, warn)
+  const launch = new LaunchService(state, environment, log, tasks, servers, java)
+  const install = new InstallService(environment, tasks, installations, instances, warn)
+  const modpacks = new ModpackService(install, instances, tasks, warn)
   const windows = new WindowController()
 
   const as = <T,>(params: unknown): T => params as T
   const profileInput = (params: unknown): { id: string; patch: UpdateProfileInput } =>
     as<{ id: string; patch: UpdateProfileInput }>(params)
-  const launchInput = (params: unknown): { profileId: string; serverId?: string | null } =>
-    as<{ profileId: string; serverId?: string | null }>(params)
+  const instanceInput = (params: unknown): { id: string; patch: Partial<GameInstance> } =>
+    as<{ id: string; patch: Partial<GameInstance> }>(params)
+  const launchInput = (params: unknown): { profileId: string; serverId?: string | null; instanceId?: string | null } =>
+    as<{ profileId: string; serverId?: string | null; instanceId?: string | null }>(params)
+  const resourceInput = (params: unknown): { instanceId?: string | null; kind: ResourceKind; name: string } =>
+    as<{ instanceId?: string | null; kind: ResourceKind; name: string }>(params)
 
   registry.register('settings', {
     get: () => settings.get(),
@@ -107,6 +124,33 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
     remove: (params) => profiles.remove(as<{ id: string }>(params).id),
     select: (params) => profiles.select(as<{ id: string | null }>(params).id)
   })
+  registry.register('instance', {
+    list: () => instances.list(),
+    selected: () => instances.selected(),
+    create: (params) => instances.create(as<CreateInstanceInput>(params)),
+    update: (params) => {
+      const input = instanceInput(params)
+      return instances.update(input.id, input.patch)
+    },
+    select: (params) => instances.select(as<{ id: string }>(params).id),
+    remove: (params) => instances.remove(as<{ id: string }>(params).id, as<{ deleteFiles?: boolean }>(params)),
+    resources: (params) => instances.resources(as<{ instanceId?: string | null } | undefined>(params)?.instanceId),
+    setResourceEnabled: (params) => {
+      const input = resourceInput(params)
+      return instances.setResourceEnabled({
+        instanceId: input.instanceId,
+        kind: input.kind,
+        name: input.name,
+        enabled: as<{ enabled: boolean }>(params).enabled
+      })
+    },
+    removeResource: (params) => instances.removeResource(resourceInput(params)),
+    addResources: (params) => {
+      const input = as<{ instanceId?: string | null; kind: ResourceKind; paths: string[] }>(params)
+      return instances.addResources({ instanceId: input.instanceId, kind: input.kind, paths: input.paths })
+    },
+    importFolder: (params) => instances.importFrom(as<{ path: string }>(params).path)
+  })
   registry.register('installation', {
     list: () => installations.list(),
     rescan: () => installations.rescan()
@@ -114,8 +158,14 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   registry.register('install', {
     versions: (params) => install.remoteVersions(as<{ refresh?: boolean } | undefined>(params) ?? {}),
     loaders: (params) => install.loaderVersions(as<{ loader: 'fabric' | 'quilt' }>(params)),
-    start: (params) => install.install(as<InstallRequest>(params)),
-    importFolder: (params) => install.importFrom(as<{ path: string }>(params).path)
+    start: (params) => install.install(as<InstallRequest>(params))
+  })
+  registry.register('modpack', {
+    inspect: (params) => modpacks.inspect(as<{ path: string }>(params).path),
+    import: (params) => modpacks.import(as<{ path: string }>(params).path)
+  })
+  registry.register('java', {
+    detect: () => java.detect()
   })
   registry.register('server', {
     list: () => servers.list(),
@@ -126,11 +176,11 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   registry.register('launch', {
     plan: (params) => {
       const input = launchInput(params)
-      return launch.plan(input.profileId, input.serverId)
+      return launch.plan(input.profileId, input.serverId, input.instanceId)
     },
     start: (params) => {
       const input = launchInput(params)
-      return launch.start(input.profileId, input.serverId)
+      return launch.start(input.profileId, input.serverId, input.instanceId)
     },
     stop: () => launch.stop(),
     status: () => launch.status()
@@ -149,13 +199,17 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
     focus: () => windows.focus(),
     isMaximized: () => windows.isMaximized(),
     toggleDevTools: () => windows.toggleDevTools(),
-    pickFolder: () => windows.pickFolder()
+    pickFolder: () => windows.pickFolder(),
+    pickFiles: () => windows.pickFiles(),
+    openPath: (params) => windows.openPath(as<{ path: string }>(params))
   })
 
-  // First inspection of an existing installation, so the UI has something to
-  // show on boot. Failures are logged, not fatal.
+  // First inspection of the selected instance, so the UI has something to show
+  // on boot. Failures are logged, not fatal.
   try {
-    installations.rescan()
+    const selected = instances.selected()
+    if (selected) instances.ensureFolders(selected)
+    installations.rescan(selected?.dir ?? null)
   } catch (error) {
     warn(`Initial scan failed: ${(error as Error).message}`)
   }

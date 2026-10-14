@@ -10,10 +10,12 @@ import { routes } from '@renderer/router'
 const baseState: LauncherState = {
   profiles: [],
   selectedProfileId: null,
+  instances: [],
+  selectedInstanceId: null,
   servers: [],
   pendingServerId: null,
   settings: {
-    gameDir: '/games/.minecraft',
+    instancesDir: '/games/instances',
     javaPath: null,
     maxMemoryMb: 4096,
     width: 1280,
@@ -31,13 +33,25 @@ const steveState: LauncherState = {
       id: 'p1',
       name: 'Steve',
       uuid: 'b50ad385-829d-3141-a216-7e7d7539ba7f',
-      gameDir: null,
-      versionId: '1.21.4',
       createdAt: '2026-10-13T00:00:00.000Z',
       lastPlayedAt: null
     }
   ],
   selectedProfileId: 'p1',
+  instances: [
+    {
+      id: 'i1',
+      name: 'Steve’s world',
+      dir: '/games/instances/steves-world',
+      source: 'created',
+      versionId: '1.21.4',
+      loader: null,
+      loaderVersion: null,
+      createdAt: '2026-10-13T00:00:00.000Z',
+      lastPlayedAt: null
+    }
+  ],
+  selectedInstanceId: 'i1',
   installations: [
     {
       id: '1.21.4',
@@ -171,11 +185,11 @@ describe('renderer shell', () => {
   it('boots from the bridge and lists the navigation entries', async () => {
     const { wrapper } = await mountApp()
     const text = wrapper.text()
-    for (const label of ['Play', 'Installed versions', 'Servers', 'Settings', 'Logs']) {
+    for (const label of ['Play', 'Instances', 'Servers', 'Settings', 'Logs']) {
       expect(text).toContain(label)
     }
     expect(bootCalls.some((entry) => entry.service === 'log' && entry.method === 'recent')).toBe(true)
-    expect(text).toContain('No versions found')
+    expect(text).toContain('No instance yet')
   })
 
   it('renders a snapshot pushed by the main process', async () => {
@@ -184,7 +198,7 @@ describe('renderer shell', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('Steve')
     expect(inputByLabel(wrapper, 'Offline UUID').element.value).toBe('b50ad385-829d-3141-a216-7e7d7539ba7f')
-    expect(wrapper.text()).not.toContain('No versions found')
+    expect(wrapper.text()).not.toContain('No instance yet')
   })
 
   it('routes a UI action through the service bridge', async () => {
@@ -211,12 +225,15 @@ describe('renderer shell', () => {
     expect(body).not.toContain('Error invoking remote method')
   })
 
-  it('installs the version the picker offers, without preselecting a snapshot', async () => {
+  it('installs the version the picker offers into the selected instance', async () => {
     const { wrapper, router } = await mountApp()
+    // The page installs into an instance, so give it one before opening it.
+    pushSnapshot(steveState)
     await router.push('/instances')
     await flushPromises()
 
     expect(calls).toContainEqual({ service: 'install', method: 'versions', params: { refresh: false } })
+    expect(calls).toContainEqual({ service: 'instance', method: 'resources', params: { instanceId: 'i1' } })
     // The releases filter is on by default, so nothing on screen should be a
     // snapshot even though the manifest starts with one.
     expect(inputByLabel(wrapper, 'Game version').element.value).toBe('1.21.4')
@@ -226,7 +243,16 @@ describe('renderer shell', () => {
     expect(calls).toContainEqual({
       service: 'install',
       method: 'start',
-      params: { versionId: '1.21.4', loader: 'vanilla', loaderVersion: null }
+      params: { versionId: '1.21.4', loader: 'vanilla', loaderVersion: null, instanceId: 'i1' }
+    })
+    // The instance plays what was installed, so Play is one click away next time.
+    expect(calls).toContainEqual({
+      service: 'instance',
+      method: 'update',
+      params: {
+        id: 'i1',
+        patch: { versionId: 'fabric-loader-0.16.9-1.21.4', loader: 'vanilla', loaderVersion: null }
+      }
     })
     expect(wrapper.text()).toContain('Installed fabric-loader-0.16.9-1.21.4')
   })
@@ -239,7 +265,7 @@ describe('renderer shell', () => {
     expect(wrapper.text()).toContain('no account and no session')
     await router.push('/settings')
     await flushPromises()
-    expect(wrapper.text()).toContain('Game directory')
-    expect(inputByLabel(wrapper, 'Game directory').element.value).toBe('/games/.minecraft')
+    expect(wrapper.text()).toContain('Instances folder')
+    expect(inputByLabel(wrapper, 'Instances folder').element.value).toBe('/games/instances')
   })
 })

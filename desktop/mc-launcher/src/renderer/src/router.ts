@@ -7,7 +7,7 @@ import SettingsView from './views/SettingsView.vue'
 
 export const routes = [
   { path: '/', name: 'home', component: HomeView, meta: { title: 'Play' } },
-  { path: '/instances', name: 'instances', component: InstancesView, meta: { title: 'Installed versions' } },
+  { path: '/instances', name: 'instances', component: InstancesView, meta: { title: 'Instances' } },
   { path: '/servers', name: 'servers', component: ServersView, meta: { title: 'Servers' } },
   { path: '/settings', name: 'settings', component: SettingsView, meta: { title: 'Settings' } },
   { path: '/logs', name: 'logs', component: LogsView, meta: { title: 'Logs' } }

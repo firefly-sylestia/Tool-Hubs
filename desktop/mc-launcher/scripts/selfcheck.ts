@@ -38,11 +38,26 @@ import {
   parseVersionManifest
 } from '../src/main/minecraft/version-manifest'
 import { extractZip, isNativeLibraryEntry, listZipEntries } from '../src/main/minecraft/zip'
+import {
+  detectModpackFormat,
+  instancePathFor,
+  parseCurseForgeManifest,
+  parseModrinthIndex,
+  parseLoaderId
+} from '../src/main/minecraft/modpack'
+import {
+  javaCandidates,
+  parseJavaMajorVersion,
+  runtimeCandidate,
+  selectJava
+} from '../src/main/minecraft/java'
+import { splitResourceName, resourceFileName, isResourceFile } from '../src/main/minecraft/resources'
 import { AtomicJsonStore } from '../src/main/services/atomic-store'
+import { InstanceService, slugFor } from '../src/main/services/instance-service'
 import { InstallationService } from '../src/main/services/installation-service'
 import { InstallService } from '../src/main/services/install-service'
 import { ServiceRegistry } from '../src/main/services/registry'
-import { StateStore, defaultState } from '../src/main/services/state-store'
+import { StateStore, defaultState, migrateState } from '../src/main/services/state-store'
 import { ProfileService } from '../src/main/services/profile-service'
 import { ServerService } from '../src/main/services/server-service'
 import { SettingsService } from '../src/main/services/settings-service'
@@ -216,8 +231,6 @@ const profile: Profile = {
   id: 'profile-1',
   name: 'Steve',
   uuid: offlineUuid('Steve'),
-  gameDir: null,
-  versionId: '1.21.4',
   createdAt: new Date().toISOString(),
   lastPlayedAt: null
 }
@@ -349,7 +362,7 @@ check('builds a complete offline command', () => {
     gameDir,
     profile,
     versionId: '1.21.4',
-    settings: { gameDir, javaPath: null, maxMemoryMb: 2048, width: 1024, height: 768 },
+    settings: { instancesDir: gameDir, javaPath: null, maxMemoryMb: 2048, width: 1024, height: 768 },
     connect: null,
     ctx
   })
@@ -374,9 +387,9 @@ check('builds a complete offline command', () => {
 check('appends the loader arguments after the inherited ones', () => {
   const plan = buildLaunchPlan({
     gameDir,
-    profile: { ...profile, versionId: '1.21.4-forge' },
+    profile,
     versionId: '1.21.4-forge',
-    settings: { gameDir, javaPath: '/usr/bin/java', maxMemoryMb: 4096, width: 1280, height: 720 },
+    settings: { instancesDir: gameDir, javaPath: '/usr/bin/java', maxMemoryMb: 4096, width: 1280, height: 720 },
     connect: null,
     ctx
   })
@@ -392,7 +405,7 @@ check('uses quick play for 1.20 and newer, and the legacy flags below', () => {
     gameDir,
     profile,
     versionId: '1.21.4',
-    settings: { gameDir, javaPath: null, maxMemoryMb: 2048, width: 1280, height: 720 },
+    settings: { instancesDir: gameDir, javaPath: null, maxMemoryMb: 2048, width: 1280, height: 720 },
     connect: { host: '127.0.0.1', port: 25566 },
     ctx
   })
@@ -401,7 +414,7 @@ check('uses quick play for 1.20 and newer, and the legacy flags below', () => {
     gameDir,
     profile,
     versionId: '1.19.4',
-    settings: { gameDir, javaPath: null, maxMemoryMb: 2048, width: 1280, height: 720 },
+    settings: { instancesDir: gameDir, javaPath: null, maxMemoryMb: 2048, width: 1280, height: 720 },
     connect: { host: '127.0.0.1', port: 25566 },
     ctx
   })
@@ -414,9 +427,9 @@ check('fails with an actionable message when natives are missing', () => {
     () =>
       buildLaunchPlan({
         gameDir,
-        profile: { ...profile, versionId: '1.21.4-nolibs' },
+        profile,
         versionId: '1.21.4-nolibs',
-        settings: { gameDir, javaPath: null, maxMemoryMb: 2048, width: 1280, height: 720 },
+        settings: { instancesDir: gameDir, javaPath: null, maxMemoryMb: 2048, width: 1280, height: 720 },
         connect: null,
         ctx
       }),
@@ -435,15 +448,93 @@ console.log('\nlog plumbing')
   })
 }
 
-console.log('\nstate and services')
+console.log('\nservices')
 const registry = new ServiceRegistry()
-const state = new StateStore(join(stateDir, 'launcher-state.json'), defaultState(gameDir), registry)
+const environment = {
+  userDataDir: stateDir,
+  defaultInstancesDir: join(root, 'instances'),
+  defaultGameDir: gameDir,
+  launcherName: 'mc-launcher',
+  launcherVersion: '0.0.0',
+  platform: 'linux' as NodeJS.Platform,
+  arch: 'x64'
+}
+const state = new StateStore(
+  join(stateDir, 'launcher-state.json'),
+  defaultState(environment.defaultInstancesDir),
+  registry
+)
 const profiles = new ProfileService(state)
 const servers = new ServerService(state)
 const settings = new SettingsService(state)
+const installations = new InstallationService(state, () => {})
+const instances = new InstanceService(state, environment, installations, settings, () => {})
+const tasks = new TaskService(state, registry)
+const installer = new InstallService(environment, tasks, installations, instances, () => {})
 
+console.log('\ninstances')
+const instance = instances.create({ name: 'Imported', dir: gameDir, source: 'imported' })
+check('an instance owns the directory it plays in', () => {
+  expectEqual(instances.selected()?.id, instance.id, 'a new instance is selected')
+  expectEqual(instance.dir, gameDir, 'it keeps the directory it was given')
+  expectEqual(instance.source, 'imported', 'and remembers where it came from')
+  expect(
+    existsSync(join(gameDir, 'mods')) && existsSync(join(gameDir, 'shaderpacks')),
+    'its resource folders are created'
+  )
+})
+check('names instance folders after the instance without collisions', () => {
+  expectEqual(slugFor('My Pack 1.21', []), 'my-pack-1-21', 'slug')
+  expectEqual(slugFor('My Pack 1.21', ['my-pack-1-21']), 'my-pack-1-21-2', 'second one')
+  expectEqual(slugFor('!!!', []), 'instance', 'nothing usable left')
+})
+check('refuses duplicate and unusable instance names', () => {
+  expectThrows(() => instances.create({ name: 'Imported' }), 'already exists')
+  expectThrows(() => instances.create({ name: 'bad/name' }), 'cannot contain')
+  expectThrows(() => instances.create({ name: '' }), '1-48 characters')
+})
+
+console.log('\nresources')
+check('classifies, toggles and refuses the wrong kind of file', () => {
+  const mods = join(gameDir, 'mods')
+  writeFileSync(join(mods, 'sodium.jar'), 'mod')
+  writeFileSync(join(mods, 'old-mod.zip'), 'mod')
+  writeFileSync(join(mods, 'notes.txt'), 'not a mod')
+  writeFileSync(join(mods, '.DS_Store'), 'not a mod')
+
+  let resources = instances.resources(instance.id)
+  expectEqual(resources.entries.mod.map((entry) => entry.title), ['old-mod.zip', 'sodium.jar'], 'only mods are listed')
+
+  resources = instances.setResourceEnabled({ instanceId: instance.id, kind: 'mod', name: 'sodium.jar', enabled: false })
+  const disabled = resources.entries.mod.find((entry) => entry.title === 'sodium.jar')!
+  expectEqual(disabled.enabled, false, 'it is off')
+  expect(existsSync(join(mods, 'sodium.jar.disabled')), 'the rename is what turns it off')
+  expectEqual(resources.entries.mod.map((entry) => entry.enabled), [true, false], 'enabled ones sort first')
+
+  resources = instances.setResourceEnabled({
+    instanceId: instance.id,
+    kind: 'mod',
+    name: 'sodium.jar.disabled',
+    enabled: true
+  })
+  expect(existsSync(join(mods, 'sodium.jar')), 'and back on again')
+  expect(!existsSync(join(mods, 'sodium.jar.disabled')), 'the suffixed copy is gone')
+
+  const added = instances.addResources({
+    instanceId: instance.id,
+    kind: 'resourcepack',
+    paths: [join(mods, 'sodium.jar'), join(mods, 'old-mod.zip')]
+  })
+  expectEqual(added.added, ['old-mod.zip'], 'only the zip belongs in resourcepacks')
+  expect(added.skipped[0].includes('did you mean to add it to mods'), 'and the jar is refused with the reason')
+
+  const removed = instances.removeResource({ instanceId: instance.id, kind: 'mod', name: 'old-mod.zip' })
+  expectEqual(removed.entries.mod.map((entry) => entry.title), ['sodium.jar'], 'removed')
+})
+
+console.log('\nstate and services')
 check('creates a profile with an offline UUID', () => {
-  const created = profiles.create({ name: 'Alex', versionId: '1.21.4' })
+  const created = profiles.create({ name: 'Alex' })
   expectEqual(created.uuid, offlineUuid('Alex'), 'uuid')
   expectEqual(state.snapshot().selectedProfileId, created.id, 'selected profile')
 })
@@ -467,7 +558,7 @@ check('validates server entries', () => {
 })
 check('validates settings', () => {
   expectThrows(() => settings.update({ maxMemoryMb: 10 }), 'between 512 and 65536')
-  expectThrows(() => settings.update({ gameDir: 'relative/path' }), 'absolute path')
+  expectThrows(() => settings.update({ instancesDir: 'relative/path' }), 'absolute path')
   const updated = settings.update({ maxMemoryMb: 6144, javaPath: null })
   expectEqual(updated.maxMemoryMb, 6144, 'memory')
 })
@@ -475,7 +566,7 @@ check('persists state through the store', () => {
   const reopened = new StateStore(join(stateDir, 'launcher-state.json'), defaultState('/tmp/other'), registry)
   expectEqual(reopened.snapshot().profiles.length, profiles.list().length, 'profiles survived')
   expectEqual(reopened.snapshot().settings.maxMemoryMb, 6144, 'settings survived')
-  expectEqual(reopened.snapshot().settings.gameDir, gameDir, 'game dir survived')
+  expectEqual(reopened.snapshot().settings.instancesDir, environment.defaultInstancesDir, 'instances dir survived')
   expectEqual(reopened.snapshot().settings.javaPath, null, 'null java path survived')
 })
 check('falls back to defaults for a corrupt state file', () => {
@@ -494,48 +585,48 @@ check('writes state atomically', () => {
   expectEqual(store.read(), { count: 7 }, 'round trip')
 })
 
+/** Builds a zip in memory so the readers can be checked without an archive on disk. */
+function buildZip(files: { name: string; contents: string; store?: boolean }[]): Buffer {
+  const parts: Buffer[] = []
+  const central: Buffer[] = []
+  let offset = 0
+  for (const file of files) {
+    const raw = Buffer.from(file.contents, 'utf8')
+    const data = file.store ? raw : deflateRawSync(raw)
+    const name = Buffer.from(file.name, 'utf8')
+    const local = Buffer.alloc(30)
+    local.writeUInt32LE(0x04034b50, 0)
+    local.writeUInt16LE(20, 4)
+    local.writeUInt16LE(file.store ? 0 : 8, 8)
+    local.writeUInt32LE(data.length, 18)
+    local.writeUInt32LE(raw.length, 22)
+    local.writeUInt16LE(name.length, 26)
+    parts.push(local, name, data)
+
+    const entry = Buffer.alloc(46)
+    entry.writeUInt32LE(0x02014b50, 0)
+    entry.writeUInt16LE(20, 4)
+    entry.writeUInt16LE(20, 6)
+    entry.writeUInt16LE(file.store ? 0 : 8, 10)
+    entry.writeUInt32LE(data.length, 20)
+    entry.writeUInt32LE(raw.length, 24)
+    entry.writeUInt16LE(name.length, 28)
+    entry.writeUInt32LE(offset, 42)
+    central.push(entry, name)
+    offset += local.length + name.length + data.length
+  }
+  const directory = Buffer.concat(central)
+  const eocd = Buffer.alloc(22)
+  eocd.writeUInt32LE(0x06054b50, 0)
+  eocd.writeUInt16LE(files.length, 8)
+  eocd.writeUInt16LE(files.length, 10)
+  eocd.writeUInt32LE(directory.length, 12)
+  eocd.writeUInt32LE(offset, 16)
+  return Buffer.concat([...parts, directory, eocd])
+}
+
 console.log('\nzip reading')
 {
-  /** Builds a zip in memory so the reader can be checked without an archive on disk. */
-  function buildZip(files: { name: string; contents: string; store?: boolean }[]): Buffer {
-    const parts: Buffer[] = []
-    const central: Buffer[] = []
-    let offset = 0
-    for (const file of files) {
-      const raw = Buffer.from(file.contents, 'utf8')
-      const data = file.store ? raw : deflateRawSync(raw)
-      const name = Buffer.from(file.name, 'utf8')
-      const local = Buffer.alloc(30)
-      local.writeUInt32LE(0x04034b50, 0)
-      local.writeUInt16LE(20, 4)
-      local.writeUInt16LE(file.store ? 0 : 8, 8)
-      local.writeUInt32LE(data.length, 18)
-      local.writeUInt32LE(raw.length, 22)
-      local.writeUInt16LE(name.length, 26)
-      parts.push(local, name, data)
-
-      const entry = Buffer.alloc(46)
-      entry.writeUInt32LE(0x02014b50, 0)
-      entry.writeUInt16LE(20, 4)
-      entry.writeUInt16LE(20, 6)
-      entry.writeUInt16LE(file.store ? 0 : 8, 10)
-      entry.writeUInt32LE(data.length, 20)
-      entry.writeUInt32LE(raw.length, 24)
-      entry.writeUInt16LE(name.length, 28)
-      entry.writeUInt32LE(offset, 42)
-      central.push(entry, name)
-      offset += local.length + name.length + data.length
-    }
-    const directory = Buffer.concat(central)
-    const eocd = Buffer.alloc(22)
-    eocd.writeUInt32LE(0x06054b50, 0)
-    eocd.writeUInt16LE(files.length, 8)
-    eocd.writeUInt16LE(files.length, 10)
-    eocd.writeUInt32LE(directory.length, 12)
-    eocd.writeUInt32LE(offset, 16)
-    return Buffer.concat([...parts, directory, eocd])
-  }
-
   const archive = buildZip([
     { name: 'META-INF/MANIFEST.MF', contents: 'Manifest-Version: 1.0\n', store: true },
     { name: 'lib/linux/libglfw.so', contents: 'native-for-linux' },
@@ -947,32 +1038,20 @@ await acheck('reports byte progress across a batch and counts what it reused', a
 console.log('\nimporting what is already on disk')
 {
   const importRoot = join(root, 'import')
-  const environment = {
-    userDataDir: stateDir,
-    defaultGameDir: gameDir,
-    launcherName: 'mc-launcher',
-    launcherVersion: '0.0.0',
-    platform: 'linux' as NodeJS.Platform,
-    arch: 'x64'
-  }
-  const tasks = new TaskService(state, registry)
-  const installations = new InstallationService(state, () => {})
-  const installer = new InstallService(state, environment, tasks, installations, settings, () => {})
 
-  check('copies a single version folder into the current installation', () => {
+  check('copies a single version folder into the selected instance', () => {
     const source = join(importRoot, 'downloaded', 'Imported-1.0')
     mkdirSync(source, { recursive: true })
     writeFileSync(
       join(source, 'Imported-1.0.json'),
       JSON.stringify({ id: 'Imported-1.0', mainClass: 'net.minecraft.client.main.Main' })
     )
-    const result = installer.importFrom(source)
-    expectEqual(result.kind, 'version', 'a version folder is copied in')
+    const result = instances.importFrom(source)
+    expectEqual(result.versionCount, 1, 'one version was copied')
     expect(
       existsSync(join(gameDir, 'versions', 'Imported-1.0', 'Imported-1.0.json')),
       'the json landed under versions/'
     )
-    expect(result.installationCount > 0, 'the rescan after the copy sees it')
   })
 
   check('uses a game directory in place rather than copying gigabytes', () => {
@@ -980,21 +1059,229 @@ console.log('\nimporting what is already on disk')
     mkdirSync(join(other, 'versions', '1.21.4'), { recursive: true })
     writeFileSync(
       join(other, 'versions', '1.21.4', '1.21.4.json'),
-      JSON.stringify({ id: '1.21.4', downloads: { client: { url: 'https://piston/client.jar' } } })
+      JSON.stringify({
+        id: '1.21.4',
+        downloads: { client: { path: '1.21.4/1.21.4.jar', url: 'https://piston/client.jar' } }
+      })
     )
     mkdirSync(join(other, 'libraries'))
-    const result = installer.importFrom(other)
-    expectEqual(result.kind, 'gameDirectory', 'a game directory is used where it is')
-    expectEqual(state.snapshot().settings.gameDir, other, 'the setting followed it')
-    expect(result.message.includes('assets/'), 'the message names what is still missing')
-    settings.update({ gameDir })
+    const result = instances.importFrom(other)
+    expectEqual(result.instance.dir, other, 'the instance keeps the directory it was given')
+    expectEqual(result.instance.source, 'imported', 'marked as imported')
+    expectEqual(result.instance.versionId, '1.21.4', 'and starts on the version that is there')
+    expect(
+      result.message.includes('no assets'),
+      `the message names what is still missing (got: ${result.message})`
+    )
   })
 
   check('refuses a folder that is neither, and says what it wanted', () => {
     const empty = join(importRoot, 'empty')
     mkdirSync(empty, { recursive: true })
-    expectThrows(() => installer.importFrom(empty), 'expected a game directory')
-    expectThrows(() => installer.importFrom(join(importRoot, 'absent')), 'does not exist')
+    expectThrows(() => instances.importFrom(empty), 'expected a game directory')
+    expectThrows(() => instances.importFrom(join(importRoot, 'absent')), 'does not exist')
+  })
+}
+
+console.log('\nmodpack archives')
+{
+  check('tells the two pack formats apart, and by their index only', () => {
+    expectEqual(detectModpackFormat(['modrinth.index.json', 'overrides/']), 'modrinth', 'modrinth')
+    expectEqual(detectModpackFormat(['manifest.json', 'mods/a.jar']), 'curseforge', 'curseforge')
+    expectEqual(detectModpackFormat(['mods/a.jar']), null, 'neither')
+  })
+
+  check('reads a Modrinth index into something installable', () => {
+    const plan = parseModrinthIndex({
+      name: 'Fabulously Optimized',
+      versionId: '5.0.0',
+      dependencies: { minecraft: '1.21.4', 'fabric-loader': '0.16.9' },
+      files: [
+        {
+          path: 'mods/sodium.jar',
+          downloads: ['https://cdn.example/sodium.jar'],
+          hashes: { sha1: 'aa', sha512: 'bb' },
+          fileSize: 1234
+        },
+        { path: 'mods/client-only.jar', downloads: ['https://cdn.example/x.jar'], env: { client: 'unsupported' } },
+        { path: 'mods/no-url.jar' }
+      ]
+    })
+    expectEqual(plan.summary.gameVersion, '1.21.4', 'the game version it asks for')
+    expectEqual(plan.summary.loader, 'fabric', 'the loader it asks for')
+    expectEqual(plan.summary.loaderVersion, '0.16.9', 'and the loader version')
+    expectEqual(plan.files.map((file) => file.path), ['mods/sodium.jar'], 'only the client files with a url')
+    expectEqual(plan.files[0].sha512, 'bb', 'both hashes are kept')
+    expectEqual(plan.summary.downloadable, 1, 'summary count')
+  })
+
+  check('refuses a pack that needs a loader this launcher cannot install', () => {
+    expectThrows(
+      () => parseModrinthIndex({ dependencies: { minecraft: '1.21.4', 'neoforge-loader': '21.4.0' } }),
+      'Forge and NeoForge publish installers'
+    )
+  })
+
+  check('reads a CurseForge manifest and says what it cannot fetch', () => {
+    expectEqual(parseLoaderId('forge-47.2.0').name, 'forge', 'loader id splitting')
+    // A Forge pack is refused by name rather than half-imported: its loader has
+    // an installer of its own that this launcher cannot run.
+    expectThrows(
+      () =>
+        parseCurseForgeManifest({
+          name: 'All the Mods',
+          minecraft: { version: '1.20.1', modLoaders: [{ id: 'forge-47.2.0', primary: true }] }
+        }),
+      'Forge and NeoForge publish installers'
+    )
+
+    const fabric = parseCurseForgeManifest({
+      name: 'A fabric pack',
+      version: '2.0.0',
+      minecraft: { version: '1.20.1', modLoaders: [{ id: 'fabric-0.15.0', primary: true }] },
+      overrides: 'overrides',
+      files: [
+        { projectID: 238222, fileID: 123456, required: true },
+        { projectID: 1, fileID: 2, required: false }
+      ]
+    })
+    expectEqual(fabric.summary.gameVersion, '1.20.1', 'the game version')
+    expectEqual(fabric.summary.loader, 'fabric', 'the loader it names')
+    expectEqual(fabric.summary.loaderVersion, '0.15.0', 'and its version')
+    expectEqual(fabric.unresolved, ['238222:123456'], 'required files are reported, optional ones are not')
+    expectEqual(fabric.summary.downloadable, 0, 'nothing is downloadable without an api')
+  })
+
+  check('maps archive entries into the instance and nowhere else', () => {
+    const plan = parseModrinthIndex({ name: 'x', dependencies: { minecraft: '1.21.4' } })
+    expectEqual(instancePathFor('overrides/config/fabric.json', plan), 'config/fabric.json', 'overrides stripped')
+    expectEqual(instancePathFor('modrinth.index.json', plan), null, 'the index is metadata')
+    expectEqual(instancePathFor('mods/sodium.jar', plan), null, 'top-level files are the download list, not ours')
+    expectEqual(instancePathFor('overrides/', plan), null, 'directories are skipped')
+
+    const curseforge = parseCurseForgeManifest({
+      minecraft: { version: '1.20.1', modLoaders: [{ id: 'fabric-0.15.0' }] },
+      files: []
+    })
+    expectEqual(instancePathFor('mods/sodium.jar', curseforge), 'mods/sodium.jar', 'bundled mods come in')
+    expectEqual(instancePathFor('saves/world/level.dat', curseforge), null, 'saves do not')
+  })
+
+  check('unpacks a renamed tree without leaving the instance', () => {
+    const plan = parseModrinthIndex({ name: 'x', dependencies: { minecraft: '1.21.4' } })
+    const dest = join(root, 'modpack-instance')
+    const rename = (name: string): string | null => instancePathFor(name, plan)
+
+    const pack = buildZip([
+      { name: 'overrides/config/fabric.json', contents: '{"x":1}' },
+      { name: 'overrides/saves/world/level.dat', contents: 'save' }
+    ])
+    expectEqual(
+      extractZip(pack, dest, { rename }),
+      2,
+      'the overrides tree is written; the index is not'
+    )
+    expectEqual(readFileSync(join(dest, 'config', 'fabric.json'), 'utf8'), '{"x":1}', 'prefix dropped')
+
+    // An archive is untrusted input: a pack that tries to climb out of the
+    // instance is refused, not quietly written somewhere else.
+    const hostile = buildZip([{ name: 'overrides/../../escape.txt', contents: 'nope' }])
+    expectThrows(
+      () => extractZip(hostile, join(root, 'modpack-escape'), { rename }),
+      'would be written outside'
+    )
+    expect(!existsSync(join(root, 'escape.txt')), 'nothing escaped the destination')
+  })
+}
+
+console.log('\njava')
+{
+  check('reads the major version out of java -version output', () => {
+    expectEqual(parseJavaMajorVersion('openjdk version "17.0.9" 2023-10-17'), 17, 'modern')
+    expectEqual(parseJavaMajorVersion('java version "1.8.0_392"'), 8, 'the old 1.x spelling')
+    expectEqual(parseJavaMajorVersion('java version "21"'), 21, 'no minor')
+    expectEqual(parseJavaMajorVersion('nothing useful here'), null, 'unrecognised')
+  })
+
+  check('prefers the smallest runtime that is new enough', () => {
+    const runtimes = [
+      { path: '/jdk-8/bin/java', major: 8 },
+      { path: '/jdk-17/bin/java', major: 17 },
+      { path: '/jdk-21/bin/java', major: 21 }
+    ]
+    expectEqual(selectJava(runtimes, 17)?.path, '/jdk-17/bin/java', '17 for a version that wants 17')
+    expectEqual(selectJava(runtimes, 21)?.path, '/jdk-21/bin/java', 'the only one good enough')
+    expectEqual(selectJava(runtimes, null)?.path, '/jdk-21/bin/java', 'newest when nothing is required')
+    expectEqual(
+      selectJava(runtimes, 25)?.path,
+      '/jdk-21/bin/java',
+      'the newest anyway rather than refusing to launch'
+    )
+    expectEqual(selectJava([{ path: '/unknown/bin/java', major: null }], 17)?.path, '/unknown/bin/java', 'unprobed fallback')
+    expectEqual(selectJava([], 17), null, 'nothing at all')
+  })
+
+  check('looks inside the instance first, then JAVA_HOME, then the system', () => {
+    const candidates = javaCandidates({
+      platform: 'linux',
+      instanceDir: '/instances/a',
+      component: 'java-runtime-delta',
+      env: { JAVA_HOME: '/usr/lib/jvm/jdk-17' },
+      homeDir: '/home/steve'
+    })
+    expectEqual(candidates[0].path, '/instances/a/runtime/java-runtime-delta/linux/java-runtime-delta/bin/java', 'runtime first')
+    expectEqual(candidates[0].knownMajor, 21, 'and it knows what a delta runtime is')
+    expectEqual(candidates[1].source, 'JAVA_HOME', 'then JAVA_HOME')
+    expectEqual(candidates[1].knownMajor, 17, 'read from the path')
+    expect(
+      candidates.some((candidate) => candidate.path === '/usr/lib/jvm'),
+      'and the ordinary JDK folders'
+    )
+    expectEqual(runtimeCandidate('/i', '', 'linux'), null, 'no component, no runtime')
+  })
+
+  check('knows which files a resource folder will load', () => {
+    expectEqual(splitResourceName('sodium.jar.disabled').title, 'sodium.jar', 'suffix stripped')
+    expectEqual(resourceFileName('sodium.jar', false), 'sodium.jar.disabled', 'and added back')
+    expect(isResourceFile('sodium.jar', 'mod'), 'a mod is a jar')
+    expect(!isResourceFile('sodium.jar', 'resourcepack'), 'a resource pack is not a jar')
+    expect(isResourceFile('pack.zip.disabled', 'resourcepack'), 'a disabled pack is still listed')
+    expect(!isResourceFile('.DS_Store', 'mod'), 'finder leftovers are not mods')
+    expect(!isResourceFile('download.jar.part', 'mod'), 'a part file is not a mod')
+  })
+}
+
+console.log('\nstate migration')
+{
+  check('turns an older state file into an instance instead of forgetting it', () => {
+    const legacy = defaultState('/instances')
+    const profiles = [{ id: 'p', name: 'Steve', uuid: 'u', createdAt: 'now', lastPlayedAt: null }]
+    const migrated = migrateState(
+      {
+        ...legacy,
+        settings: { ...legacy.settings, gameDir: '/games/.minecraft' } as never,
+        profiles: [{ ...profiles[0], versionId: '1.21.4' } as never]
+      },
+      { exists: () => true }
+    )
+    expectEqual(migrated.instances.length, 1, 'one instance is created')
+    expectEqual(migrated.instances[0].dir, '/games/.minecraft', 'over the old game directory')
+    expectEqual(migrated.instances[0].versionId, '1.21.4', 'taking the version from the profile')
+    expectEqual(migrated.selectedInstanceId, migrated.instances[0].id, 'and selecting it')
+    expect(
+      (migrated.settings as { gameDir?: string }).gameDir === undefined,
+      'the old setting is dropped'
+    )
+
+    const deleted = migrateState(
+      {
+        ...legacy,
+        settings: { ...legacy.settings, gameDir: '/games/gone' } as never,
+        profiles: []
+      },
+      { exists: () => false }
+    )
+    expectEqual(deleted.instances, [], 'a directory that is gone is not resurrected')
   })
 }
 

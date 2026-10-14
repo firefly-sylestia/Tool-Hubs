@@ -1,22 +1,24 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import type { LaunchPlan } from '@shared/types'
 import { useLauncher } from '@renderer/composables/useLauncher'
 
+const router = useRouter()
 const {
   profiles,
-  installations,
+  instances,
   selectedProfile,
+  selectedInstance,
   pendingServer,
   runningProfileId,
   tasks,
   createProfile,
   selectProfile,
-  updateProfile,
+  selectInstance,
   startLaunch,
   stopLaunch,
-  planLaunch,
-  rescan
+  planLaunch
 } = useLauncher()
 
 const newName = ref('')
@@ -24,17 +26,24 @@ const busy = ref(false)
 const plan = ref<LaunchPlan | null>(null)
 const showPlan = ref(false)
 
-const selected = computed(() => selectedProfile.value)
 const isRunning = computed(() => runningProfileId.value !== null)
+const canLaunch = computed(
+  () => selectedProfile.value !== null && selectedInstance.value?.versionId != null && !isRunning.value
+)
 
 function selectProfileById(id: string | null): void {
   void selectProfile(id)
 }
 
-function selectVersion(versionId: string | null): void {
-  const profile = selected.value
-  if (!profile) return
-  void updateProfile(profile.id, { versionId })
+function selectInstanceById(id: string): void {
+  void selectInstance(id)
+}
+
+/** A second line under each instance, so the picker says what would be launched. */
+function instanceProps(instance: { versionId: string | null; loader: string | null }): { subtitle: string } {
+  const version = instance.versionId ?? 'no version yet'
+  const loader = instance.loader && instance.loader !== 'vanilla' ? ` · ${instance.loader}` : ''
+  return { subtitle: `${version}${loader}` }
 }
 
 async function create(): Promise<void> {
@@ -51,11 +60,12 @@ async function create(): Promise<void> {
 }
 
 async function launch(): Promise<void> {
-  const profile = selected.value
-  if (!profile) return
+  const profile = selectedProfile.value
+  const instance = selectedInstance.value
+  if (!profile || !instance) return
   busy.value = true
   try {
-    await startLaunch(profile.id, pendingServer.value?.id ?? null)
+    await startLaunch(profile.id, pendingServer.value?.id ?? null, instance.id)
   } catch {
     // Reported in the snackbar; the log holds the details.
   } finally {
@@ -64,18 +74,15 @@ async function launch(): Promise<void> {
 }
 
 async function previewPlan(): Promise<void> {
-  const profile = selected.value
-  if (!profile) return
+  const profile = selectedProfile.value
+  const instance = selectedInstance.value
+  if (!profile || !instance) return
   try {
-    plan.value = await planLaunch(profile.id, pendingServer.value?.id ?? null)
+    plan.value = await planLaunch(profile.id, pendingServer.value?.id ?? null, instance.id)
     showPlan.value = true
   } catch {
     // Reported in the snackbar.
   }
-}
-
-async function stop(): Promise<void> {
-  await stopLaunch()
 }
 </script>
 
@@ -86,16 +93,41 @@ async function stop(): Promise<void> {
         <v-card-title>Play</v-card-title>
         <v-card-text>
           <v-select
+            :items="instances"
+            item-title="name"
+            item-value="id"
+            label="Instance"
+            :model-value="selectedInstance?.id ?? null"
+            :disabled="instances.length === 0"
+            :item-props="instanceProps"
+            @update:model-value="selectInstanceById"
+          />
+
+          <v-alert v-if="instances.length === 0" type="info" variant="tonal" class="mb-4">
+            No instance yet. Create one or import a folder you already have on
+            <strong>Instances</strong> — an instance is one game directory with its own mods.
+          </v-alert>
+          <v-alert
+            v-else-if="selectedInstance && !selectedInstance.versionId"
+            type="warning"
+            variant="tonal"
+            class="mb-4"
+          >
+            <strong>{{ selectedInstance.name }}</strong> has no version installed yet. Pick one on
+            <strong>Instances</strong>.
+          </v-alert>
+
+          <v-select
             :items="profiles"
             item-title="name"
             item-value="id"
             label="Profile"
-            :model-value="selected?.id ?? null"
+            :model-value="selectedProfile?.id ?? null"
             @update:model-value="selectProfileById"
           />
           <v-text-field
-            v-if="selected"
-            :model-value="selected.uuid"
+            v-if="selectedProfile"
+            :model-value="selectedProfile.uuid"
             label="Offline UUID"
             readonly
             hint="Derived from the profile name; this launcher never contacts an account service."
@@ -110,37 +142,17 @@ async function stop(): Promise<void> {
           />
           <v-btn class="mt-4" :disabled="busy || newName.trim() === ''" @click="create">Create profile</v-btn>
 
-          <v-divider class="my-6" />
-
-          <v-select
-            :items="installations"
-            item-title="id"
-            item-value="id"
-            label="Installed version"
-            :model-value="selected?.versionId ?? null"
-            :disabled="!selected || installations.length === 0"
-            @update:model-value="selectVersion"
-          />
-          <v-alert v-if="installations.length === 0" type="info" variant="tonal" class="mt-2">
-            No versions found yet. Install one from <strong>Installed versions</strong>, or add an
-            installation you already have — then pick it here.
-          </v-alert>
-
           <v-alert v-if="pendingServer" type="warning" variant="tonal" class="mt-4">
             Next launch joins {{ pendingServer.name }} ({{ pendingServer.host }}:{{ pendingServer.port }}).
             Enable join only if that server is configured for unauthenticated clients.
           </v-alert>
         </v-card-text>
         <v-card-actions>
-          <v-btn color="primary" :disabled="busy || !selected || !selected.versionId || isRunning" @click="launch">
-            Launch
-          </v-btn>
-          <v-btn :disabled="!isRunning" @click="stop">Stop</v-btn>
-          <v-btn variant="text" :disabled="!selected || !selected.versionId" @click="previewPlan">
-            Show command
-          </v-btn>
+          <v-btn color="primary" :disabled="busy || !canLaunch" @click="launch">Launch</v-btn>
+          <v-btn :disabled="!isRunning" @click="stopLaunch()">Stop</v-btn>
+          <v-btn variant="text" :disabled="!canLaunch" @click="previewPlan">Show command</v-btn>
           <v-spacer />
-          <v-btn variant="text" @click="rescan">Rescan versions</v-btn>
+          <v-btn variant="text" @click="router.push('/instances')">Manage instances</v-btn>
         </v-card-actions>
       </v-card>
     </v-col>

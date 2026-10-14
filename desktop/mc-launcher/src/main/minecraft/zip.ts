@@ -102,6 +102,12 @@ export interface ExtractOptions {
   exclude?: string[]
   /** Only entries this accepts are written; everything else is ignored. */
   filter?: (name: string) => boolean
+  /**
+   * Rewrites each written entry's name before it is resolved against `destDir`,
+   * and skips the entry when this returns null. A modpack's `overrides/` tree
+   * has to land at the instance root, which means dropping that prefix.
+   */
+  rename?: (name: string) => string | null
   /** Called for each file actually written, with its path relative to `destDir`. */
   onEntry?: (name: string, size: number) => void
 }
@@ -118,11 +124,13 @@ export function extractZip(buffer: Buffer, destDir: string, options: ExtractOpti
   let written = 0
 
   for (const entry of listZipEntries(buffer)) {
-    if (entry.name.endsWith('/')) continue
-    if (exclude.some((prefix) => entry.name.startsWith(prefix))) continue
     if (options.filter && !options.filter(entry.name)) continue
+    const name = options.rename ? options.rename(entry.name) : entry.name
+    if (name === null) continue
+    if (name.endsWith('/')) continue
+    if (exclude.some((prefix) => name.startsWith(prefix))) continue
 
-    const target = normalize(join(destDir, entry.name))
+    const target = normalize(join(destDir, name))
     const root = normalize(destDir)
     if (target !== root && !target.startsWith(root + sep)) {
       throw new Error(`Zip entry ${entry.name} would be written outside ${destDir}`)
@@ -132,7 +140,7 @@ export function extractZip(buffer: Buffer, destDir: string, options: ExtractOpti
     mkdirSync(dirname(target), { recursive: true })
     writeFileSync(target, contents)
     written += 1
-    options.onEntry?.(entry.name, contents.length)
+    options.onEntry?.(name, contents.length)
   }
 
   return written

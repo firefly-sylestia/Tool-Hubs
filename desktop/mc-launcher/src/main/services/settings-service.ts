@@ -30,14 +30,14 @@ export class SettingsService {
 
   update(patch: Partial<LauncherSettings>): LauncherSettings {
     return this.state.update((state) => {
-      if (patch.gameDir !== undefined) {
-        if (typeof patch.gameDir !== 'string' || patch.gameDir.trim() === '') {
-          throw new Error('The game directory cannot be empty.')
+      if (patch.instancesDir !== undefined) {
+        if (typeof patch.instancesDir !== 'string' || patch.instancesDir.trim() === '') {
+          throw new Error('The instances directory cannot be empty.')
         }
-        if (!isAbsolute(patch.gameDir)) {
-          throw new Error('The game directory must be an absolute path.')
+        if (!isAbsolute(patch.instancesDir)) {
+          throw new Error('The instances directory must be an absolute path.')
         }
-        state.settings.gameDir = patch.gameDir
+        state.settings.instancesDir = patch.instancesDir
       }
       if (patch.javaPath !== undefined) {
         if (patch.javaPath !== null && patch.javaPath.trim() !== '' && !isAbsolute(patch.javaPath)) {

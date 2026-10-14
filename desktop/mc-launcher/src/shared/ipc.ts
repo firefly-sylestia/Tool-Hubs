@@ -16,6 +16,9 @@ export const IPC = {
 
 export type ServiceName =
   | 'profile'
+  | 'instance'
+  | 'modpack'
+  | 'java'
   | 'installation'
   | 'install'
   | 'server'

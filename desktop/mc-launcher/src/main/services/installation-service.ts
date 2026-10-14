@@ -21,14 +21,26 @@ export class InstallationService {
     return this.state.snapshot().installations
   }
 
-  rescan(): InstalledVersion[] {
-    const gameDir = this.state.snapshot().settings.gameDir
-    const versionsDir = join(gameDir, 'versions')
+  /**
+   * Scans an instance's `versions/`. Without a directory it scans the selected
+   * instance, which is what every caller means by "rescan".
+   */
+  rescan(dir?: string | null): InstalledVersion[] {
+    const snapshot = this.state.snapshot()
+    const instance = snapshot.instances.find((candidate) => candidate.id === snapshot.selectedInstanceId)
+    const gameDir = dir ?? instance?.dir ?? null
 
+    if (gameDir === null) {
+      return this.state.update((state) => {
+        state.installations = []
+      }).installations
+    }
+
+    const versionsDir = join(gameDir, 'versions')
     if (!existsSync(versionsDir)) {
       this.warn(
-        `No versions directory at ${versionsDir}. Install a version, or point the game ` +
-          `directory at an installation you already have.`
+        `No versions directory at ${versionsDir}. Install a version into this instance, ` +
+          `or import an installation you already have.`
       )
       return this.state.update((state) => {
         state.installations = []
