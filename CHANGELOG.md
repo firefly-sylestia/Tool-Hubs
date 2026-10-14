@@ -11,6 +11,31 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.9.0]
+
+The worlds are the one thing in a game directory that cannot be downloaded again, and the launcher
+could not see them. It can now, and it keeps a copy before the operation that can break them.
+
+### Added
+- **Worlds, read from the game's own `saves/` folder.** Each world is described by its own `level.dat`
+— the name the game shows, the version that last wrote it, when it was last played, the game mode and
+whether it is hardcore — rather than by its folder name. A world whose `level.dat` cannot be read is
+still listed, with the reason, because that is exactly when someone goes looking for it.
+- **Export a world** to a zip you can send to someone: streamed, so a two-gigabyte world does not need
+two gigabytes of memory. **Import** from a folder or from a `.zip`/`.mcworld`, whether it holds
+`My World/level.dat` or a bare `level.dat`, with an archive holding two worlds refused rather than
+half-imported and a name that is taken given a number rather than overwriting what is there.
+- **Backups.** Any install that changes the game a world was written by — a new version, a loader, or a
+modpack — backs `saves/` up first, before anything is written, into `<instance>/backups/`; the file is
+named `before-…` so a folder of them still reads as what it is years later. A manual **Back up now**
+sits next to the list, and an install into an instance with no worlds writes nothing.
+- **A minimal NBT reader and writer**, which is what `level.dat` and the game's own `servers.dat` are,
+and **a zip writer** that streams files in rather than reading them into memory.
+
+### Notes
+- An *imported* archive is still unpacked from memory, so one over 512 MB is refused with a message
+saying to import the unzipped folder instead. Exporting and backing up have no such limit.
+
 ## [MC Launcher 0.8.0]
 
 A game directory is thousands of files written by several programs, and every way it breaks is silent —

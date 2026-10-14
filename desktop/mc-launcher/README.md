@@ -27,6 +27,18 @@ snapshot state protocol, and a launch pipeline built from the version json.
   a download that is interrupted keeps its `.part` file and resumes with a range
   request next time, and a hash mismatch keeps the bytes and fails loudly instead
   of leaving a corrupt jar behind a working-looking install.
+- **Worlds.** Each instance's `saves/` folder is listed with what each world's own
+  `level.dat` says about it — the name the game shows, the version that last wrote
+  it, when it was last played, the game mode, hardcore — and a world that cannot be
+  read is listed with the reason instead of hidden. A world exports to a zip you
+  can send to someone (streamed, so a huge world needs no huge memory) and imports
+  from a folder, a `.zip` or a `.mcworld`; an archive holding two worlds is refused
+  rather than half-imported, and a name that is already taken gets a number.
+- **Backups of those worlds.** Any install that changes the game underneath them —
+  a version, a loader, a modpack — zips `saves/` into `<instance>/backups/` first,
+  before anything is written, named `before-…` so a folder of backups still reads
+  as what it is later. **Back up now** does the same by hand, and an install into
+  an instance with no worlds writes nothing at all.
 - **Launching repairs what it is about to run.** Before a game starts, the
   installer's plan is run again and anything absent or the wrong size is
   fetched — a deleted jar, a half-finished download, assets missing after a game
@@ -213,7 +225,7 @@ as a snapshot event, so the UI keeps a working copy instead of guessing.
 Verified locally on Linux with Node 24.21:
 
 - `npm run typecheck` — clean for main, preload, shared and the Vue renderer.
-- `npm run selfcheck` — 90 checks: the offline UUID, rule evaluation,
+- `npm run selfcheck` — 98 checks: the offline UUID, rule evaluation,
   inheritance, classpath and natives resolution (including a library listed twice
   with the natives on the second listing), argument substitution, the launch
   plan and its failure paths, zip reading and extraction (including a modpack's
@@ -231,7 +243,12 @@ Verified locally on Linux with Node 24.21:
   names none), planning a whole version chain with its asset index, the check
   that decides which files a launch has to fetch, a Java path in Settings that
   no longer answers being passed over, profile/server/settings validation, the
-  state store and the migration from the old single-directory state file.
+  state store and the migration from the old single-directory state file, NBT
+  read and written back (every tag type, gzipped and plain, and a truncated file
+  refused by name), the zip writer round-tripped through the zip reader, and the
+  worlds path: a world described by its own `level.dat`, a backup, an export and
+  both imports, including the name collision and the backup taken before an
+  install that then fails.
 - `npm run netcheck` — the same install path against live services: Mojang's
   manifest and a real version json, a real asset index, libraries and assets
   downloaded and hash-checked (664 KB), a real native jar unpacked (1.16.5's
@@ -252,10 +269,11 @@ Verified locally on Linux with Node 24.21:
   and stops there because this environment has no display and no X11 client
   libraries. That is as far as a headless machine can go; the window itself has
   only been checked on a desktop.
-- `npm run test` — 7 renderer tests: boot from the bridge, snapshot rendering, a
+- `npm run test` — 8 renderer tests: boot from the bridge, snapshot rendering, a
   UI action reaching the service bridge, error surfacing, navigation, the install
-  picker installing what it offers into the selected instance, and the Modrinth
-  page searching and opening a project page.
+  picker installing what it offers into the selected instance, the worlds card
+  listing a world and asking for a backup, and the Modrinth page searching and
+  opening a project page.
 - `npm run build` — main, preload and renderer bundles build.
 
 ## License

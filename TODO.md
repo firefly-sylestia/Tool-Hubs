@@ -1,5 +1,25 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.9.0, worlds and backups
+
+- [x] Worlds are read from each instance's own `saves/` folder and described by the world's own
+      `level.dat` — name, the version that last wrote it, when it was last played, game mode, hardcore —
+      with an unreadable world listed with its reason instead of hidden.
+- [x] Export a world to a zip (streamed, so a huge world needs no huge memory) and import from a folder,
+      a `.zip` or a `.mcworld`; two worlds in one archive is refused, and a name that is taken gets a
+      number rather than overwriting what is there.
+- [x] A backup of `saves/` is taken before any install that changes the game underneath it — version,
+      loader or modpack — before anything is written, named `before-…` so it still reads as what it is
+      later; an instance with no worlds writes nothing. **Back up now** does the same by hand.
+- [x] Two new primitives, both with no dependency: a minimal NBT reader and writer (`level.dat`, and
+      the game's own `servers.dat` next), and a zip writer that streams files in.
+- [x] Version bumped to `0.9.0` in `desktop/mc-launcher/package.json`, lockfile included.
+
+### Still to do on this wave
+- [ ] Import an archive by streaming it too: it is unpacked from memory today, so one over 512 MB is
+      refused with a message saying to import the unzipped folder instead. Exporting and backing up
+      already stream.
+
 ## Desktop launcher — MC Launcher 0.8.0, a launch that repairs what it starts
 
 - [x] Launch runs the installer's own plan first and fetches only what is absent or the wrong size; a
@@ -85,7 +105,6 @@
 
 - [ ] Forge and NeoForge installation by running their installers.
 - [ ] CurseForge browsing and pack files — needs an API key.
-- [ ] Saves and worlds: list per instance, export/import, and a backup before a pack change.
 - [ ] Server list parity: ping for status and latency, read and write the game's own `servers.dat`.
 - [ ] Export an instance as a `.mrpack` (the other half of the modpack story).
 - [ ] Disk efficiency: hard links for files shared between instances, and ranged multi-part downloads.
