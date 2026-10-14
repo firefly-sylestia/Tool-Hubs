@@ -258,15 +258,16 @@ export async function downloadAll(
 
 export async function fetchJson<T>(
   url: string,
-  options: { fetchImpl?: FetchLike; retries?: number } = {}
+  options: { fetchImpl?: FetchLike; retries?: number; headers?: Record<string, string> } = {}
 ): Promise<T> {
   const fetchImpl = options.fetchImpl ?? ((target, init) => fetch(target, init))
   const retries = options.retries ?? DEFAULT_RETRIES
+  const init = options.headers ? { headers: options.headers } : undefined
   let lastError: Error | null = null
 
   for (let attempt = 1; attempt <= retries; attempt += 1) {
     try {
-      const response = await fetchImpl(url)
+      const response = await fetchImpl(url, init)
       if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`)
       return (await response.json()) as T
     } catch (error) {

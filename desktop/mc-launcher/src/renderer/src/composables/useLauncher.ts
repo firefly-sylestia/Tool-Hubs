@@ -13,6 +13,9 @@ import type {
   LogLine,
   ModpackImportResult,
   ModpackSummary,
+  ModrinthInstallResult,
+  ModrinthSearch,
+  ModrinthVersion,
   Profile,
   RemoteVersion,
   ResourceKind,
@@ -142,6 +145,17 @@ export function useLauncher() {
 
     inspectModpack: (path: string) => call<ModpackSummary>('modpack', 'inspect', { path }),
     importModpack: (path: string) => call<ModpackImportResult>('modpack', 'import', { path }),
+
+    modrinthSearch: (input: { query: string; kind: ResourceKind; limit?: number }) =>
+      call<ModrinthSearch & { folder: string }>('modrinth', 'search', input),
+    modrinthVersions: (projectIdOrSlug: string) =>
+      call<ModrinthVersion[]>('modrinth', 'versions', { projectIdOrSlug }),
+    installFromModrinth: (input: {
+      projectId?: string | null
+      versionId?: string | null
+      kind: ResourceKind
+      instanceId?: string | null
+    }) => call<ModrinthInstallResult>('modrinth', 'install', input),
 
     rescan: () => call<InstalledVersion[]>('installation', 'rescan'),
     remoteVersions: (refresh = false) =>

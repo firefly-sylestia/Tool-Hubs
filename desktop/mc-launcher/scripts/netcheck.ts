@@ -29,6 +29,17 @@ import {
 } from '../src/main/minecraft/version-manifest'
 import type { VersionJson } from '../src/main/minecraft/version-json'
 import { extractZip, isNativeLibraryEntry } from '../src/main/minecraft/zip'
+import {
+  bestVersion,
+  parseSearchResponse,
+  parseVersionList,
+  primaryFile,
+  projectVersionsUrl,
+  requiredDependencies,
+  searchUrl,
+  userAgent
+} from '../src/main/minecraft/modrinth'
+import { readModMetadataFromFile } from '../src/main/minecraft/mod-metadata'
 
 const fast = process.argv.includes('--fast')
 const root = mkdtempSync(join(tmpdir(), 'mc-launcher-netcheck-'))
@@ -158,6 +169,52 @@ await step('read Quilt metadata and build its profile', async () => {
     { kind: 'quilt', gameVersion: releaseId, loaderVersion: newest.version }
   )
   return `${profile.id} builds against ${releaseId}`
+})
+
+await step('search Modrinth for a mod that fits a real version', async () => {
+  const headers = { 'User-Agent': userAgent('mc-launcher', 'netcheck') }
+  const search = parseSearchResponse(
+    await fetchJson<unknown>(
+      searchUrl({ query: 'sodium', kind: 'mod', gameVersion: releaseId, loader: 'fabric', limit: 5 }),
+      { headers }
+    )
+  )
+  if (search.hits.length === 0) throw new Error(`no results for sodium on ${releaseId}`)
+
+  const hit = search.hits[0]
+  const versions = parseVersionList(
+    await fetchJson<unknown>(
+      projectVersionsUrl({ projectIdOrSlug: hit.projectId, gameVersion: releaseId, loader: 'fabric' }),
+      { headers }
+    )
+  )
+  const best = bestVersion(versions, { gameVersion: releaseId, loader: 'fabric' })
+  if (!best) throw new Error(`${hit.title} has no version for ${releaseId}`)
+  const file = primaryFile(best)
+  if (!file) throw new Error(`${best.name} lists no file`)
+  if (!file.sha1 && !file.sha512) throw new Error(`${file.filename} arrives with no hash to check`)
+
+  const result = await downloadAll([{ url: file.url, dest: join(root, file.filename), sha1: file.sha1, sha512: file.sha512, size: file.size }], {})
+  downloaded += result.bytes
+  const metadata = readModMetadataFromFile(join(root, file.filename))
+  return (
+    `${hit.title} ${best.versionNumber} (${hit.downloads.toLocaleString()} downloads) — ` +
+    `${file.filename} verified, reads as ${metadata?.name ?? 'no metadata'}`
+  )
+})
+
+await step('resolve a required dependency chain the way an install does', async () => {
+  const headers = { 'User-Agent': userAgent('mc-launcher', 'netcheck') }
+  const versions = parseVersionList(
+    await fetchJson<unknown>(
+      projectVersionsUrl({ projectIdOrSlug: 'fabric-api', gameVersion: releaseId, loader: 'fabric' }),
+      { headers }
+    )
+  )
+  const best = bestVersion(versions, { gameVersion: releaseId, loader: 'fabric' })
+  if (!best) throw new Error(`Fabric API has no version for ${releaseId}`)
+  const required = requiredDependencies(best, { installedProjectIds: [] })
+  return `${best.name}: ${required.length} required dependency(ies)` + (required[0]?.projectId ? ` (e.g. ${required[0].projectId})` : '')
 })
 
 rmSync(root, { recursive: true, force: true })

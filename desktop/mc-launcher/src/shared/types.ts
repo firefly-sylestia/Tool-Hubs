@@ -40,6 +40,24 @@ export interface GameInstance {
 /** The three folders a launcher manages as resources. Saves belong to the game. */
 export type ResourceKind = 'mod' | 'resourcepack' | 'shaderpack'
 
+/**
+ * What a mod's jar says about itself, read from the jar rather than from its
+ * file name, plus anything worth saying before it is launched.
+ */
+export interface ResourceMetadata {
+  loader: 'fabric' | 'quilt' | 'forge' | 'neoforge'
+  id: string | null
+  name: string | null
+  version: string | null
+  /** The game version or range the file asks for, exactly as written. */
+  requires: string | null
+  authors: string[]
+  /** True for the legacy `mcmod.info` that old Forge mods carry. */
+  legacy: boolean
+  /** Wrong loader, wrong game version, a duplicate of another file, or nothing. */
+  warnings: string[]
+}
+
 export interface ResourceEntry {
   /** The file name on disk, including a `.disabled` suffix when it is off. */
   name: string
@@ -50,6 +68,8 @@ export interface ResourceEntry {
   size: number
   path: string
   modifiedAt: string
+  /** Null for a file that carries no metadata this reader understands. */
+  metadata: ResourceMetadata | null
 }
 
 export interface InstanceResources {
@@ -131,6 +151,99 @@ export interface ServerEntry {
   name: string
   host: string
   port: number
+}
+
+/**
+ * Modrinth's API, as the renderer reads it. These are shared rather than owned
+ * by the main process so the UI shows exactly what the API returned instead of
+ * a second, drifting copy of the same fields.
+ */
+export interface ModrinthFile {
+  url: string
+  filename: string
+  primary: boolean
+  size: number
+  sha1?: string
+  sha512?: string
+}
+
+export type ModrinthDependencyType = 'required' | 'optional' | 'incompatible' | 'embedded'
+
+export interface ModrinthDependency {
+  projectId: string | null
+  versionId: string | null
+  dependencyType: ModrinthDependencyType
+}
+
+export interface ModrinthVersion {
+  id: string
+  projectId: string
+  name: string
+  versionNumber: string
+  /** release | beta | alpha */
+  versionType: string
+  gameVersions: string[]
+  loaders: string[]
+  files: ModrinthFile[]
+  dependencies: ModrinthDependency[]
+  datePublished: string
+}
+
+export interface ModrinthProject {
+  projectId: string
+  slug: string
+  title: string
+  projectType: string
+  iconUrl: string | null
+}
+
+export interface ModrinthHit {
+  projectId: string
+  slug: string
+  title: string
+  description: string
+  /** mod | modpack | resourcepack | shader | plugin | datapack */
+  projectType: string
+  downloads: number
+  follows: number
+  iconUrl: string | null
+  gameVersions: string[]
+  loaders: string[]
+  categories: string[]
+  latestVersion: string | null
+}
+
+export interface ModrinthSearch {
+  hits: ModrinthHit[]
+  totalHits: number
+  offset: number
+  limit: number
+}
+
+/** One file the launcher installed for a project, and what it decided along the way. */
+export interface ModrinthInstalledItem {
+  projectId: string
+  title: string
+  versionNumber: string
+  versionType: string
+  /** File name inside the instance, as written. */
+  filename: string
+  /** True when the project was pulled in as a dependency of the one asked for. */
+  dependency: boolean
+  bytes: number
+  reused: boolean
+}
+
+export interface ModrinthInstallResult {
+  kind: ResourceKind
+  instanceId: string
+  instanceDir: string
+  /** The item asked for, always first in `installed`. */
+  requested: string
+  installed: ModrinthInstalledItem[]
+  /** Dependencies that could not be resolved for this instance's version or loader. */
+  skippedDependencies: string[]
+  warnings: string[]
 }
 
 export type TaskState = 'running' | 'succeeded' | 'failed'

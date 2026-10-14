@@ -13,6 +13,7 @@ import type {
 import type { AddServerInput } from './services/server-service'
 import type { CreateProfileInput, UpdateProfileInput } from './services/profile-service'
 import type { CreateInstanceInput } from './services/instance-service'
+import type { InstallInput as ModrinthInstallInput, SearchInput } from './services/modrinth-service'
 import { InstallationService } from './services/installation-service'
 import { InstallService } from './services/install-service'
 import { InstanceService } from './services/instance-service'
@@ -20,6 +21,7 @@ import { JavaService } from './services/java-service'
 import { LaunchService } from './services/launch-service'
 import { LogService } from './services/log-service'
 import { ModpackService } from './services/modpack-service'
+import { ModrinthService } from './services/modrinth-service'
 import { ProfileService } from './services/profile-service'
 import { ServiceRegistry } from './services/registry'
 import { ServerService } from './services/server-service'
@@ -98,6 +100,7 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   const launch = new LaunchService(state, environment, log, tasks, servers, java)
   const install = new InstallService(environment, tasks, installations, instances, warn)
   const modpacks = new ModpackService(install, instances, tasks, warn)
+  const modrinth = new ModrinthService(environment, instances, tasks, warn)
   const windows = new WindowController()
 
   const as = <T,>(params: unknown): T => params as T
@@ -163,6 +166,11 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   registry.register('modpack', {
     inspect: (params) => modpacks.inspect(as<{ path: string }>(params).path),
     import: (params) => modpacks.import(as<{ path: string }>(params).path)
+  })
+  registry.register('modrinth', {
+    search: (params) => modrinth.search(as<SearchInput>(params)),
+    versions: (params) => modrinth.versions(as<{ projectIdOrSlug: string }>(params)),
+    install: (params) => modrinth.install(as<ModrinthInstallInput>(params))
   })
   registry.register('java', {
     detect: () => java.detect()

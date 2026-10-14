@@ -37,6 +37,24 @@ import {
   findManifestVersion,
   parseVersionManifest
 } from '../src/main/minecraft/version-manifest'
+import {
+  bestVersion,
+  matchesVersionRange,
+  parseSearchResponse,
+  parseVersionList,
+  primaryFile,
+  requiredDependencies,
+  searchFacets,
+  userAgent,
+  versionsQuery
+} from '../src/main/minecraft/modrinth'
+import {
+  forgeMinecraftRange,
+  modWarnings,
+  readModMetadata,
+  readTomlValues,
+  type ModMetadata
+} from '../src/main/minecraft/mod-metadata'
 import { extractZip, isNativeLibraryEntry, listZipEntries } from '../src/main/minecraft/zip'
 import {
   detectModpackFormat,
@@ -531,6 +549,177 @@ check('classifies, toggles and refuses the wrong kind of file', () => {
   const removed = instances.removeResource({ instanceId: instance.id, kind: 'mod', name: 'old-mod.zip' })
   expectEqual(removed.entries.mod.map((entry) => entry.title), ['sodium.jar'], 'removed')
 })
+
+check('names what each mod really is, and flags the ones that will not load', () => {
+  const mods = join(gameDir, 'mods')
+  const fabricJar = (name: string) =>
+    buildZip([
+      {
+        name: 'fabric.mod.json',
+        contents: JSON.stringify({ id: 'sodium', name, version: '0.6.13', depends: { minecraft: '>=1.21.2' } })
+      }
+    ])
+  writeFileSync(join(mods, 'sodium-0.6.13.jar'), fabricJar('Sodium'))
+  writeFileSync(join(mods, 'sodium-copy.jar'), fabricJar('Sodium'))
+  writeFileSync(
+    join(mods, 'old-forge.jar'),
+    buildZip([
+      {
+        name: 'META-INF/mods.toml',
+        contents: '[[mods]]\nmodId="old"\ndisplayName="Old Forge Mod"\nversion="1"\n'
+      }
+    ])
+  )
+
+  const entries = instances.resources(instance.id).entries.mod
+  const sodium = entries.find((entry) => entry.name === 'sodium-0.6.13.jar')!
+  expectEqual(sodium.metadata?.name, 'Sodium', 'the name the jar declares, not the file name')
+  expect(
+    (sodium.metadata?.warnings ?? []).some((warning) => warning.includes('Another copy')),
+    'the second copy is flagged as one the game will not load'
+  )
+
+  const forge = entries.find((entry) => entry.name === 'old-forge.jar')!
+  expect(
+    (forge.metadata?.warnings ?? []).some((warning) => warning.includes('cannot load')),
+    'a Forge mod in a Fabric instance is flagged'
+  )
+
+  const plain = entries.find((entry) => entry.name === 'sodium.jar')!
+  expectEqual(plain.metadata, null, 'a file with no metadata is still listed, with none')
+})
+
+console.log('\nmod metadata')
+{
+  check('reads what a Fabric mod says about itself', () => {
+    const metadata = readModMetadata(
+      buildZip([
+        {
+          name: 'fabric.mod.json',
+          contents: JSON.stringify({
+            id: 'sodium',
+            name: 'Sodium',
+            version: '0.6.13',
+            depends: { minecraft: '>=1.21.2' },
+            authors: ['jellysquid3']
+          })
+        },
+        { name: 'sodium.class', contents: 'binary' }
+      ])
+    )
+    expect(metadata !== null, 'metadata was read')
+    expectEqual(metadata?.loader, 'fabric', 'loader')
+    expectEqual(metadata?.name, 'Sodium', 'name')
+    expectEqual(metadata?.version, '0.6.13', 'version')
+    expectEqual(metadata?.requires, '>=1.21.2', 'the minecraft requirement')
+    expectEqual(metadata?.authors, ['jellysquid3'], 'authors')
+  })
+
+  check('reads the Forge and NeoForge toml, minecraft range included', () => {
+    const toml = [
+      'modLoader="javafml"',
+      'loaderVersion="[47,)"',
+      '[[mods]]',
+      'modId="example"',
+      'version="1.2.3"',
+      'displayName="Example Mod"',
+      '[[dependencies.example]]',
+      'modId="minecraft"',
+      'versionRange="[1.20.1,1.21)"',
+      'mandatory=true',
+      '[[dependencies.example]]',
+      'modId="forge"',
+      'versionRange="[47,)"',
+      ''
+    ].join('\n')
+
+    const forge = readModMetadata(buildZip([{ name: 'META-INF/mods.toml', contents: toml }]))
+    expectEqual(forge?.loader, 'forge', 'forge')
+    expectEqual(forge?.name, 'Example Mod', 'display name')
+    expectEqual(forge?.version, '1.2.3', 'version')
+    expectEqual(forge?.requires, '[1.20.1,1.21)', 'the minecraft range, not the forge one')
+    expectEqual(forgeMinecraftRange(toml), '[1.20.1,1.21)', 'range lookup')
+
+    const neo = readModMetadata(buildZip([{ name: 'META-INF/neoforge.mods.toml', contents: toml }]))
+    expectEqual(neo?.loader, 'neoforge', 'neoforge')
+    expectEqual(readTomlValues('a = "1"\nb = 2 # comment\n').get('b'), '2', 'toml values, comments dropped')
+  })
+
+  check('reads Quilt metadata and the legacy mcmod.info', () => {
+    const quilt = readModMetadata(
+      buildZip([
+        {
+          name: 'quilt.mod.json',
+          contents: JSON.stringify({
+            schema_version: 1,
+            quilt_loader: {
+              id: 'example',
+              version: '9.9.9',
+              metadata: { name: 'Example Quilt Mod', version: '9.9.9' },
+              depends: [{ id: 'minecraft', versions: '>=1.20' }]
+            }
+          })
+        }
+      ])
+    )
+    expectEqual(quilt?.loader, 'quilt', 'quilt')
+    expectEqual(quilt?.name, 'Example Quilt Mod', 'name')
+
+    const legacy = readModMetadata(
+      buildZip([
+        {
+          name: 'mcmod.info',
+          contents: JSON.stringify([{ modid: 'old', name: 'Old Mod', version: '1.0', mcversion: '1.7.10' }])
+        }
+      ])
+    )
+    expectEqual(legacy?.loader, 'forge', 'legacy forge')
+    expectEqual(legacy?.legacy, true, 'marked legacy')
+    expectEqual(legacy?.requires, '1.7.10', 'the game version it wants')
+  })
+
+  check('a file that is not a mod has no metadata, and that is not an error', () => {
+    expectEqual(readModMetadata(buildZip([{ name: 'pack.mcmeta', contents: '{}' }])), null, 'a resource pack')
+    expectEqual(readModMetadata(Buffer.from('this is not a zip')), null, 'not a zip at all')
+    expectEqual(readModMetadata(buildZip([{ name: 'fabric.mod.json', contents: '{not json' }])), null, 'broken json')
+  })
+
+  check('flags a mod that cannot load in this instance, and stays quiet when unsure', () => {
+    const base = { id: 'x', name: 'X', version: '1', authors: [], legacy: false }
+    const forge: ModMetadata = { ...base, loader: 'forge', requires: null }
+    const wrongLoader = modWarnings(forge, {
+      versionId: '1.21.4',
+      loader: 'fabric',
+      rangeMatcher: matchesVersionRange
+    })
+    expectEqual(wrongLoader.length, 1, 'one warning')
+    expect(wrongLoader[0].includes('cannot load'), 'the warning says it cannot load')
+
+    const wrongVersion: ModMetadata = { ...base, loader: 'fabric', requires: '>=1.20 <1.21' }
+    const mismatch = modWarnings(wrongVersion, {
+      versionId: '1.21.4',
+      loader: 'fabric',
+      rangeMatcher: matchesVersionRange
+    })
+    expectEqual(mismatch.length, 1, 'a version mismatch is flagged')
+    expect(mismatch[0].includes('1.21.4'), 'and names the instance version')
+
+    const fine: ModMetadata = { ...base, loader: 'fabric', requires: '>=1.20' }
+    expectEqual(
+      modWarnings(fine, { versionId: '1.21.4', loader: 'fabric', rangeMatcher: matchesVersionRange }),
+      [],
+      'a compatible mod says nothing'
+    )
+
+    // A range this does not understand must not produce a warning about it.
+    const unknown: ModMetadata = { ...base, loader: 'fabric', requires: 'an odd range' }
+    expectEqual(
+      modWarnings(unknown, { versionId: '1.21.4', loader: 'fabric', rangeMatcher: matchesVersionRange }),
+      [],
+      'unknown is silence, not a false alarm'
+    )
+  })
+}
 
 console.log('\nstate and services')
 check('creates a profile with an offline UUID', () => {
@@ -1080,6 +1269,148 @@ console.log('\nimporting what is already on disk')
     mkdirSync(empty, { recursive: true })
     expectThrows(() => instances.importFrom(empty), 'expected a game directory')
     expectThrows(() => instances.importFrom(join(importRoot, 'absent')), 'does not exist')
+  })
+}
+
+console.log('\nModrinth')
+{
+  check('filters a search by the instance it is for', () => {
+    expectEqual(
+      JSON.parse(searchFacets({ kind: 'mod', gameVersion: '1.21.4', loader: 'fabric' })),
+      [['project_type:mod'], ['versions:1.21.4'], ['categories:fabric']],
+      'mods on fabric'
+    )
+    expectEqual(
+      JSON.parse(searchFacets({ kind: 'shaderpack', loader: null })),
+      [['project_type:shader'], ['categories:iris', 'categories:optifine', 'categories:vanilla']],
+      'shaders, which load in vanilla too'
+    )
+    // Quilt runs Fabric mods, so a Quilt instance may be offered either.
+    expectEqual(
+      versionsQuery({ gameVersion: '1.21.4', loader: 'quilt' }),
+      '?game_versions=%5B%221.21.4%22%5D&loaders=%5B%22quilt%22%2C%22fabric%22%5D',
+      'quilt accepts fabric mods'
+    )
+    expectEqual(versionsQuery({}), '', 'no filters, no query string')
+    expect(userAgent('mc-launcher', '0.4.0').startsWith('mc-launcher/0.4.0 ('), 'the user agent names us')
+  })
+
+  check('reads a search response and skips what it cannot use', () => {
+    const search = parseSearchResponse({
+      total_hits: 2,
+      offset: 0,
+      limit: 20,
+      hits: [
+        {
+          project_id: 'AANobbMI',
+          slug: 'sodium',
+          title: 'Sodium',
+          description: 'Modern rendering engine',
+          project_type: 'mod',
+          downloads: 12345678,
+          follows: 3000,
+          icon_url: 'https://cdn.example/sodium.png',
+          versions: ['1.21.4', '1.21.3'],
+          categories: ['fabric', 'optimization'],
+          latest_version: 'abc'
+        },
+        { title: 'no project id, so it is skipped' }
+      ]
+    })
+    expectEqual(search.hits.length, 1, 'the unusable hit is dropped')
+    expectEqual(search.hits[0].title, 'Sodium', 'title')
+    expectEqual(search.hits[0].loaders, ['fabric'], 'only loader-ish categories')
+    expectEqual(search.totalHits, 2, 'the total is passed through')
+  })
+
+  check('picks the newest release that fits, and says when nothing does', () => {
+    const versions = parseVersionList([
+      {
+        id: 'v1',
+        project_id: 'p',
+        name: '1.0.0',
+        version_number: '1.0.0',
+        version_type: 'beta',
+        game_versions: ['1.21.4'],
+        loaders: ['fabric'],
+        date_published: '2026-01-01T00:00:00Z',
+        files: [{ url: 'https://cdn/x.jar', filename: 'x.jar', primary: true, fileSize: 10 }]
+      },
+      {
+        id: 'v2',
+        project_id: 'p',
+        name: '1.0.1',
+        version_number: '1.0.1',
+        version_type: 'release',
+        game_versions: ['1.21.4'],
+        loaders: ['fabric'],
+        date_published: '2026-02-01T00:00:00Z',
+        files: [{ url: 'https://cdn/y.jar', filename: 'y.jar', primary: true, fileSize: 20 }]
+      },
+      {
+        id: 'v3',
+        project_id: 'p',
+        name: '2.0.0',
+        version_number: '2.0.0',
+        version_type: 'release',
+        game_versions: ['1.20.1'],
+        loaders: ['fabric'],
+        date_published: '2026-03-01T00:00:00Z',
+        files: []
+      }
+    ])
+    expectEqual(bestVersion(versions, { gameVersion: '1.21.4', loader: 'fabric' })?.id, 'v2', 'release first')
+    expectEqual(bestVersion(versions, { gameVersion: '1.21.4', loader: 'quilt' })?.id, 'v2', 'quilt accepts fabric')
+    expectEqual(bestVersion(versions, { gameVersion: '1.20.1', loader: 'fabric' })?.id, 'v3', 'the other one')
+    expectEqual(bestVersion(versions, { gameVersion: '1.19.2', loader: 'fabric' }), null, 'nothing fits')
+    expectEqual(primaryFile(versions[1])?.filename, 'y.jar', 'the primary file')
+  })
+
+  check('follows required dependencies and leaves the rest alone', () => {
+    const [version] = parseVersionList([
+      {
+        id: 'v',
+        project_id: 'fabric-api-project',
+        name: 'Mod',
+        version_number: '1',
+        version_type: 'release',
+        game_versions: ['1.21.4'],
+        loaders: ['fabric'],
+        files: [],
+        dependencies: [
+          { project_id: 'P7dR8mSH', dependency_type: 'required' },
+          { project_id: 'other', dependency_type: 'optional' },
+          { project_id: 'embedded-one', dependency_type: 'embedded' },
+          { project_id: 'P7dR8mSH', dependency_type: 'required', version_id: 'pinned' }
+        ]
+      }
+    ])
+    expectEqual(
+      requiredDependencies(version, { installedProjectIds: [] }).map((entry) => entry.projectId),
+      ['P7dR8mSH', 'P7dR8mSH'],
+      'required only, exactly as the API listed them'
+    )
+    expectEqual(
+      requiredDependencies(version, { installedProjectIds: ['p7dr8msh'] }).length,
+      0,
+      'a dependency that is already there is not followed again'
+    )
+  })
+
+  check('reads the version ranges mods actually publish', () => {
+    expectEqual(matchesVersionRange('>=1.20 <1.21', '1.20.4'), true, 'fabric range, inside')
+    expectEqual(matchesVersionRange('>=1.20 <1.21', '1.21.4'), false, 'fabric range, past the top')
+    expectEqual(matchesVersionRange('[1.20,1.20.4)', '1.20.1'), true, 'maven range, inside')
+    expectEqual(matchesVersionRange('[1.20,1.20.4)', '1.20.4'), false, 'maven range, exclusive top')
+    expectEqual(matchesVersionRange('[1.20,)', '1.21.4'), true, 'maven range with no top')
+    expectEqual(matchesVersionRange('1.20.x', '1.20.6'), true, 'wildcard covers the patches')
+    expectEqual(matchesVersionRange('1.20.x', '1.21.1'), false, 'wildcard does not cover the next minor')
+    expectEqual(matchesVersionRange('~1.20.1', '1.21.4'), false, 'tilde stays in its minor series')
+    expectEqual(matchesVersionRange('>=1.20', '1.21.4'), true, 'a plain lower bound')
+    expectEqual(matchesVersionRange('1.21.4', '1.21.4'), true, 'an exact version')
+    expectEqual(matchesVersionRange('*', '1.21.4'), true, 'anything')
+    // Unknown syntax must be unknown, not "no": a wrong warning is worse than none.
+    expectEqual(matchesVersionRange('>=1.20 something-else', '1.21.4'), null, 'unreadable is null')
   })
 }
 

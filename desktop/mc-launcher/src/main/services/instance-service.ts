@@ -7,8 +7,11 @@ import type {
   InstanceImportResult,
   InstanceResources,
   ResourceEntry,
-  ResourceKind
+  ResourceKind,
+  ResourceMetadata
 } from '@shared/types'
+import { modWarnings, readModMetadataFromFile, type ModMetadata } from '../minecraft/mod-metadata'
+import { matchesVersionRange } from '../minecraft/modrinth'
 import {
   RESOURCE_KINDS,
   explainUnsupportedAddition,
@@ -76,6 +79,12 @@ function isInside(child: string, parent: string): boolean {
  * directory to one directory per instance.
  */
 export class InstanceService {
+  /** Jar metadata by path, keyed by size and mtime so an edited mod is re-read. */
+  private readonly metadataCache = new Map<
+    string,
+    { size: number; modifiedAt: string; metadata: ModMetadata | null }
+  >()
+
   constructor(
     private readonly state: StateStore,
     private readonly env: AppEnvironment,
@@ -213,6 +222,7 @@ export class InstanceService {
       folders[kind] = folder
       entries[kind] = readResourceFolder(folder, kind)
     }
+    this.describeMods(instance, entries.mod)
 
     return { instanceId: instance.id, instanceDir: instance.dir, folders, entries }
   }
@@ -241,6 +251,71 @@ export class InstanceService {
       renameSync(from, to)
     }
     return this.resources(instance.id)
+  }
+
+  /**
+   * Fills in what each mod's jar says about itself, and what is wrong with it.
+   *
+   * Reading a jar costs a file read, so the answer is cached by size and
+   * modification time: a folder paint must not re-read every mod, and editing a
+   * mod in place has to be noticed. A jar that cannot be read is left with no
+   * metadata rather than being called broken.
+   */
+  private describeMods(instance: GameInstance, entries: ResourceEntry[]): void {
+    if (entries.length === 0) return
+
+    const metadata = new Map<string, ModMetadata | null>()
+    for (const entry of entries) {
+      const cached = this.metadataCache.get(entry.path)
+      if (cached && cached.size === entry.size && cached.modifiedAt === entry.modifiedAt) {
+        metadata.set(entry.path, cached.metadata)
+        continue
+      }
+      const read = readModMetadataFromFile(entry.path)
+      this.metadataCache.set(entry.path, {
+        size: entry.size,
+        modifiedAt: entry.modifiedAt,
+        metadata: read
+      })
+      metadata.set(entry.path, read)
+    }
+
+    const byId = new Map<string, string[]>()
+    for (const entry of entries) {
+      const id = metadata.get(entry.path)?.id
+      if (!id) continue
+      byId.set(id, [...(byId.get(id) ?? []), entry.name])
+    }
+
+    for (const entry of entries) {
+      const read = metadata.get(entry.path)
+      if (!read) {
+        entry.metadata = null
+        continue
+      }
+      const warnings = modWarnings(read, {
+        versionId: instance.versionId,
+        loader: instance.loader,
+        rangeMatcher: matchesVersionRange
+      })
+      const copies = byId.get(read.id ?? '') ?? []
+      if (copies.length > 1) {
+        const others = copies.filter((name) => name !== entry.name)
+        warnings.push(
+          `Another copy of this mod is in the folder (${others.join(', ')}); the game loads only one.`
+        )
+      }
+      entry.metadata = {
+        loader: read.loader,
+        id: read.id,
+        name: read.name,
+        version: read.version,
+        requires: read.requires,
+        authors: read.authors,
+        legacy: read.legacy,
+        warnings
+      } satisfies ResourceMetadata
+    }
   }
 
   removeResource(input: { instanceId?: string | null; kind: ResourceKind; name: string }): InstanceResources {
@@ -371,7 +446,9 @@ function readResourceFolder(folder: string, kind: ResourceKind): ResourceEntry[]
       enabled,
       size: stat.size,
       path: full,
-      modifiedAt: stat.mtime.toISOString()
+      modifiedAt: stat.mtime.toISOString(),
+      // Filled in per instance for mods; a pack or shader has nothing to read.
+      metadata: null
     })
   }
   return entries.sort((a, b) => {

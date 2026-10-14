@@ -18,6 +18,7 @@ export type ServiceName =
   | 'profile'
   | 'instance'
   | 'modpack'
+  | 'modrinth'
   | 'java'
   | 'installation'
   | 'install'

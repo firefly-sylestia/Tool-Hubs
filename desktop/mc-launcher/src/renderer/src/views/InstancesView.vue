@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type {
   GameInstance,
   InstallLoader,
   InstanceResources,
   LoaderOption,
   ModpackSummary,
+  ModrinthHit,
+  ModrinthVersion,
   RemoteVersion,
   ResourceEntry,
   ResourceKind
@@ -28,6 +30,9 @@ const {
   removeResource,
   inspectModpack,
   importModpack,
+  modrinthSearch,
+  modrinthVersions,
+  installFromModrinth,
   pickFolder,
   pickFiles,
   openPath,
@@ -69,6 +74,20 @@ const modpackSummary = ref<ModpackSummary | null>(null)
 const modpackPath = ref<string | null>(null)
 const showModpack = ref(false)
 
+/** Modrinth browsing, scoped to the instance and the tab that is open. */
+const browse = reactive({
+  open: false,
+  query: '',
+  loading: false,
+  searched: false,
+  hits: [] as ModrinthHit[],
+  totalHits: 0,
+  selected: null as ModrinthHit | null,
+  versions: [] as ModrinthVersion[],
+  versionsLoading: false,
+  installing: false
+})
+
 const loaderChoices = [
   { title: 'Vanilla — the game alone', value: 'vanilla' },
   { title: 'Fabric', value: 'fabric' },
@@ -84,6 +103,33 @@ const visibleVersions = computed(() =>
 const runningTask = computed(() => tasks.value.find((task) => task.state === 'running') ?? null)
 const entries = computed<ResourceEntry[]>(() => instanceResources.value?.entries[resourceTab.value] ?? [])
 const resourceFolder = computed(() => instanceResources.value?.folders[resourceTab.value] ?? '')
+const entryWarnings = computed(() =>
+  entries.value.flatMap((entry) =>
+    (entry.metadata?.warnings ?? []).map((warning) => `${entry.title}: ${warning}`)
+  )
+)
+const tabKindLabel = computed(
+  () => tabKinds.find((kind) => kind.value === resourceTab.value)?.title ?? 'mods'
+)
+
+/** A mod reads as its real name and version, not the file name someone chose. */
+function entryTitle(entry: ResourceEntry): string {
+  const metadata = entry.metadata
+  if (!metadata?.name) return entry.title
+  return `${metadata.name}${metadata.version ? ` ${metadata.version}` : ''}`
+}
+
+function entrySubtitle(entry: ResourceEntry): string {
+  const parts: string[] = [entry.enabled ? 'enabled' : 'disabled']
+  const metadata = entry.metadata
+  if (metadata) {
+    parts.push(`${metadata.loader}${metadata.id ? ` · ${metadata.id}` : ''}`)
+  } else {
+    parts.push('no readable metadata')
+  }
+  parts.push(`${Math.round(entry.size / 1024)} KB`)
+  return parts.join(' · ')
+}
 
 const canInstall = computed(
   () =>
@@ -283,6 +329,77 @@ async function openResourceFolder(): Promise<void> {
   await openPath(resourceFolder.value)
 }
 
+function openBrowse(): void {
+  browse.open = true
+  browse.hits = []
+  browse.selected = null
+  browse.versions = []
+  browse.searched = false
+  if (browse.query.trim() !== '') void runSearch()
+}
+
+async function runSearch(): Promise<void> {
+  if (!selectedInstance.value || browse.query.trim() === '') return
+  browse.loading = true
+  try {
+    const result = await modrinthSearch({
+      query: browse.query.trim(),
+      kind: resourceTab.value,
+      limit: 20
+    })
+    browse.hits = result.hits
+    browse.totalHits = result.totalHits
+    browse.searched = true
+    browse.selected = null
+    browse.versions = []
+  } catch {
+    // Reported in the snackbar.
+  } finally {
+    browse.loading = false
+  }
+}
+
+async function chooseHit(hit: ModrinthHit): Promise<void> {
+  browse.selected = hit
+  browse.versions = []
+  browse.versionsLoading = true
+  try {
+    browse.versions = await modrinthVersions(hit.projectId)
+  } catch {
+    // Reported in the snackbar.
+  } finally {
+    browse.versionsLoading = false
+  }
+}
+
+async function installFromBrowse(versionId?: string): Promise<void> {
+  const instance = selectedInstance.value
+  if (!instance) return
+  browse.installing = true
+  try {
+    const result = await installFromModrinth({
+      projectId: browse.selected?.projectId ?? null,
+      versionId: versionId ?? null,
+      kind: resourceTab.value,
+      instanceId: instance.id
+    })
+    const dependencies = result.installed.filter((item) => item.dependency)
+    report(
+      `Installed ${result.requested}` +
+        (dependencies.length > 0 ? ` and ${dependencies.length} required dependency file(s)` : '') +
+        ` into ${tabKindLabel.value.toLowerCase()}.` +
+        (result.warnings.length > 0 ? ` ${result.warnings.join(' ')}` : ''),
+      result.warnings.length > 0 ? 'warning' : 'success'
+    )
+    browse.open = false
+    await loadResources()
+  } catch {
+    // Reported in the snackbar.
+  } finally {
+    browse.installing = false
+  }
+}
+
 async function chooseModpack(): Promise<void> {
   const picked = await pickFiles()
   const path = picked.paths[0]
@@ -469,14 +586,24 @@ onMounted(async () => {
           <p v-if="!selectedInstance" class="text-medium-emphasis mt-4">
             Select or create an instance first.
           </p>
-          <p v-else-if="entries.length === 0" class="text-medium-emphasis mt-4">
-            Nothing in this folder yet. Add files or drop them in yourself — turning one off renames
-            it with a <code>.disabled</code> suffix, which every loader and pack list ignores.
-          </p>
-          <v-list v-else density="compact" class="mt-2">
-            <v-list-item v-for="entry in entries" :key="entry.name" :title="entry.title">
+          <template v-else>
+            <p v-if="entries.length === 0" class="text-medium-emphasis mt-4">
+              Nothing in this folder yet. Add files, take something from Modrinth, or drop them in
+              yourself — turning one off renames it with a <code>.disabled</code> suffix, which every
+              loader and pack list ignores.
+            </p>
+
+            <v-alert v-if="entryWarnings.length > 0" type="warning" variant="tonal" class="mt-4">
+              <p v-for="warning in entryWarnings" :key="warning" class="mb-2">{{ warning }}</p>
+            </v-alert>
+
+            <v-list v-if="entries.length > 0" density="compact" class="mt-2">
+            <v-list-item v-for="entry in entries" :key="entry.name" :title="entryTitle(entry)">
               <template #subtitle>
-                {{ entry.enabled ? 'enabled' : 'disabled' }} · {{ Math.round(entry.size / 1024) }} KB
+                <span>{{ entrySubtitle(entry) }}</span>
+                <span v-if="entry.metadata?.warnings.length" class="text-warning">
+                  — {{ entry.metadata.warnings.join(' ') }}
+                </span>
               </template>
               <template #append>
                 <v-switch
@@ -488,11 +615,15 @@ onMounted(async () => {
                   @update:model-value="toggleResource(entry)"
                 />
                 <v-btn size="small" variant="text" @click="deleteResource(entry)">Remove</v-btn>
-              </template>
-            </v-list-item>
-          </v-list>
+                </template>
+              </v-list-item>
+            </v-list>
+          </template>
         </v-card-text>
         <v-card-actions>
+          <v-btn color="primary" :disabled="!selectedInstance || busy" @click="openBrowse">
+            Add from Modrinth
+          </v-btn>
           <v-btn :disabled="!selectedInstance || busy" @click="addResourceFiles">Add files</v-btn>
           <v-btn variant="text" :disabled="!selectedInstance" @click="openResourceFolder">
             Open folder
@@ -544,6 +675,95 @@ onMounted(async () => {
         <v-btn color="primary" :disabled="busy || newInstanceName.trim() === ''" @click="createInstanceFromName">
           Create
         </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-dialog v-model="browse.open" max-width="820" scrollable>
+    <v-card>
+      <v-card-title>Add {{ tabKindLabel.toLowerCase() }} from Modrinth</v-card-title>
+      <v-card-text>
+        <p class="text-medium-emphasis">
+          Searching for {{ selectedInstance?.versionId ?? 'the instance version' }}
+          <template v-if="selectedInstance?.loader && selectedInstance.loader !== 'vanilla'">
+            on {{ selectedInstance.loader }}
+          </template>
+          , so what is listed fits this instance.
+        </p>
+        <div class="d-flex ga-2 align-center">
+          <v-text-field
+            v-model="browse.query"
+            label="Search Modrinth"
+            hide-details
+            autofocus
+            @keyup.enter="runSearch"
+          />
+          <v-btn :loading="browse.loading" @click="runSearch">Search</v-btn>
+        </div>
+
+        <p
+          v-if="!browse.loading && browse.searched && browse.hits.length === 0"
+          class="text-medium-emphasis mt-4"
+        >
+          Nothing found. Modrinth filters by this instance's version and loader, so a mod built for
+          another one will not appear.
+        </p>
+
+        <v-list v-if="browse.hits.length > 0" density="compact" class="mt-4">
+          <v-list-item
+            v-for="hit in browse.hits"
+            :key="hit.projectId"
+            :title="hit.title"
+            :subtitle="hit.description"
+            :active="browse.selected?.projectId === hit.projectId"
+            @click="chooseHit(hit)"
+          >
+            <template #append>
+              <span class="text-medium-emphasis text-body-2">
+                {{ hit.downloads.toLocaleString() }} downloads
+              </span>
+            </template>
+          </v-list-item>
+        </v-list>
+
+        <template v-if="browse.selected">
+          <v-divider class="my-4" />
+          <p>
+            <strong>{{ browse.selected.title }}</strong> — pick a version. Required dependencies are
+            installed with it, and every file is checked against the hash Modrinth published.
+          </p>
+          <v-btn
+            v-if="browse.versions.length > 0"
+            color="primary"
+            class="mb-2"
+            :loading="browse.installing"
+            @click="installFromBrowse(browse.versions[0].id)"
+          >
+            Install {{ browse.versions[0].versionNumber }}
+            <template v-if="browse.versions[0].versionType !== 'release'">
+              ({{ browse.versions[0].versionType }})
+            </template>
+          </v-btn>
+          <v-progress-linear v-if="browse.versionsLoading" indeterminate height="3" />
+          <v-list v-else density="compact">
+            <v-list-item
+              v-for="version in browse.versions"
+              :key="version.id"
+              :title="`${version.versionNumber} (${version.versionType})`"
+              :subtitle="`${version.gameVersions.slice(0, 4).join(', ')} · ${version.loaders.join(', ') || 'any loader'}`"
+            >
+              <template #append>
+                <v-btn size="small" :disabled="browse.installing" @click="installFromBrowse(version.id)">
+                  Install
+                </v-btn>
+              </template>
+            </v-list-item>
+          </v-list>
+        </template>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="browse.open = false">Close</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
