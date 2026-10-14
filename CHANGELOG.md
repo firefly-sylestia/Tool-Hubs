@@ -43,9 +43,10 @@ runtime Mojang installed (`runtime/<component>/...`, matched against the `javaVe
 version json names), then `JAVA_HOME`, then the JDK folders for the platform and SDKMAN, and picks the
 **smallest runtime that is new enough** for the version. Settings lists what was found, with a `Use`
 button, and `java -version` is only spawned for candidates that cannot be identified from their path.
-- **An instance is never deleted by accident.** Removing one forgets it and leaves its files alone;
-deletion is only offered for a directory inside the launcher's own instances folder, and an imported
-directory elsewhere is refused with the path, since a directory the user pointed us at is not ours.
+- **An instance is never deleted by accident.** Removing one forgets it and leaves every file where
+it is, and the app says so with the path. The service can delete, but only a directory inside the
+launcher's own instances folder — deleting an imported directory the user pointed us at is not ours
+to do — and no part of the UI asks it to yet.
 
 ### Changed
 - **Settings: the game directory became the instances folder.** New instances are created under it; an
