@@ -6,8 +6,14 @@ silently picking one.
 
 ## 1. Scope
 
-- **The active modules are `:tools:chime` and `:tools:network-switcher`.** Everything else is out of
-  scope until the user says otherwise.
+- **The active modules are `:tools:chime` and `:tools:network-switcher`, plus the desktop app at
+  `desktop/mc-launcher`.** Everything else is out of scope until the user says otherwise.
+- **`desktop/mc-launcher` is not a Gradle module.** It is an Electron + Vue + TypeScript app on its own
+  toolchain, so nothing in §2's Gradle list applies to it and it must never be added to
+  `settings.gradle.kts`. Its checks are npm scripts (`npm run verify` in that directory: typecheck, the
+  launcher logic checks, the renderer tests, then the bundle) and they are the only checks to run for
+  it. Packaging is still CI's job — [`.github/workflows/desktop.yml`](.github/workflows/desktop.yml)
+  produces the installers on Windows, macOS and Linux.
 - Do not edit `tools/data-warden` or the `core/*` modules unless the user explicitly asks, and never
   just to make an unrelated change compile. Data Warden is frozen and shares `core/*`, so a token
   whose value changes restyles it too.
@@ -33,7 +39,8 @@ silently picking one.
 
 Each tool carries its own version, in its own module build file
 ([`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts),
-[`tools/chime/build.gradle.kts`](tools/chime/build.gradle.kts)):
+[`tools/chime/build.gradle.kts`](tools/chime/build.gradle.kts); for the desktop app,
+[`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json) plays that role):
 
 ```kotlin
 versionCode = 15

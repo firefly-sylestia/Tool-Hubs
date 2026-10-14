@@ -7,8 +7,34 @@ version-named commit, so the entries below `0.7.1` are reconstructed from commit
 conservatively rather than split into invented version numbers.
 
 Each entry corresponds to the `versionName` in
-[`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts). See
-[`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
+[`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts), or — for the
+desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
+
+## [MC Launcher 0.1.0]
+
+The desktop launcher now lives in this repository, under
+[`desktop/mc-launcher`](desktop/mc-launcher). It is a second toolchain — Electron, Vue 3, Vuetify and
+TypeScript, built with Node — so it is deliberately not a Gradle module and nothing in `settings.gradle.kts`
+or the Android build refers to it.
+
+### Added
+- The launcher itself, imported whole: the main-process service layer behind one generic RPC channel,
+the preload bridge and snapshot state protocol, the launch pipeline (version `inheritsFrom` chains,
+per-OS library rules, classpath and natives resolution, placeholder substitution, and a real `spawn`),
+and the Play / Installed versions / Servers / Settings / Logs interface.
+- [`.github/workflows/desktop.yml`](.github/workflows/desktop.yml), which verifies the app on Linux and
+packages installers on Ubuntu, Windows and macOS, but only for commits that touch `desktop/` — so the
+Kotlin modules never pay for a Node build, and the Windows `.exe`, `.dmg`, `.deb` and `.AppImage` are
+available as run artifacts.
+
+### Notes
+- The Android modules are untouched by this: no `core/*` or `tools/*` source, token or version changed.
+- The launcher is local-profiles-only by design. It has no account, session or token handling, downloads
+no game files, and can only join servers configured `online-mode=false`. See
+[`desktop/mc-launcher/README.md`](desktop/mc-launcher/README.md).
+- Its version is its own, in `desktop/mc-launcher/package.json`; it moves independently of Chime and
+Network Switcher.
 
 ## [Chime 0.2.0]
 

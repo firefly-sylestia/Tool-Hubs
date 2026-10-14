@@ -1,0 +1,22 @@
+appId: app.mclauncher.desktop
+productName: MC Launcher
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - package.json
+asarUnpack:
+  - resources/**
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Game
+win:
+  target:
+    - nsis
+mac:
+  target:
+    - dmg
+  category: public.app-category.games

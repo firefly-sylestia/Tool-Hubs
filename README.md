@@ -1,8 +1,9 @@
 # Tool-Hubs
 
-Tool-Hubs is a collection of focused Android tools that share one Kotlin + Jetpack Compose
-codebase. Each tool is a standalone app module under `tools/`, with the shared visual language and
-primitives living in `core/`.
+Tool-Hubs is a collection of focused tools. The Android tools share one Kotlin + Jetpack Compose
+codebase: each is a standalone app module under `tools/`, with the shared visual language and
+primitives living in `core/`. The desktop launcher under `desktop/` is the one exception — it is an
+Electron app on a separate toolchain and does not build through Gradle.
 
 ## Modules
 
@@ -19,6 +20,12 @@ Shared code:
 | `:core:designsystem` | Theme tokens, colors, typography and the shared visual system |
 | `:core:ui` | Reusable composables, navigation chrome and UI primitives |
 | `:core:common` | Small shared helpers used across tools |
+
+Desktop (not a Gradle module, so it is not part of the Android build):
+
+| Path | App | Status |
+| --- | --- | --- |
+| `desktop/mc-launcher` | MC Launcher — a desktop launcher for an existing Minecraft installation | Newly imported |
 
 > **Current focus: `:tools:chime` and `:tools:network-switcher`.** The calculator, Music Analyzer and
 > Music Visualizer apps have been removed from the repository, and Data Warden is left untouched —
@@ -56,6 +63,19 @@ bed, and keeping time without becoming a nuisance.
 The bell is generated in code (inharmonic partials rendered to PCM) rather than shipped as an audio
 file, and QR scanning runs on-device through CameraX and the bundled ML Kit barcode model.
 
+## MC Launcher (desktop)
+
+An Electron + Vue 3 launcher for a Minecraft installation you already have on disk. It resolves the
+version json (including `inheritsFrom` chains and per-OS library rules), builds the classpath, shows
+the exact java command, and launches — with **local profiles only**: the UUID is the standard offline
+derivation, there is no account, session or token, and it downloads no game files. It can only join
+servers configured with `online-mode=false`.
+
+Its own README, including the full layout and requirements, is at
+[`desktop/mc-launcher/README.md`](desktop/mc-launcher/README.md). Its version lives in
+[`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json) and moves independently of the
+Android tools.
+
 ## Building
 
 Requirements: JDK 17, the Android SDK with `compileSdk 37`, and Shizuku on the device for anything
@@ -72,6 +92,15 @@ gradle :tools:network-switcher:assembleDebug
 
 There is no Gradle wrapper checked in; use your local `gradle` (CI pins `9.3.1`).
 
+The desktop launcher is built with Node 24 instead:
+
+```bash
+cd desktop/mc-launcher
+npm ci
+npm run verify     # typecheck + logic checks + renderer tests + bundle
+npm run dist:win   # package: also dist:linux and dist:mac
+```
+
 Release builds sign with the real keystore when `RELEASE_KEYSTORE_PATH` (plus
 `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`) is set, and fall back to a
 throwaway debug key otherwise so fork and pull-request builds still work.
@@ -84,10 +113,22 @@ APKs as artifacts (one-day retention). A `prune` job clears artifacts older than
 the ten newest caches, because Actions storage is one account-wide quota. CI is the only place
 builds run — see [`AGENTS.md`](AGENTS.md).
 
+[`.github/workflows/desktop.yml`](.github/workflows/desktop.yml) does the same for the desktop
+launcher, but only for commits that touch `desktop/`. It verifies the app on Linux and then packages
+it on Ubuntu, Windows and macOS, so the Windows `.exe` (unsigned, NSIS), the `.dmg`, the `.deb` and
+the `.AppImage` are downloadable from a run's artifacts (one-day retention).
+
+```bash
+# build installers from the current state of main
+gh workflow run desktop.yml --ref main
+```
+
 ## Docs
 
 - [`AGENTS.md`](AGENTS.md) — working rules for AI agents in this repository.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — versioning, release and commit process.
 - [`CHANGELOG.md`](CHANGELOG.md) — released versions and their changes.
+- [`desktop/mc-launcher/README.md`](desktop/mc-launcher/README.md) — the desktop launcher's layout,
+  launch pipeline and what it deliberately does not do.
 - [`docs/NETWORK_SWITCHER_FUTURE_TODO.md`](docs/NETWORK_SWITCHER_FUTURE_TODO.md) — planned redesign and roadmap.
 - [`TODO.md`](TODO.md) — delivery checklist for completed passes.

@@ -1,5 +1,23 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher import — MC Launcher 0.1.0
+
+- [x] The Electron + Vue 3 launcher sits at [`desktop/mc-launcher`](desktop/mc-launcher) with its own
+      `package.json`, lockfile and Node toolchain. It is intentionally not a Gradle module and is not
+      referenced by `settings.gradle.kts`; no `core/*` or `tools/*` file was touched to make room for it.
+- [x] [`desktop.yml`](.github/workflows/desktop.yml) verifies the app on Linux and packages installers
+      on Ubuntu, Windows and macOS, path-filtered to `desktop/` so Android runs are unaffected.
+- [x] Version `0.1.0` in `desktop/mc-launcher/package.json`, the file that is the source of truth for
+      this tool's version from here on.
+- [x] Re-verified after the move: `npm run verify` — typecheck clean, 32 launcher logic checks, 5
+      renderer tests, main/preload/renderer bundles built.
+
+### Still to verify on a desktop
+- [ ] `npm run dev` and a real game launch: the java spawn path, native library loading and argument
+      ordering against a real mod-loader version. The container has no display.
+- [ ] The packaged Windows `.exe` — `electron-builder` cannot cross-package, so CI builds it and nobody
+      has run it yet.
+
 ## Chime 0.2.0 — interface rebuild
 
 - [x] Rebuilt every Chime screen on `ToolHubsTheme` and the `:core:ui` kit. The app was rendering
