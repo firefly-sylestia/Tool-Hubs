@@ -34,6 +34,15 @@ snapshot state protocol, and a launch pipeline built from the version json.
   install, an incomplete installation, a dropped connection — each with the line
   it was read from and what to do about it. Reports are listed newest first and
   are never modified, and a log with no failure in it produces no findings.
+- **State you can see, in the title bar and in every list.** The profile that is
+  playing is shown in the title bar with a dot that pulses, next to a Stop button
+  and a chip for whatever install, download or launch is still working with its
+  percentage; the Play page shows the same state in place of the launch button
+  while the game runs. Versions are tagged as releases or snapshots, worlds and
+  their backups carry their own icons, resources show their kind and whether the
+  game will load them, servers show what the last ping said, and each crash
+  finding is stamped with its severity. Nothing is spelled out that an icon
+  already says, and nothing is drawn that the icon font does not define.
 - **An interface that moves, the way XMCL's does.** The launch pill has the play
   control set into it and spins it once when clicked; pages fade up as they
   arrive; cards transition their border towards the primary colour on hover
@@ -85,12 +94,17 @@ snapshot state protocol, and a launch pipeline built from the version json.
   would not load is refused with the reason (a `.jar` in `resourcepacks/` says
   "did you mean to add it to mods?") instead of being copied and ignored, and
   each folder opens in the OS file manager.
-- **A Modrinth page.** Search with a sort (relevance, downloads, followers,
-  newest, recently updated) across four tabs — mods, resource packs, shaders and
-  modpacks — with result cards and each project's own page: its published
-  description, gallery, client/server requirements, licence, links to source,
-  issues, wiki and Discord, and its whole version list. Installing a modpack
-  from there downloads the `.mrpack` and imports it as a new instance.
+- **A Modrinth page, which opens on the catalogue.** Four tabs — mods,
+  resource packs, shaders and modpacks — each listing the most downloaded content
+  for them before anything is typed, so the page is never an empty box; a search
+  word and a sort (relevance, downloads, followers, newest, recently updated)
+  narrow it, and with an instance selected it lists only what fits that instance's
+  game version and loader. Result cards lead to each project's own page: its
+  published description, gallery, client/server requirements, licence, links to
+  source, issues, wiki and Discord, and its whole version list. Installing a
+  modpack from there downloads the `.mrpack` and imports it as a new instance.
+  With no instance selected and a resource tab open, the page says so and offers
+  to go and pick one instead of quietly installing nothing.
 - **Install from Modrinth.** Mods, resource packs and shader packs are found by
   search and installed into the selected instance, filtered by its game version
   and loader (a Quilt instance is offered Fabric mods, because Quilt runs them).
@@ -114,6 +128,17 @@ snapshot state protocol, and a launch pipeline built from the version json.
   project and file id, which needs their keyed API, so its overrides are
   imported and the rest is reported rather than half-installed. The pack is
   inspected before anything is written, and always goes into a new instance.
+- **Modpack export, the other half of it.** An instance writes itself out as a
+  `.mrpack` that any launcher reading the format can install: its mods, resource
+  packs, shader packs, `config`, `defaultconfigs`, `scripts` and `options.txt`
+  are carried under `overrides/`, and the index names the game version and the
+  loader so an importer knows what to install underneath the pack. It is
+  self-contained rather than linked, because the launcher does not record where a
+  file came from and a made-up download URL would be worse than a bigger archive;
+  the game files, the worlds, the backups and the logs stay behind. The pack is
+  named, versioned (a date stamp when left empty) and written into a folder you
+  pick, and an instance with nothing of its own to carry is refused with the
+  reason rather than written as an empty file.
 - **Finds Java, and provides it if it is not there.** The runtime inside the game
   directory (`runtime/<component>`, matched against the `javaVersion` the version
   json names), then `JAVA_HOME`, then the platform's JDK folders, SDKMAN and
@@ -248,7 +273,7 @@ as a snapshot event, so the UI keeps a working copy instead of guessing.
 Verified locally on Linux with Node 24.21:
 
 - `npm run typecheck` — clean for main, preload, shared and the Vue renderer.
-- `npm run selfcheck` — 111 checks: the offline UUID, rule evaluation,
+- `npm run selfcheck` — 115 checks: the offline UUID, rule evaluation,
   inheritance, classpath and natives resolution (including a library listed twice
   with the natives on the second listing), argument substitution, the launch
   plan and its failure paths, zip reading and extraction (including a modpack's
@@ -276,9 +301,12 @@ Verified locally on Linux with Node 24.21:
   flattened and its colour codes stripped, a status turned into the line the list
   shows, the addresses the game writes (including bracketed IPv6), and
   `servers.dat` merged, round tripped through a real file, and refused when it is
-  not a server list at all, and the crash reader: a report's own description and
+  not a server list at all,  and the crash reader: a report's own description and
   the deepest `Caused by`, the mod list and the missing-dependency block in the
-  shapes loaders actually write, and a clean log that produces nothing.
+  shapes loaders actually write, and a clean log that produces nothing, plus the
+  pack export: which files an instance carries (and which of its own it leaves
+  behind), the index and its dependencies, and a whole instance written out and
+  read back, including the instance with nothing in it that is refused.
 - `npm run netcheck` — the same install path against live services: Mojang's
   manifest and a real version json, a real asset index, libraries and assets
   downloaded and hash-checked (664 KB), a real native jar unpacked (1.16.5's
@@ -304,8 +332,8 @@ Verified locally on Linux with Node 24.21:
 - `npm run test` — 8 renderer tests: boot from the bridge, snapshot rendering, a
   UI action reaching the service bridge, error surfacing, navigation, the install
   picker installing what it offers into the selected instance, the worlds card
-  listing a world and asking for a backup, and the Modrinth page searching and
-  opening a project page.
+  listing a world and asking for a backup, and the Modrinth page opening on the
+  catalogue and then opening a project page.
 - `npm run build` — main, preload and renderer bundles build.
 
 ## License

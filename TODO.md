@@ -1,5 +1,30 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.13.0, an instance as a modpack, and an interface that says what it is doing
+
+- [x] **Export as a modpack.** The selected instance writes out as a self-contained `.mrpack`: its mods,
+      resource packs, shader packs, `config`, `defaultconfigs`, `scripts` and `options.txt` under
+      `overrides/`, with an index naming the game version and the loader an importer has to install first.
+      The game files, the worlds, the backups and the logs stay behind; the pack is named and versioned
+      (a date stamp when left empty) and written into a folder picked after the form, so a cancelled pick
+      leaves nothing behind. An instance with nothing of its own to carry is refused by name.
+- [x] **The store opens on the catalogue.** It no longer needs a search word and an instance before it
+      shows anything: the open tab lists the most downloaded content, a search word and a sort narrow it,
+      and a selected instance filters it to its version and loader. With no instance and a resource tab
+      open it says so and offers to pick one instead of installing nothing at all.
+- [x] **A running indicator that is visible from every page.** The title bar shows the playing profile
+      with a pulsing dot, a Stop button and a chip for whatever install, download or launch is still
+      running with its percentage; the Play page replaces the launch button with the same state, and its
+      activity list says which task is working, which finished and which failed, with how long it took.
+- [x] **State as an icon rather than a sentence**, and the icon font actually loaded: Vuetify was drawing
+      every `v-icon` as its own name in text because `@mdi/font` was never imported. Versions, worlds,
+      backups, resources, servers, Java runtimes and crash findings all carry their own state now.
+- [x] **A Fabric instance exported the wrong game version**: `fabric-loader-0.16.9-1.21.4` was read as
+      `0.16.9-1.21.4`, which an importer cannot install. The game version is taken as the last version
+      number in the id, and the new export check is what caught it.
+- [x] Em dashes taken out of the copy the interface shows.
+- [x] Version bumped to `0.13.0` in `desktop/mc-launcher/package.json`, lockfile included.
+
 ## Desktop launcher — MC Launcher 0.12.0, crash help
 
 - [x] “What went wrong” reads each instance's `crash-reports/` and `logs/latest.log` and names the cause:
