@@ -4,9 +4,11 @@ import InstancesView from './views/InstancesView.vue'
 import LogsView from './views/LogsView.vue'
 import ServersView from './views/ServersView.vue'
 import SettingsView from './views/SettingsView.vue'
+import StoreView from './views/StoreView.vue'
 
 export const routes = [
   { path: '/', name: 'home', component: HomeView, meta: { title: 'Play' } },
+  { path: '/store', name: 'store', component: StoreView, meta: { title: 'Modrinth' } },
   { path: '/instances', name: 'instances', component: InstancesView, meta: { title: 'Instances' } },
   { path: '/servers', name: 'servers', component: ServersView, meta: { title: 'Servers' } },
   { path: '/settings', name: 'settings', component: SettingsView, meta: { title: 'Settings' } },

@@ -1,10 +1,12 @@
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type {
   InstallLoader,
+  ModpackImportResult,
   ModrinthInstallResult,
   ModrinthInstalledItem,
   ModrinthProject,
+  ModrinthProjectDetail,
   ModrinthSearch,
   ModrinthVersion,
   ResourceKind
@@ -12,6 +14,7 @@ import type {
 import { downloadAll, fetchJson, type FetchLike } from '../minecraft/download'
 import {
   bestVersion,
+  parseProjectDetail,
   parseProjectList,
   parseSearchResponse,
   parseVersion,
@@ -20,13 +23,16 @@ import {
   projectsByIdsUrl,
   projectVersionsUrl,
   requiredDependencies,
+  projectUrl,
   searchUrl,
   userAgent,
-  versionUrl
+  versionUrl,
+  type SearchSort
 } from '../minecraft/modrinth'
 import { folderForKind } from '../minecraft/resources'
 import type { AppEnvironment } from './env'
 import type { InstanceService } from './instance-service'
+import type { ModpackService } from './modpack-service'
 import type { TaskService } from './task-service'
 
 /** How deep a dependency chain is followed, so one project cannot fan out forever. */
@@ -36,10 +42,12 @@ const MAX_DEPENDENCIES = 25
 
 export interface SearchInput {
   query: string
-  kind: ResourceKind
+  /** A resource kind, or `modpack` for whole packs, which become instances. */
+  kind: ResourceKind | 'modpack'
   /** When omitted, the selected instance's version and loader are used. */
   gameVersion?: string | null
   loader?: InstallLoader | null
+  sort?: SearchSort | null
   limit?: number
   offset?: number
 }
@@ -67,6 +75,7 @@ export class ModrinthService {
   constructor(
     private readonly env: AppEnvironment,
     private readonly instances: InstanceService,
+    private readonly modpacks: ModpackService,
     private readonly tasks: TaskService,
     private readonly warn: (message: string) => void,
     private readonly options: { fetchImpl?: FetchLike } = {}
@@ -103,18 +112,34 @@ export class ModrinthService {
         kind: input.kind,
         gameVersion,
         loader,
+        sort: input.sort ?? 'relevance',
         limit: input.limit ?? 20,
         offset: input.offset ?? 0
       })
     )
-    return { ...parseSearchResponse(payload), folder: folderForKind(input.kind) }
+    const folder = input.kind === 'modpack' ? 'a new instance' : folderForKind(input.kind)
+    return { ...parseSearchResponse(payload), folder }
+  }
+
+  /** A project's own page, for the detail view. */
+  async project(projectIdOrSlug: string): Promise<ModrinthProjectDetail> {
+    const detail = parseProjectDetail(await this.json<unknown>(projectUrl(projectIdOrSlug)))
+    if (!detail) throw new Error(`Modrinth has no project ${projectIdOrSlug}.`)
+    return detail
   }
 
   async versions(input: {
     projectIdOrSlug: string
     gameVersion?: string | null
     loader?: InstallLoader | null
+    /** No filter at all: what a modpack's version list needs, since it brings its own. */
+    free?: boolean
   }): Promise<ModrinthVersion[]> {
+    if (input.free) {
+      return parseVersionList(
+        await this.json<unknown>(projectVersionsUrl({ projectIdOrSlug: input.projectIdOrSlug }))
+      )
+    }
     const { gameVersion, loader } = this.target(input)
     const payload = await this.json<unknown>(
       projectVersionsUrl({
@@ -129,6 +154,60 @@ export class ModrinthService {
   async projects(projectIds: string[]): Promise<ModrinthProject[]> {
     if (projectIds.length === 0) return []
     return parseProjectList(await this.json<unknown>(projectsByIdsUrl(projectIds)))
+  }
+
+  /**
+   * Installs a modpack from Modrinth.
+   *
+   * A pack is not a file in an instance, it *is* an instance: the `.mrpack` is
+   * fetched, verified and then handed to the modpack importer, which creates the
+   * instance and installs the game, the loader and the pack's own files. That is
+   * the difference between the Store's Modpacks tab and its Mods tab.
+   */
+  installModpack(input: { projectId?: string | null; versionId?: string | null }): Promise<ModpackImportResult> {
+    return this.tasks.run('Install modpack from Modrinth', async (report) => {
+      report(0.05, 'Reading the pack from Modrinth')
+      const versions = await this.freeVersions({
+        projectId: input.projectId ?? null,
+        versionId: input.versionId ?? null
+      })
+      const version = versions.version
+      const file = primaryFile(version)
+      if (!file) throw new Error(`${version.name} lists no file to download.`)
+
+      const cacheDir = join(this.env.userDataDir, 'store')
+      mkdirSync(cacheDir, { recursive: true })
+      const dest = join(cacheDir, file.filename)
+      report(0.15, `Downloading ${file.filename} (${(file.size / 1048576).toFixed(0)} MB)`)
+      await downloadAll([{ url: file.url, dest, sha1: file.sha1, sha512: file.sha512, size: file.size }])
+      if (!existsSync(dest)) throw new Error(`${file.filename} did not arrive.`)
+
+      report(0.3, 'Installing the pack')
+      return await this.modpacks.import(dest)
+    })
+  }
+
+  /**
+   * A project's newest version with no filter on game version or loader, which
+   * is what a modpack needs: it names its own Minecraft version and loader, and
+   * filtering by the currently selected instance would hide nearly all of them.
+   */
+  private async freeVersions(input: {
+    projectId: string | null
+    versionId: string | null
+  }): Promise<{ version: ModrinthVersion }> {
+    if (input.versionId) {
+      const version = parseVersion(await this.json<unknown>(versionUrl(input.versionId)))
+      if (!version) throw new Error(`${input.versionId} is no longer published.`)
+      return { version }
+    }
+    if (!input.projectId) throw new Error('A modpack needs a project id.')
+    const versions = parseVersionList(
+      await this.json<unknown>(projectVersionsUrl({ projectIdOrSlug: input.projectId }))
+    )
+    const version = bestVersion(versions, { gameVersion: null, loader: null })
+    if (!version) throw new Error(`${input.projectId} has no released version.`)
+    return { version }
   }
 
   /** Installs a project — and what it requires — into an instance, as a task. */

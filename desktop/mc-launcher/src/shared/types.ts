@@ -257,6 +257,33 @@ export interface ModrinthProject {
   iconUrl: string | null
 }
 
+/**
+ * A project's own page: the written description, the gallery, which side each
+ * environment needs it on, and where its source, issues and wiki live.
+ */
+export interface ModrinthProjectDetail {
+  projectId: string
+  slug: string
+  title: string
+  description: string
+  projectType: string
+  iconUrl: string | null
+  downloads: number
+  followers: number
+  updated: string
+  published: string
+  categories: string[]
+  gameVersions: string[]
+  loaders: string[]
+  /** The long description, as Markdown, exactly as published. */
+  body: string
+  galleryUrls: string[]
+  clientSide: string | null
+  serverSide: string | null
+  license: string | null
+  links: { label: string; url: string }[]
+}
+
 export interface ModrinthHit {
   projectId: string
   slug: string

@@ -17,6 +17,7 @@ import type {
   ModpackImportResult,
   ModpackSummary,
   ModrinthInstallResult,
+  ModrinthProjectDetail,
   ModrinthSearch,
   ModrinthVersion,
   Profile,
@@ -157,10 +158,19 @@ export function useLauncher() {
     inspectModpack: (path: string) => call<ModpackSummary>('modpack', 'inspect', { path }),
     importModpack: (path: string) => call<ModpackImportResult>('modpack', 'import', { path }),
 
-    modrinthSearch: (input: { query: string; kind: ResourceKind; limit?: number }) =>
-      call<ModrinthSearch & { folder: string }>('modrinth', 'search', input),
-    modrinthVersions: (projectIdOrSlug: string) =>
-      call<ModrinthVersion[]>('modrinth', 'versions', { projectIdOrSlug }),
+    modrinthSearch: (input: {
+      query: string
+      kind: ResourceKind | 'modpack'
+      sort?: string
+      limit?: number
+      offset?: number
+    }) => call<ModrinthSearch & { folder: string }>('modrinth', 'search', input),
+    modrinthVersions: (projectIdOrSlug: string, free = false) =>
+      call<ModrinthVersion[]>('modrinth', 'versions', { projectIdOrSlug, free }),
+    modrinthProject: (projectIdOrSlug: string) =>
+      call<ModrinthProjectDetail>('modrinth', 'project', { projectIdOrSlug }),
+    installModpackFromStore: (input: { projectId?: string | null; versionId?: string | null }) =>
+      call<ModpackImportResult>('modrinth', 'installModpack', input),
     installFromModrinth: (input: {
       projectId?: string | null
       versionId?: string | null

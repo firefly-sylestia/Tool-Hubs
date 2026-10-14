@@ -31,9 +31,11 @@ import type { VersionJson } from '../src/main/minecraft/version-json'
 import { extractZip, isNativeLibraryEntry } from '../src/main/minecraft/zip'
 import {
   bestVersion,
+  parseProjectDetail,
   parseSearchResponse,
   parseVersionList,
   primaryFile,
+  projectUrl,
   projectVersionsUrl,
   requiredDependencies,
   searchUrl,
@@ -217,6 +219,18 @@ await step('resolve a required dependency chain the way an install does', async 
   if (!best) throw new Error(`Fabric API has no version for ${releaseId}`)
   const required = requiredDependencies(best, { installedProjectIds: [] })
   return `${best.name}: ${required.length} required dependency(ies)` + (required[0]?.projectId ? ` (e.g. ${required[0].projectId})` : '')
+})
+
+await step('read a project page the way the store shows it', async () => {
+  const headers = { 'User-Agent': userAgent('mc-launcher', 'netcheck') }
+  const detail = parseProjectDetail(await fetchJson<unknown>(projectUrl('sodium'), { headers }))
+  if (!detail) throw new Error('Modrinth returned a project page that could not be read')
+  if (detail.body.length === 0) throw new Error(`${detail.title} has no description body`)
+  return (
+    `${detail.title} (${detail.slug}, ${detail.projectType}) — ${detail.categories.length} categories, ` +
+    `${detail.license ?? 'no licence'}, ${detail.galleryUrls.length} gallery image(s), ` +
+    `${detail.links.map((link) => link.label).join('/') || 'no links'}`
+  )
 })
 
 await step("download Mojang's own Java runtime and run it", async () => {

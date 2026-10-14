@@ -39,12 +39,17 @@ import {
 } from '../src/main/minecraft/version-manifest'
 import {
   bestVersion,
+  isSearchSort,
   matchesVersionRange,
+  parseProjectDetail,
   parseSearchResponse,
   parseVersionList,
   primaryFile,
+  projectTypeForKind,
+  projectWebUrl,
   requiredDependencies,
   searchFacets,
+  searchUrl,
   userAgent,
   versionsQuery
 } from '../src/main/minecraft/modrinth'
@@ -1488,6 +1493,69 @@ console.log('\nModrinth')
       requiredDependencies(version, { installedProjectIds: ['p7dr8msh'] }).length,
       0,
       'a dependency that is already there is not followed again'
+    )
+  })
+
+  check('sorts a search and reads a project page', () => {
+    const sorted = searchUrl({ query: 'sodium', kind: 'mod', sort: 'downloads' })
+    expect(sorted.includes('index=downloads'), 'the sort reaches the API')
+    expect(
+      !searchUrl({ query: 'sodium', kind: 'mod', sort: 'relevance' }).includes('index='),
+      'relevance is the API default and is not sent'
+    )
+    expectEqual(isSearchSort('downloads'), true, 'a known sort')
+    expectEqual(isSearchSort('whatever'), false, 'anything else')
+    expectEqual(projectTypeForKind('modpack'), 'modpack', 'a pack is its own project type')
+    expect(
+      searchUrl({ query: '', kind: 'modpack' }).includes('project_type%3Amodpack'),
+      'and the facet says so'
+    )
+
+    const detail = parseProjectDetail({
+      id: 'AANobbMI',
+      slug: 'sodium',
+      title: 'Sodium',
+      description: 'Modern rendering engine',
+      project_type: 'mod',
+      icon_url: 'https://cdn/sodium.png',
+      downloads: 12345678,
+      followers: 3000,
+      updated: '2026-10-01T00:00:00Z',
+      published: '2021-01-01T00:00:00Z',
+      categories: ['fabric', 'optimization'],
+      game_versions: ['1.21.4'],
+      loaders: ['fabric'],
+      body: '# Sodium\n\nA rendering engine.',
+      gallery: [{ raw_url: 'https://cdn/one.png' }, { url: 'https://cdn/two.png' }, {}],
+      client_side: 'required',
+      server_side: 'unsupported',
+      license: { name: 'LGPL-3.0' },
+      source_url: 'https://github/sodium',
+      issues_url: 'https://github/sodium/issues',
+      wiki_url: '',
+      discord_url: 'https://discord/sodium'
+    })
+    expectEqual(detail?.title, 'Sodium', 'title')
+    expectEqual(detail?.license, 'LGPL-3.0', 'licence')
+    expectEqual(detail?.galleryUrls, ['https://cdn/one.png', 'https://cdn/two.png'], 'gallery images')
+    expectEqual(
+      detail?.links.map((link) => link.label),
+      ['Source', 'Issues', 'Discord'],
+      'links, with the empty ones left out'
+    )
+    expectEqual(parseProjectDetail({ title: 'no id, so not usable' }), null, 'a project needs an id')
+    // Modrinth answers with the licence as an object on some routes and as a
+    // string on others; both are real, and one was found by asking the API.
+    expectEqual(parseProjectDetail({ id: 'x', title: 'X', license: 'MIT' })?.license, 'MIT', 'a string licence')
+    expectEqual(
+      parseProjectDetail({ id: 'x', title: 'X', license: { id: 'lgpl-3', name: 'LGPL-3.0' } })?.license,
+      'LGPL-3.0',
+      'an object licence'
+    )
+    expectEqual(
+      projectWebUrl({ projectType: 'mod', slug: 'sodium' }),
+      'https://modrinth.com/mod/sodium',
+      'the browser URL'
     )
   })
 

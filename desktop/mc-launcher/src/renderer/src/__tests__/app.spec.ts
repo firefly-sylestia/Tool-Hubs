@@ -83,6 +83,69 @@ function stubBridge(): void {
       throw new Error(`Error invoking remote method 'service-call': Error: ${message}`)
     }
     if (service === 'log' && method === 'recent') return []
+    if (service === 'modrinth' && method === 'search') {
+      return {
+        totalHits: 1,
+        offset: 0,
+        limit: 20,
+        folder: 'mods',
+        hits: [
+          {
+            projectId: 'AANobbMI',
+            slug: 'sodium',
+            title: 'Sodium',
+            description: 'Modern rendering engine',
+            projectType: 'mod',
+            downloads: 12345678,
+            follows: 3000,
+            iconUrl: null,
+            gameVersions: ['1.21.4'],
+            loaders: ['fabric'],
+            categories: ['fabric', 'optimization'],
+            latestVersion: 'v1'
+          }
+        ]
+      }
+    }
+    if (service === 'modrinth' && method === 'project') {
+      return {
+        projectId: 'AANobbMI',
+        slug: 'sodium',
+        title: 'Sodium',
+        description: 'Modern rendering engine',
+        projectType: 'mod',
+        iconUrl: null,
+        downloads: 12345678,
+        followers: 3000,
+        updated: '2026-10-01T00:00:00Z',
+        published: '2021-01-01T00:00:00Z',
+        categories: ['fabric'],
+        gameVersions: ['1.21.4'],
+        loaders: ['fabric'],
+        body: '# Sodium',
+        galleryUrls: [],
+        clientSide: 'required',
+        serverSide: 'unsupported',
+        license: 'LGPL-3.0',
+        links: []
+      }
+    }
+    if (service === 'modrinth' && method === 'versions') {
+      return [
+        {
+          id: 'v1',
+          projectId: 'AANobbMI',
+          name: 'Sodium 0.6.13',
+          versionNumber: 'mc1.21.4-0.6.13',
+          versionType: 'release',
+          gameVersions: ['1.21.4'],
+          loaders: ['fabric'],
+          files: [],
+          dependencies: [],
+          datePublished: '2026-09-01T00:00:00Z'
+        }
+      ]
+    }
     if (service === 'install' && method === 'versions') {
       return [
         { id: '1.21.5-pre1', type: 'snapshot', releaseTime: '2026-10-01T00:00:00.000Z' },
@@ -256,6 +319,37 @@ describe('renderer shell', () => {
       }
     })
     expect(wrapper.text()).toContain('Installed fabric-loader-0.16.9-1.21.4')
+  })
+
+  it('browses Modrinth and opens a project without leaving the app', async () => {
+    const { wrapper, router } = await mountApp()
+    pushSnapshot(steveState)
+    await router.push('/store')
+    await flushPromises()
+
+    // The store filters by the selected instance, so it asks for what fits it.
+    expect(calls).toContainEqual({
+      service: 'modrinth',
+      method: 'search',
+      params: { query: '', kind: 'mod', sort: 'relevance', limit: 20, offset: 0 }
+    })
+    expect(wrapper.text()).toContain('Sodium')
+    expect(wrapper.text()).toContain('12.3M downloads')
+
+    await buttonByText(wrapper, 'Details').trigger('click')
+    await flushPromises()
+    expect(calls).toContainEqual({ service: 'modrinth', method: 'project', params: { projectIdOrSlug: 'AANobbMI' } })
+    expect(calls).toContainEqual({
+      service: 'modrinth',
+      method: 'versions',
+      params: { projectIdOrSlug: 'AANobbMI', free: false }
+    })
+    // The dialog shows the project's own page, not the card: its published body,
+    // its licence and its version list.
+    const dialog = document.body.textContent ?? ''
+    expect(dialog).toContain('# Sodium')
+    expect(dialog).toContain('LGPL-3.0')
+    expect(dialog).toContain('mc1.21.4-0.6.13')
   })
 
   it('navigates between the views', async () => {

@@ -101,7 +101,7 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   const launch = new LaunchService(state, environment, log, tasks, servers, java)
   const install = new InstallService(environment, tasks, installations, instances, warn)
   const modpacks = new ModpackService(install, instances, tasks, warn)
-  const modrinth = new ModrinthService(environment, instances, tasks, warn)
+  const modrinth = new ModrinthService(environment, instances, modpacks, tasks, warn)
   const windows = new WindowController()
 
   const as = <T,>(params: unknown): T => params as T
@@ -176,8 +176,10 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   })
   registry.register('modrinth', {
     search: (params) => modrinth.search(as<SearchInput>(params)),
-    versions: (params) => modrinth.versions(as<{ projectIdOrSlug: string }>(params)),
-    install: (params) => modrinth.install(as<ModrinthInstallInput>(params))
+    versions: (params) => modrinth.versions(as<{ projectIdOrSlug: string; gameVersion?: string | null }>(params)),
+    project: (params) => modrinth.project(as<{ projectIdOrSlug: string }>(params).projectIdOrSlug),
+    install: (params) => modrinth.install(as<ModrinthInstallInput>(params)),
+    installModpack: (params) => modrinth.installModpack(as<{ projectId?: string | null }>(params))
   })
   registry.register('java', {
     detect: () => java.detect(),

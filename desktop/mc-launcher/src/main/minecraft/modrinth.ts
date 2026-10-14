@@ -4,6 +4,7 @@ import type {
   ModrinthFile,
   ModrinthHit,
   ModrinthProject,
+  ModrinthProjectDetail,
   ModrinthSearch,
   ModrinthVersion,
   ResourceKind
@@ -39,6 +40,8 @@ export function resourceKindForProjectType(projectType: string): ResourceKind | 
   if (projectType === 'shader') return 'shaderpack'
   return null
 }
+
+export const MODPACK_PROJECT_TYPE = 'modpack'
 
 /**
  * The loader a project must list to work in an instance. Vanilla has no loader
@@ -320,7 +323,11 @@ export function bestVersion(
 }
 
 /** `[["project_type:mod"],["versions:1.21.4"],["categories:fabric"]]`. */
-export function searchFacets(input: { kind: ResourceKind; gameVersion?: string | null; loader?: InstallLoader | null }): string {
+export function searchFacets(input: {
+  kind: ResourceKind | 'modpack'
+  gameVersion?: string | null
+  loader?: InstallLoader | null
+}): string {
   const facets: string[][] = []
   facets.push([`project_type:${projectTypeForKind(input.kind)}`])
   if (input.gameVersion) facets.push([`versions:${input.gameVersion}`])
@@ -330,9 +337,10 @@ export function searchFacets(input: { kind: ResourceKind; gameVersion?: string |
   return JSON.stringify(facets)
 }
 
-export function projectTypeForKind(kind: ResourceKind): string {
+export function projectTypeForKind(kind: ResourceKind | 'modpack'): string {
   if (kind === 'mod') return 'mod'
   if (kind === 'resourcepack') return 'resourcepack'
+  if (kind === 'modpack') return 'modpack'
   return 'shader'
 }
 
@@ -346,20 +354,93 @@ export function versionsQuery(input: { gameVersion?: string | null; loader?: Ins
   return query === '' ? '' : `?${query}`
 }
 
+/**
+ * How the store page sorts. Modrinth calls this `index`, and these are the five
+ * it accepts; relevance is what a search box means by default.
+ */
+export const SEARCH_SORTS = ['relevance', 'downloads', 'follows', 'newest', 'updated'] as const
+export type SearchSort = (typeof SEARCH_SORTS)[number]
+
+export function isSearchSort(value: unknown): value is SearchSort {
+  return typeof value === 'string' && (SEARCH_SORTS as readonly string[]).includes(value)
+}
+
 export function searchUrl(input: {
   query: string
-  kind: ResourceKind
+  kind: ResourceKind | 'modpack'
   gameVersion?: string | null
   loader?: InstallLoader | null
+  sort?: SearchSort | null
   limit?: number
   offset?: number
 }): string {
   const params = new URLSearchParams()
   params.set('query', input.query)
   params.set('facets', searchFacets(input))
+  if (input.sort && input.sort !== 'relevance') params.set('index', input.sort)
   params.set('limit', String(input.limit ?? 20))
   params.set('offset', String(input.offset ?? 0))
   return `${MODRINTH_API}/search?${params.toString()}`
+}
+
+export function projectUrl(projectIdOrSlug: string): string {
+  return `${MODRINTH_API}/project/${encodeURIComponent(projectIdOrSlug)}`
+}
+
+const PROJECT_LINKS: { key: string; label: string }[] = [
+  { key: 'source_url', label: 'Source' },
+  { key: 'issues_url', label: 'Issues' },
+  { key: 'wiki_url', label: 'Wiki' },
+  { key: 'discord_url', label: 'Discord' }
+]
+
+export function parseProjectDetail(payload: unknown): ModrinthProjectDetail | null {
+  const project = asRecord(payload)
+  const projectId = asString(project?.id)
+  const title = asString(project?.title)
+  if (!project || !projectId || !title) return null
+
+  const gallery = (Array.isArray(project.gallery) ? project.gallery : [])
+    .map((entry) => asString(asRecord(entry)?.raw_url) ?? asString(asRecord(entry)?.url))
+    .filter((url): url is string => url !== null)
+
+  // The licence is an object on most responses and a plain string on some, so
+  // both are read rather than one being assumed.
+  const license = asRecord(project.license)
+  const licenseName = asString(project.license) ?? asString(license?.name) ?? asString(license?.id)
+
+  const links: { label: string; url: string }[] = []
+  for (const link of PROJECT_LINKS) {
+    const url = asString(project[link.key])
+    if (url) links.push({ label: link.label, url })
+  }
+
+  return {
+    projectId,
+    slug: asString(project.slug) ?? projectId,
+    title,
+    description: asString(project.description) ?? '',
+    projectType: asString(project.project_type) ?? 'mod',
+    iconUrl: asString(project.icon_url),
+    downloads: asNumber(project.downloads),
+    followers: asNumber(project.followers),
+    updated: asString(project.updated) ?? '',
+    published: asString(project.published) ?? '',
+    categories: asStringArray(project.categories),
+    gameVersions: asStringArray(project.game_versions),
+    loaders: asStringArray(project.loaders),
+    body: asString(project.body) ?? '',
+    galleryUrls: gallery,
+    clientSide: asString(project.client_side),
+    serverSide: asString(project.server_side),
+    license: licenseName,
+    links
+  }
+}
+
+/** The browser URL for a project, for opening it outside the launcher. */
+export function projectWebUrl(detail: { projectType: string; slug: string }): string {
+  return `https://modrinth.com/${detail.projectType}/${detail.slug}`
 }
 
 export function projectVersionsUrl(input: {
