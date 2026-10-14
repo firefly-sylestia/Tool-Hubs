@@ -78,6 +78,12 @@ snapshot state protocol, and a launch pipeline built from the version json.
   version downloaded elsewhere gets in.
 - **Server list and join.** Saved addresses plus a queued join. Modern versions
   get `--quickPlayMultiplayer host:port`; older ones get `--server/--port`.
+- **Per-instance game and java options.** Each instance's own `options.txt` is
+  shown and patchable — fullscreen, graphics, FOV, render distance, FPS cap, GUI
+  scale and the rest, plus any other key by name — and the file is patched, not
+  rewritten, so keys the launcher has never heard of survive. The instance also
+  carries its own extra JVM arguments, added before the memory limit so the
+  memory setting still wins.
 - **Log view, task list, settings** (instances folder, java binary, memory,
   window size), and a preview of the exact java command before launching.
 
@@ -164,8 +170,8 @@ src/main/            Electron main process
                      java, server, launch, task, log, settings
   minecraft/         version json, rules, classpath, arguments, launch plan,
                      download, install plan, loader metadata, modpack indexes,
-                     modrinth api, jar metadata, resource folders, java
-                     discovery, zip, manifest
+                     modrinth api, jar metadata, resource folders, game
+                     options, java discovery, zip, manifest
 src/preload/         contextBridge: serviceChannels, windowController, bootstrap, taskMonitor
 src/renderer/        Vue 3 + Vuetify UI
 src/shared/          types and channel constants shared by all three
@@ -183,7 +189,7 @@ as a snapshot event, so the UI keeps a working copy instead of guessing.
 Verified locally on Linux with Node 24.21:
 
 - `npm run typecheck` — clean for main, preload, shared and the Vue renderer.
-- `npm run selfcheck` — 77 checks: the offline UUID, rule evaluation,
+- `npm run selfcheck` — 81 checks: the offline UUID, rule evaluation,
   inheritance, classpath and natives resolution (including a library listed twice
   with the natives on the second listing), argument substitution, the launch
   plan and its failure paths, zip reading and extraction (including a modpack's
@@ -194,8 +200,9 @@ Verified locally on Linux with Node 24.21:
   what each refuses, java version parsing and runtime selection, Modrinth search
   facets and responses, version selection, required-dependency following and the
   version ranges mods publish, jar metadata for all four loader formats
-  (including the legacy one) and the warnings they produce, profile/server/
-  settings validation, the state store and the migration from the old
+  (including the legacy one) and the warnings they produce, reading and patching
+  `options.txt` and splitting JVM arguments the way a shell would, profile/
+  server/settings validation, the state store and the migration from the old
   single-directory state file.
 - `npm run netcheck` — the same install path against live services: Mojang's
   manifest and a real version json, a real asset index, libraries and assets

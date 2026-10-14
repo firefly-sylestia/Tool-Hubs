@@ -1,5 +1,14 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.5.0, per-instance game and java options
+
+- [x] Each instance's own `options.txt` is read, shown and patched, with the settings people actually
+      change offered directly and any other key settable by name. The file is patched rather than
+      rewritten, so lines the launcher does not understand survive where they were.
+- [x] Per-instance extra JVM arguments, added after the version json's own and before the memory limit;
+      an old state file comes forward with none.
+- [x] Version bumped to `0.5.0` in `desktop/mc-launcher/package.json`, lockfile included.
+
 ## Desktop launcher — MC Launcher 0.4.0, install mods from Modrinth
 
 - [x] Search and install mods, resource packs and shader packs from Modrinth's public API, filtered by
@@ -24,7 +33,6 @@
 - [ ] Download and manage Java runtimes from Mojang's JVM index, so no system JDK is needed.
 - [ ] Saves and worlds: list per instance, export/import, and a backup before a pack change.
 - [ ] Server list parity: ping for status and latency, read and write the game's own `servers.dat`.
-- [ ] Per-instance game and JVM options (`options.txt`, custom JVM arguments).
 - [ ] Export an instance as a `.mrpack` (the other half of the modpack story).
 - [ ] Disk efficiency: hard links for files shared between instances, and ranged multi-part downloads.
 - [ ] Crash report and log help: turn a stack into the likely cause.

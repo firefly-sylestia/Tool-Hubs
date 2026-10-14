@@ -11,6 +11,27 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.5.0]
+
+Every instance has a game directory, so every instance has its own `options.txt` and can want its own
+JVM arguments. Both were previously out of reach: the only memory and window settings lived in the
+launcher's global settings, and the game's own options could only be changed from inside the game.
+
+### Added
+- **Per-instance game options.** The instance page shows the settings people actually change —
+fullscreen, graphics, FOV, render and simulation distance, maximum FPS, GUI scale, pause-on-lost-focus,
+VSync — read from that instance's `options.txt`. Any other key can be set by name, and the whole file
+is listed, with a Remove per line that hands a key back to the game's own default. The file is patched
+rather than rewritten, so every line the launcher does not know about survives exactly where it was,
+which is the only safe way to edit a file the game itself rewrites.
+- **Per-instance JVM arguments.** Extra arguments for this instance, added after the version json's own
+arguments and before the memory limit, so the memory setting still wins. Arguments are typed one per
+line and split the way a shell would, so `-Dsome.option="hello world"` stays one argument.
+
+### Changed
+- The launch plan takes the instance's own arguments into account, and an older state file is brought
+forward with no arguments rather than undefined ones.
+
 ## [MC Launcher 0.4.0]
 
 Adding a mod is what a launcher is for, and until now it meant downloading a jar in a browser and
