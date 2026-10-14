@@ -97,7 +97,7 @@ async function findJava(): Promise<void> {
     if (detected.length === 0) {
       javaNote.value =
         'No Java on this machine: nothing in JAVA_HOME, the usual install folders, or on PATH. ' +
-        "That is normal on Windows — use Mojang's runtime below instead."
+        "That is normal on Windows, so use Mojang's runtime below instead."
     }
   } catch {
     // Surfaced by the composable.
@@ -120,7 +120,7 @@ async function downloadJava(): Promise<void> {
   try {
     const result = await installJava(component)
     javaNote.value =
-      `Installed ${component} (Java ${result.major ?? 'unknown'}) — ${result.files} files, ` +
+      `Installed ${component} (Java ${result.major ?? 'unknown'}): ${result.files} files, ` +
       `${(result.bytes / 1048576).toFixed(0)} MB. The launcher uses it for this instance automatically.`
     await refreshJava()
   } catch {
@@ -145,8 +145,11 @@ onMounted(() => {
 </script>
 
 <template>
-  <v-card max-width="860">
-    <v-card-title>Settings</v-card-title>
+  <v-card max-width="880">
+    <v-card-title class="d-flex align-center ga-2">
+      <v-icon icon="mdi-cog-outline" size="small" />
+      Settings
+    </v-card-title>
     <v-card-text>
       <v-text-field
         v-model="form.instancesDir"
@@ -167,20 +170,23 @@ onMounted(() => {
         </p>
         <p class="mb-0">
           Java is installed <em>inside the game directory</em>, which is what the official launcher
-          does too — that way every instance can have the version it needs, and nothing has to be
-          installed system-wide.
+          does too, so every instance can have the version it needs and nothing has to be installed
+          system-wide.
         </p>
       </v-alert>
 
-      <v-list v-if="(status?.installed ?? []).length > 0" density="compact" class="mb-2">
+      <v-list v-if="(status?.installed ?? []).length > 0" density="comfortable" class="mb-2">
         <v-list-item
           v-for="runtime in status?.installed ?? []"
           :key="runtime.component"
-          :title="`${runtime.component} — installed in this instance`"
+          :title="`${runtime.component}, installed in this instance`"
           :subtitle="runtime.path"
         >
+          <template #prepend>
+            <div class="row-icon row-icon--success"><v-icon icon="mdi-coffee-outline" size="20" /></div>
+          </template>
           <template #append>
-            <v-chip size="small" color="success" variant="tonal">used</v-chip>
+            <v-chip size="small" color="success" variant="tonal" prepend-icon="mdi-check">in use</v-chip>
           </template>
         </v-list-item>
       </v-list>
@@ -191,6 +197,7 @@ onMounted(() => {
       <v-btn
         color="primary"
         class="mt-2"
+        prepend-icon="mdi-download"
         :disabled="!status?.component || downloading || !selectedInstance"
         :loading="downloading"
         @click="downloadJava"
@@ -198,7 +205,7 @@ onMounted(() => {
         Download {{ status?.component ? `Mojang's ${requiredLabel}` : 'Java' }}
       </v-btn>
       <span v-if="hasTheRuntime" class="text-medium-emphasis ml-3">
-        Already installed — download again to repair it.
+        Already installed. Downloading again repairs it.
       </span>
 
       <v-divider class="my-6" />
@@ -219,19 +226,34 @@ onMounted(() => {
         </template>
       </v-text-field>
 
-      <v-btn class="mt-4" :loading="findingJava" variant="tonal" @click="findJava">
+      <v-btn
+        class="mt-4"
+        :loading="findingJava"
+        variant="tonal"
+        prepend-icon="mdi-magnify"
+        @click="findJava"
+      >
         Find Java on this machine
       </v-btn>
-      <v-list v-if="found.length > 0" density="compact" class="mt-2">
+      <v-list v-if="found.length > 0" density="comfortable" class="mt-2 app-stagger">
         <v-list-item
           v-for="java in found"
           :key="java.path"
           :title="`Java ${java.major ?? 'unknown'}`"
-          :subtitle="`${java.path} — ${java.source}`"
+          :subtitle="`${java.path} · ${java.source}`"
         >
+          <template #prepend>
+            <div class="row-icon row-icon--primary"><v-icon icon="mdi-coffee" size="20" /></div>
+          </template>
           <template #append>
-            <v-btn size="small" :disabled="form.javaPath === java.path" @click="useDetected(java)">
-              Use
+            <v-btn
+              size="small"
+              variant="tonal"
+              :prepend-icon="form.javaPath === java.path ? 'mdi-check' : 'mdi-arrow-right'"
+              :disabled="form.javaPath === java.path"
+              @click="useDetected(java)"
+            >
+              {{ form.javaPath === java.path ? 'Selected' : 'Use' }}
             </v-btn>
           </template>
         </v-list-item>
@@ -255,7 +277,7 @@ onMounted(() => {
       </v-alert>
     </v-card-text>
     <v-card-actions>
-      <v-btn color="primary" @click="save">Save</v-btn>
+      <v-btn color="primary" prepend-icon="mdi-content-save-outline" @click="save">Save</v-btn>
     </v-card-actions>
   </v-card>
 </template>

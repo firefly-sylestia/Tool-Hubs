@@ -186,7 +186,7 @@ export class SaveService {
       return await this.importFolder(input.source, destination, existing)
     }
     if (!looksLikeWorldZip(input.source)) {
-      throw new Error(`Choose a world folder, a .zip or a .mcworld — ${input.source} is none of those.`)
+      throw new Error(`Choose a world folder, a .zip or a .mcworld: ${input.source} is none of those.`)
     }
     if (stats.size > MAX_ARCHIVE_BYTES) {
       throw new Error(

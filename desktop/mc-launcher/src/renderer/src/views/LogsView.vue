@@ -22,6 +22,14 @@ const findings = computed<LogFinding[]>(() => report.value?.findings ?? [])
 const severityColor = (severity: LogFinding['severity']): string =>
   severity === 'error' ? 'error' : severity === 'warning' ? 'warning' : 'info'
 
+/** A finding is written up before it is read, so its severity carries an icon. */
+const severityIcon = (severity: LogFinding['severity']): string =>
+  severity === 'error'
+    ? 'mdi-alert-octagon-outline'
+    : severity === 'warning'
+      ? 'mdi-alert-outline'
+      : 'mdi-information-outline'
+
 async function load(name?: string | null): Promise<void> {
   const instance = selectedInstance.value
   if (!instance) {
@@ -66,9 +74,17 @@ watch(lines, async () => {
 <template>
   <v-card>
     <v-card-title class="d-flex align-center">
+      <v-icon icon="mdi-text-box-search-outline" size="small" class="mr-2" />
       What went wrong
       <v-spacer />
-      <v-btn size="small" variant="text" :disabled="!selectedInstance" :loading="loading" @click="load()">
+      <v-btn
+        size="small"
+        variant="text"
+        prepend-icon="mdi-refresh"
+        :disabled="!selectedInstance"
+        :loading="loading"
+        @click="load()"
+      >
         Re-read
       </v-btn>
     </v-card-title>
@@ -79,8 +95,8 @@ watch(lines, async () => {
       <template v-else>
         <p class="text-medium-emphasis">
           Read from {{ selectedInstance.name }}'s own
-          <code>crash-reports/</code> and <code>logs/latest.log</code>. Nothing here is
-          modified — a crash report is evidence.
+          <code>crash-reports/</code> and <code>logs/latest.log</code>. Nothing here is modified:
+          a crash report is evidence.
         </p>
 
         <v-alert v-if="report && !report.source" type="info" variant="tonal" class="mb-3">
@@ -91,7 +107,7 @@ watch(lines, async () => {
         <template v-if="report?.source">
           <v-select
             v-if="report.crashes.length > 0"
-            :items="report.crashes.map((crash) => ({ title: `${crash.name} — ${crash.description ?? 'no description'}`, value: crash.name }))"
+            :items="report.crashes.map((crash) => ({ title: `${crash.name}: ${crash.description ?? 'no description'}`, value: crash.name }))"
             :model-value="chosenCrash ?? report.crashes[0].name"
             label="Crash report"
             density="compact"
@@ -120,7 +136,13 @@ watch(lines, async () => {
           <v-expansion-panels v-else variant="accordion" class="mt-2">
             <v-expansion-panel v-for="finding in findings" :key="finding.id">
               <v-expansion-panel-title>
-                <v-chip :color="severityColor(finding.severity)" size="small" variant="tonal" class="mr-3">
+                <v-chip
+                  :color="severityColor(finding.severity)"
+                  :prepend-icon="severityIcon(finding.severity)"
+                  size="small"
+                  variant="tonal"
+                  class="mr-3"
+                >
                   {{ finding.severity }}
                 </v-chip>
                 {{ finding.title }}
@@ -138,12 +160,18 @@ watch(lines, async () => {
         <v-card-actions class="px-0">
           <v-btn
             variant="text"
+            prepend-icon="mdi-file-document-outline"
             :disabled="!report?.latestLog.exists"
             @click="report && openPath(report.logPath)"
           >
             Open latest.log
           </v-btn>
-          <v-btn variant="text" :disabled="!report?.crashes.length" @click="report && openPath(report.crashDir)">
+          <v-btn
+            variant="text"
+            prepend-icon="mdi-folder-open-outline"
+            :disabled="!report?.crashes.length"
+            @click="report && openPath(report.crashDir)"
+          >
             Crash reports folder
           </v-btn>
         </v-card-actions>
@@ -152,9 +180,12 @@ watch(lines, async () => {
   </v-card>
 
   <v-card class="mt-4">
-    <v-card-title>Launcher log</v-card-title>
+    <v-card-title class="d-flex align-center">
+      <v-icon icon="mdi-receipt-text-outline" size="small" class="mr-2" />
+      Launcher log
+    </v-card-title>
     <v-card-actions>
-      <v-btn @click="clearLogs">Clear</v-btn>
+      <v-btn prepend-icon="mdi-eraser" @click="clearLogs">Clear</v-btn>
       <v-btn variant="text" @click="pinned = !pinned">
         {{ pinned ? 'Auto-scroll on' : 'Auto-scroll off' }}
       </v-btn>

@@ -241,13 +241,121 @@
   }
 }
 
+/* ── State, as something you can see ───────────────────────────────────── */
+
+/*
+ * A state is a dot, a colour and an icon rather than a sentence. The dot is the
+ * one part of the shell that moves on its own, and only while something is
+ * actually live: a game process, or a download still running.
+ */
+.status-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background-color: currentColor;
+  flex: 0 0 auto;
+}
+
+.status-dot--live {
+  animation: status-dot-live 1.8s ease-in-out infinite;
+}
+
+@keyframes status-dot-live {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--v-theme-success), 0.55);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(var(--v-theme-success), 0);
+    opacity: 0.7;
+  }
+}
+
+.state-chip .v-chip__content {
+  gap: 8px;
+}
+
+/* A quiet label in front of a card's own kind of state, so two cards in a
+   column do not read as one long paragraph. */
+.state-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+/* ── Cards that lead somewhere ─────────────────────────────────────────── */
+
+/* The one card a page is about: a little more room, a little more presence. */
+.hero-card {
+  border: 1px solid rgba(var(--v-theme-primary), 0.28);
+}
+
+.hero-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: rgba(var(--v-theme-primary), 0.16);
+  color: rgb(var(--v-theme-primary));
+  font-size: 28px;
+  flex: 0 0 auto;
+}
+
+/* Whatever leads a row: a project icon, a version, a world. */
+.row-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  flex: 0 0 auto;
+}
+
+.row-icon--primary {
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.14);
+}
+
+.row-icon--success {
+  color: rgb(var(--v-theme-success));
+  background: rgba(var(--v-theme-success), 0.14);
+}
+
+.row-icon--warning {
+  color: rgb(var(--v-theme-warning));
+  background: rgba(var(--v-theme-warning), 0.14);
+}
+
+.row-icon--error {
+  color: rgb(var(--v-theme-error));
+  background: rgba(var(--v-theme-error), 0.14);
+}
+
+.row-icon--info {
+  color: rgb(var(--v-theme-info));
+  background: rgba(var(--v-theme-info), 0.14);
+}
+
+.page-pad {
+  padding-block: 20px 32px;
+}
+
 /* ── Reduced motion ────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
   .mood::before,
   .mood::after,
   .app-stagger > *,
-  .app-card--busy {
+  .app-card--busy,
+  .status-dot--live {
     animation: none;
   }
 

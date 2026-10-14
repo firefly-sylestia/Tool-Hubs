@@ -46,6 +46,20 @@ function statusLine(id: string): string {
   return status ? describeStatus(status) : 'not pinged yet'
 }
 
+/** The dot in front of a server, which is what a ping is really about. */
+function statusIcon(id: string): string {
+  if (pinging.value[id]) return 'mdi-progress-clock'
+  const status = statuses.value[id]
+  if (!status) return 'mdi-help-circle-outline'
+  return status.online ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline'
+}
+
+function statusTone(id: string): string {
+  const status = statuses.value[id]
+  if (!status) return ''
+  return status.online ? 'row-icon--success' : 'row-icon--error'
+}
+
 async function ping(id: string): Promise<void> {
   pinging.value = { ...pinging.value, [id]: true }
   try {
@@ -107,8 +121,8 @@ async function syncToGame(): Promise<void> {
     const result = await syncGameServers(instance.id)
     game.value = result
     report(
-      `Wrote ${result.added} new server(s) into ${instance.name}'s own servers.dat, which kept its ` +
-        `${result.kept} — ${result.total} in total.`,
+      `Wrote ${result.added} new server(s) into ${instance.name}'s own servers.dat. It already had ` +
+        `${result.kept}, and now holds ${result.total}.`,
       'success'
     )
   } catch {
@@ -148,11 +162,13 @@ onMounted(() => {
     <v-col cols="12" md="7">
       <v-card>
         <v-card-title class="d-flex align-center">
+          <v-icon icon="mdi-server-network" size="small" class="mr-2" />
           Saved servers
           <v-spacer />
           <v-btn
             size="small"
             variant="text"
+            prepend-icon="mdi-access-point"
             :disabled="servers.length === 0"
             :loading="Object.values(pinging).some(Boolean)"
             @click="pingAll()"
@@ -161,40 +177,67 @@ onMounted(() => {
           </v-btn>
         </v-card-title>
         <v-card-text>
-          <v-alert type="info" variant="tonal" class="mb-4">
+          <v-alert
+            type="info"
+            variant="tonal"
+            prepend-icon="mdi-account-off-outline"
+            class="mb-4"
+          >
             This launcher has no account and no session. It can only join servers that accept
             unauthenticated clients (offline mode). Public servers and Realms will refuse the join.
           </v-alert>
 
-          <v-list v-if="servers.length > 0" class="app-stagger">
-            <v-list-item
-              v-for="server in servers"
-              :key="server.id"
-              :title="server.name"
-              :subtitle="`${server.host}:${server.port} · ${statusLine(server.id)}`"
-            >
+          <v-list v-if="servers.length > 0" density="comfortable" class="app-stagger">
+            <v-list-item v-for="server in servers" :key="server.id" :title="server.name">
               <template #prepend>
-                <v-avatar v-if="statuses[server.id]?.icon" size="32" rounded>
+                <v-avatar v-if="statuses[server.id]?.icon" size="34" rounded>
                   <v-img :src="statuses[server.id].icon ?? ''" />
                 </v-avatar>
+                <div v-else class="row-icon" :class="statusTone(server.id)">
+                  <v-icon :icon="statusIcon(server.id)" size="20" />
+                </div>
+              </template>
+              <template #subtitle>
+                <span>{{ server.host }}:{{ server.port }}</span>
+                <span
+                  class="ml-2"
+                  :class="statuses[server.id]?.online === false ? 'text-error' : 'text-medium-emphasis'"
+                >
+                  {{ statusLine(server.id) }}
+                </span>
               </template>
               <template #append>
                 <v-btn
                   size="small"
                   variant="text"
+                  icon="mdi-access-point"
+                  :aria-label="`Ping ${server.name}`"
                   :loading="pinging[server.id]"
                   @click="ping(server.id)"
+                />
+                <v-btn
+                  size="small"
+                  variant="tonal"
+                  :prepend-icon="pendingServer?.id === server.id ? 'mdi-check' : 'mdi-play'"
+                  :disabled="pendingServer?.id === server.id"
+                  @click="connect(server.id)"
                 >
-                  Ping
-                </v-btn>
-                <v-btn size="small" :disabled="pendingServer?.id === server.id" @click="connect(server.id)">
                   {{ pendingServer?.id === server.id ? 'Queued' : 'Queue join' }}
                 </v-btn>
-                <v-btn size="small" variant="text" @click="removeServer(server.id)">Remove</v-btn>
+                <v-btn
+                  size="small"
+                  variant="text"
+                  icon="mdi-trash-can-outline"
+                  :aria-label="`Remove ${server.name}`"
+                  @click="removeServer(server.id)"
+                />
               </template>
             </v-list-item>
           </v-list>
-          <p v-else class="text-medium-emphasis">No servers saved yet.</p>
+          <div v-else class="text-center py-6">
+            <v-icon icon="mdi-server-network-off" size="34" class="text-medium-emphasis" />
+            <p class="text-medium-emphasis mt-2 mb-0">No servers saved yet.</p>
+          </div>
           <v-btn v-if="pendingServer" class="mt-4" variant="text" @click="setPendingServer(null)">
             Cancel queued join
           </v-btn>
@@ -205,19 +248,38 @@ onMounted(() => {
 
     <v-col cols="12" md="5">
       <v-card>
-        <v-card-title>Add a server</v-card-title>
+        <v-card-title class="d-flex align-center">
+          <v-icon icon="mdi-plus" size="small" class="mr-2" />
+          Add a server
+        </v-card-title>
         <v-card-text>
-          <v-text-field v-model="name" label="Name" />
-          <v-text-field v-model="host" label="Address" hint="Hostname or IP, no port." persistent-hint />
-          <v-text-field v-model.number="port" label="Port" type="number" class="mt-4" />
+          <v-text-field v-model="name" label="Name" prepend-inner-icon="mdi-tag-outline" />
+          <v-text-field
+            v-model="host"
+            label="Address"
+            prepend-inner-icon="mdi-web"
+            hint="Hostname or IP, no port."
+            persistent-hint
+            class="mt-4"
+          />
+          <v-text-field
+            v-model.number="port"
+            label="Port"
+            type="number"
+            prepend-inner-icon="mdi-numeric"
+            class="mt-4"
+          />
         </v-card-text>
         <v-card-actions>
-          <v-btn :disabled="busy || !canAdd" @click="add">Add</v-btn>
+          <v-btn prepend-icon="mdi-plus" :disabled="busy || !canAdd" @click="add">Add</v-btn>
         </v-card-actions>
       </v-card>
 
       <v-card class="mt-4">
-        <v-card-title>The game's own list</v-card-title>
+        <v-card-title class="d-flex align-center">
+          <v-icon icon="mdi-file-cog-outline" size="small" class="mr-2" />
+          The game's own list
+        </v-card-title>
         <v-card-text>
           <p v-if="!selectedInstance" class="text-medium-emphasis">
             Select an instance first: each instance has its own game directory, so each has its own
@@ -225,7 +287,7 @@ onMounted(() => {
           </p>
           <template v-else>
             <p class="text-medium-emphasis">
-              {{ selectedInstance.name }}'s <code>servers.dat</code> — the list the game's own
+              {{ selectedInstance.name }}'s <code>servers.dat</code>, the list the game's own
               multiplayer screen reads and writes.
             </p>
             <v-alert v-if="game?.problem" type="warning" variant="tonal" class="my-2">
@@ -248,6 +310,7 @@ onMounted(() => {
           <v-spacer />
           <v-btn
             variant="text"
+            prepend-icon="mdi-import"
             :disabled="!selectedInstance || gameBusy"
             @click="importFromGame()"
           >
@@ -256,6 +319,7 @@ onMounted(() => {
           <v-btn
             color="primary"
             variant="tonal"
+            prepend-icon="mdi-export-variant"
             :disabled="!selectedInstance || gameBusy || game?.problem !== null"
             @click="syncToGame()"
           >
