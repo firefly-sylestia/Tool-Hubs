@@ -63,11 +63,17 @@ snapshot state protocol, and a launch pipeline built from the version json.
   project and file id, which needs their keyed API, so its overrides are
   imported and the rest is reported rather than half-installed. The pack is
   inspected before anything is written, and always goes into a new instance.
-- **Finds Java instead of assuming it.** The runtime Mojang installed inside the
-  game directory (`runtime/<component>`, matched against the `javaVersion` the
-  version json names), then `JAVA_HOME`, then the platform's JDK folders and
-  SDKMAN. It picks the smallest runtime that is new enough for the version, and
-  Settings lists everything it found.
+- **Finds Java, and provides it if it is not there.** The runtime inside the game
+  directory (`runtime/<component>`, matched against the `javaVersion` the version
+  json names), then `JAVA_HOME`, then the platform's JDK folders, SDKMAN and
+  PATH. It picks the smallest runtime that is new enough. When the machine has
+  none — normal on Windows — the launcher downloads Mojang's own runtime for that
+  version into the instance, exactly as the official launcher does, and launching
+  does it by itself rather than refusing. Settings shows what the instance needs,
+  what is installed there, and what is on the machine.
+- **A runtime is a directory, not a system install.** `<instance>/runtime/...`
+  means two instances can want different Java versions and both get them, and
+  nothing outside the launcher's own folders is touched.
 - **Runs an installation that is already on disk.** It scans an instance's
   `versions/`, resolves `inheritsFrom` chains (vanilla + a mod loader), evaluates
   the per-OS `rules` on libraries, builds the classpath, and substitutes the
@@ -126,10 +132,11 @@ independently of Chime and Network Switcher.
 ## Requirements
 
 - Node.js 22.12+ (developed on 24)
-- A JDK for the game: 17 for ≤1.20.4-era versions, 21 for 1.20.5+; the version
-  json records what it wants (`javaVersion.majorVersion`). It does **not** have
-  to be on `PATH` — the launcher looks in the game directory, `JAVA_HOME` and
-  the usual install locations, and Settings will list what it found.
+- A JDK for the game: the version json records what it wants
+  (`javaVersion.component` and `javaVersion.majorVersion` — 17 for ≤1.20.4-era
+  versions, 21, 25 and up after that). It does **not** have to be on `PATH` or
+  installed at all: the launcher looks in the game directory, `JAVA_HOME` and the
+  usual install locations, and downloads Mojang's runtime when there is none.
 - Network access for installing. Nothing else needs it: launching an installed
   version is entirely offline, and no account is contacted either way.
 
@@ -171,7 +178,7 @@ src/main/            Electron main process
   minecraft/         version json, rules, classpath, arguments, launch plan,
                      download, install plan, loader metadata, modpack indexes,
                      modrinth api, jar metadata, resource folders, game
-                     options, java discovery, zip, manifest
+                     options, java discovery, mojang java runtimes, zip, manifest
 src/preload/         contextBridge: serviceChannels, windowController, bootstrap, taskMonitor
 src/renderer/        Vue 3 + Vuetify UI
 src/shared/          types and channel constants shared by all three
@@ -189,7 +196,7 @@ as a snapshot event, so the UI keeps a working copy instead of guessing.
 Verified locally on Linux with Node 24.21:
 
 - `npm run typecheck` — clean for main, preload, shared and the Vue renderer.
-- `npm run selfcheck` — 81 checks: the offline UUID, rule evaluation,
+- `npm run selfcheck` — 84 checks: the offline UUID, rule evaluation,
   inheritance, classpath and natives resolution (including a library listed twice
   with the natives on the second listing), argument substitution, the launch
   plan and its failure paths, zip reading and extraction (including a modpack's
@@ -201,16 +208,18 @@ Verified locally on Linux with Node 24.21:
   facets and responses, version selection, required-dependency following and the
   version ranges mods publish, jar metadata for all four loader formats
   (including the legacy one) and the warnings they produce, reading and patching
-  `options.txt` and splitting JVM arguments the way a shell would, profile/
-  server/settings validation, the state store and the migration from the old
-  single-directory state file.
+  `options.txt` and splitting JVM arguments the way a shell would, Mojang's
+  runtime index and manifest (including that the runtime is installed exactly
+  where discovery looks for it), profile/server/settings validation, the state
+  store and the migration from the old single-directory state file.
 - `npm run netcheck` — the same install path against live services: Mojang's
   manifest and a real version json, a real asset index, libraries and assets
   downloaded and hash-checked (664 KB), a real native jar unpacked (1.16.5's
   LWJGL), the 39.6 MB client jar fetched and verified, real Fabric and Quilt
-  loader profiles parsed, and Modrinth searched and resolved for the current
-  release: a real Sodium build downloaded with its hash verified and its name
-  read back out of the jar.
+  loader profiles parsed, Modrinth searched and resolved for the current release
+  (a real Sodium build downloaded with its hash verified and its name read back
+  out of the jar), and Mojang's own Java runtime downloaded, unpacked, marked
+  executable, run to confirm its version, and then found again by the resolver.
 - `npm run test` — 6 renderer tests: boot from the bridge, snapshot rendering, a
   UI action reaching the service bridge, error surfacing, navigation, and the
   install picker installing what it offers into the selected instance.

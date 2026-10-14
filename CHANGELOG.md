@@ -11,6 +11,36 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.6.0]
+
+The launcher could find a Java runtime but not provide one, so on a machine with no JDK — the usual case
+on Windows, and the case a real launch was refused on — it stopped and asked the user to go and install
+one. The official launcher does not do that: it downloads the runtime the version asks for into that game
+directory. This does the same, from Mojang's own index.
+
+### Added
+- **Java is downloaded in-app.** *Download Mojang's Java* fetches the runtime the version json names
+(`javaVersion.component`) into `<instance>/runtime/<component>/<platform>/<component>`, where the
+version's own launcher would put it. The manifest's raw copies are used rather than the LZMA ones — an
+LZMA decoder would be a dependency for a third of the bytes, and every file is verified against the same
+sha1 either way — executables are marked executable, and the runtime is then found automatically by the
+resolver, having already proved it runs.
+- **Launching does it by itself.** When a launch finds no runtime on the machine, it downloads Mojang's
+for that instance as part of the launch task, with progress in bytes. The instruction to go and install
+a JDK is gone.
+- **Settings answers the Java question in one place:** what this instance needs and why Java lives in
+the game directory, what is already installed there, what is on the machine, and one button to download
+Mojang's build. *Find Java on this machine* now says so explicitly when it finds nothing, instead of
+appearing to do nothing.
+
+### Fixed
+- **"Install a JDK 25 or newer" on a machine that had Java 25.** The component table guessed
+`java-runtime-epsilon` was Java 21; Mojang now ships 25 under that name. A major read from a path is only
+a guess, so any runtime that exists on disk is now asked its version directly, which is what a component
+name cannot tell you. Found by `npm run netcheck`, which downloads the real runtime and runs it.
+- The missing-Java message was a paragraph listing six folders. It now says what the instance needs and
+what to do about it.
+
 ## [MC Launcher 0.5.0]
 
 Every instance has a game directory, so every instance has its own `options.txt` and can want its own

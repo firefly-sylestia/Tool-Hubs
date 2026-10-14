@@ -1,5 +1,20 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.6.0, Java without a system JDK
+
+- [x] Download Mojang's own Java runtime in-app, from the official index, into the instance's game
+      directory — the same place and layout the official launcher uses. Raw copies rather than LZMA (no
+      new dependency), every file sha1-verified, executables marked executable.
+- [x] Launching installs the runtime by itself when the machine has none, instead of refusing with a
+      list of folders to go and search.
+- [x] Fixed at the cause: `java-runtime-epsilon` was assumed to be Java 21, and Mojang now ships 25
+      under that name — which is why a machine with Java 25 was told to install another JDK. A major read
+      from a path is now only a hint, and anything on disk is asked directly. Found by `netcheck`
+      downloading and running the real runtime.
+- [x] Settings answers Java in one place: what is needed, what is installed in the instance, what is on
+      the machine, and one button to download Mojang's build; "Find Java" says so when it finds nothing.
+- [x] Version bumped to `0.6.0` in `desktop/mc-launcher/package.json`, lockfile included.
+
 ## Desktop launcher — MC Launcher 0.5.0, per-instance game and java options
 
 - [x] Each instance's own `options.txt` is read, shown and patched, with the settings people actually
@@ -28,9 +43,10 @@
 
 ### Still to build on this wave (chosen, not started)
 
+- [ ] Modrinth browse page like XMCL's: a dedicated page with sort/category filters and result cards,
+      instead of a dialog inside an instance.
 - [ ] Forge and NeoForge installation by running their installers.
 - [ ] CurseForge browsing and pack files — needs an API key.
-- [ ] Download and manage Java runtimes from Mojang's JVM index, so no system JDK is needed.
 - [ ] Saves and worlds: list per instance, export/import, and a backup before a pack change.
 - [ ] Server list parity: ping for status and latency, read and write the game's own `servers.dat`.
 - [ ] Export an instance as a `.mrpack` (the other half of the modpack story).
