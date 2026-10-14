@@ -27,6 +27,17 @@ export function javaExecutableName(platform: NodeJS.Platform): string {
 }
 
 /**
+ * The directory name Mojang's runtime index uses for this platform. The same
+ * name is used in its index and in the path a runtime unpacks to, so a runtime
+ * this launcher downloads is one the game's own launcher would recognise too.
+ */
+export function runtimePlatformDir(platform: NodeJS.Platform): string {
+  if (platform === 'win32') return 'windows-x64'
+  if (platform === 'darwin') return 'mac-os'
+  return 'linux'
+}
+
+/**
  * Mojang's bundled runtimes are named by component, and the version json says
  * which component it wants. These are the majors each component ships, so a
  * runtime directory can be reported without spawning it.
@@ -44,12 +55,7 @@ export const RUNTIME_COMPONENT_MAJORS: Record<string, number> = {
 /** `<instanceDir>/runtime/<component>/<platform>/<component>/bin/java`. */
 export function runtimeCandidate(instanceDir: string, component: string, platform: NodeJS.Platform): JavaCandidate | null {
   if (!component) return null
-  const platformDir =
-    platform === 'win32'
-      ? 'windows-x64'
-      : platform === 'darwin'
-        ? 'mac-os'
-        : 'linux'
+  const platformDir = runtimePlatformDir(platform)
   return {
     path: join(instanceDir, 'runtime', component, platformDir, component, 'bin', javaExecutableName(platform)),
     source: `the ${component} runtime inside the game directory`,

@@ -39,6 +39,34 @@ export interface GameInstance {
   jvmArgs: string[]
 }
 
+/** A Java runtime the launcher can see, machine-wide or inside an instance. */
+export interface JavaRuntimeInfo {
+  path: string
+  major: number | null
+  source: string
+}
+
+/** An installed runtime inside a game directory, by the component it came from. */
+export interface InstalledJavaRuntime {
+  component: string
+  path: string
+}
+
+/**
+ * What the Java section answers: what the selected instance needs, what is on
+ * the machine, and what Mojang's own runtime has already been unpacked there.
+ */
+export interface JavaStatus {
+  instanceId: string | null
+  /** The instance's game directory, which is where a runtime is installed. */
+  dir: string | null
+  /** The component the version json names, e.g. `java-runtime-epsilon`. */
+  component: string | null
+  requiredMajor: number | null
+  installed: InstalledJavaRuntime[]
+  detected: JavaRuntimeInfo[]
+}
+
 /** One `key:value` line of the game's own options.txt. */
 export interface GameOptionEntry {
   key: string

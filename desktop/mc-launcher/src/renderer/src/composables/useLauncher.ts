@@ -3,6 +3,8 @@ import type {
   GameInstance,
   InstanceGameOptions,
   InstallRequest,
+  JavaRuntimeInfo,
+  JavaStatus,
   InstallResult,
   InstanceImportResult,
   InstanceResources,
@@ -175,6 +177,13 @@ export function useLauncher() {
       call<InstallResult>('install', 'start', request),
 
     detectJava: () => call<DetectedJava[]>('java', 'detect'),
+    javaStatus: (instanceId?: string | null) =>
+      call<JavaStatus>('java', 'status', instanceId ? { instanceId } : undefined),
+    /** Downloads Mojang's own runtime for a component, as a task. */
+    installJava: (component: string) =>
+      call<JavaRuntimeInfo & { files: number; bytes: number; reused: number }>('java', 'install', {
+        component
+      }),
     pickFolder: () => call<{ path: string | null }>('window', 'pickFolder'),
     pickFiles: () => call<{ paths: string[] }>('window', 'pickFiles'),
     openPath: (path: string) => call<{ opened: boolean; error: string | null }>('window', 'openPath', { path }),

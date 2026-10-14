@@ -40,6 +40,8 @@ import {
   userAgent
 } from '../src/main/minecraft/modrinth'
 import { readModMetadataFromFile } from '../src/main/minecraft/mod-metadata'
+import { parseJavaMajorVersion } from '../src/main/minecraft/java'
+import { JavaService, runVersion } from '../src/main/services/java-service'
 
 const fast = process.argv.includes('--fast')
 const root = mkdtempSync(join(tmpdir(), 'mc-launcher-netcheck-'))
@@ -215,6 +217,34 @@ await step('resolve a required dependency chain the way an install does', async 
   if (!best) throw new Error(`Fabric API has no version for ${releaseId}`)
   const required = requiredDependencies(best, { installedProjectIds: [] })
   return `${best.name}: ${required.length} required dependency(ies)` + (required[0]?.projectId ? ` (e.g. ${required[0].projectId})` : '')
+})
+
+await step("download Mojang's own Java runtime and run it", async () => {
+  const ce = new JavaService(
+    {
+      userDataDir: root,
+      defaultInstancesDir: join(root, 'instances'),
+      defaultGameDir: join(root, 'game'),
+      launcherName: 'mc-launcher',
+      launcherVersion: 'netcheck',
+      platform: process.platform,
+      arch: process.arch
+    },
+    () => {}
+  )
+  const instanceDir = join(root, 'java-instance')
+  const installed = await ce.installRuntime({ instanceDir, component: 'java-runtime-epsilon' })
+  const output = await runVersion(installed.path)
+  if (output === null) throw new Error(`the downloaded runtime at ${installed.path} did not answer`)
+  const major = parseJavaMajorVersion(output)
+  if (major === null) throw new Error(`could not read a version out of: ${output.split('\n')[0]}`)
+  downloaded += installed.bytes
+  const again = await ce.resolve({ instanceDir, component: 'java-runtime-epsilon', requiredMajor: major })
+  if (!again.path.includes('runtime')) throw new Error(`the resolver did not pick the runtime it installed: ${again.path}`)
+  return (
+    `Java ${major} from ${installed.files} files (${(installed.bytes / 1048576).toFixed(0)} MB), ` +
+    `runs, and is then found automatically`
+  )
 })
 
 rmSync(root, { recursive: true, force: true })

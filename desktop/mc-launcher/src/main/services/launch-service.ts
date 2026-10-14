@@ -52,13 +52,17 @@ export class LaunchService {
     }
 
     const resolved = resolveVersionChain(instance.dir, instance.versionId)
-    const java = await this.java.resolve({
+    const component =
+      resolved.chain.map((version) => version.javaVersion?.component).find((value) => typeof value === 'string') ??
+      null
+    // Nothing installed on this machine is not a dead end: Mojang's own runtime
+    // for this version is downloaded, exactly as the official launcher does.
+    const java = await this.java.ensure({
       instanceDir: instance.dir,
-      component:
-        resolved.chain.map((version) => version.javaVersion?.component).find((value) => typeof value === 'string') ??
-        null,
+      component,
       requiredMajor: resolved.merged.javaMajorVersion,
-      explicitPath: snapshot.settings.javaPath
+      explicitPath: snapshot.settings.javaPath,
+      onProgress: (progress, message) => this.log.append('stdout', `${Math.round(progress * 100)}% ${message}`)
     })
 
     return buildLaunchPlan({

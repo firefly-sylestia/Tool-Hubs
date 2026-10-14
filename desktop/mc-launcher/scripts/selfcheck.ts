@@ -65,10 +65,19 @@ import {
 } from '../src/main/minecraft/modpack'
 import {
   javaCandidates,
+  javaExecutableName,
   parseJavaMajorVersion,
   runtimeCandidate,
+  runtimePlatformDir,
   selectJava
 } from '../src/main/minecraft/java'
+import {
+  findRuntimeManifest,
+  listRuntimeComponents,
+  parseRuntimeManifest,
+  runtimeDirFor,
+  runtimeOsKey
+} from '../src/main/minecraft/java-runtime'
 import { splitResourceName, resourceFileName, isResourceFile } from '../src/main/minecraft/resources'
 import { optionValue, parseOptions, patchOptions, quickOptionValues } from '../src/main/minecraft/options'
 import { formatJvmArgs, parseJvmArgs } from '../src/shared/jvm-args'
@@ -1654,6 +1663,90 @@ console.log('\njava')
       'and the ordinary JDK folders'
     )
     expectEqual(runtimeCandidate('/i', '', 'linux'), null, 'no component, no runtime')
+  })
+
+  check("reads Mojang's runtime index and picks the build to use", () => {
+    const index = {
+      'windows-x64': {
+        'java-runtime-epsilon': [
+          {
+            availability: { progress: 100 },
+            manifest: { url: 'https://piston-meta/old.json', sha1: 'aa' },
+            version: { name: '21.0.5.11.1', released: '2024-10-15T00:00:00+00:00' }
+          },
+          {
+            availability: { progress: 100 },
+            manifest: { url: 'https://piston-meta/new.json', sha1: 'bb' },
+            version: { name: '25.0.1.9.1', released: '2026-09-02T00:00:00+00:00' }
+          },
+          {
+            availability: { progress: 40 },
+            manifest: { url: 'https://piston-meta/half.json', sha1: 'cc' },
+            version: { name: '26.0.0', released: '2026-10-01T00:00:00+00:00' }
+          }
+        ]
+      }
+    }
+    const chosen = findRuntimeManifest(index, { os: 'windows-x64', component: 'java-runtime-epsilon' })
+    expectEqual(chosen?.manifestUrl, 'https://piston-meta/new.json', 'newest finished build')
+    expectEqual(chosen?.name, '25.0.1.9.1', 'and its Mojang version')
+    expectEqual(findRuntimeManifest(index, { os: 'linux', component: 'java-runtime-epsilon' }), null, 'unknown platform')
+    expectEqual(findRuntimeManifest(index, { os: 'windows-x64', component: 'nope' }), null, 'unknown component')
+    expectEqual(
+      listRuntimeComponents(index, 'windows-x64'),
+      ['java-runtime-epsilon'],
+      'what the platform offers'
+    )
+
+    // A component with nothing finished is still offered, because the game may
+    // name one Mojang is publishing right now.
+    const halfDone = findRuntimeManifest(
+      { 'windows-x64': { c: [{ availability: { progress: 40 }, manifest: { url: 'u' }, version: { name: '1' } }] } },
+      { os: 'windows-x64', component: 'c' }
+    )
+    expectEqual(halfDone?.manifestUrl, 'u', 'the unfinished build is the only one there is')
+  })
+
+  check('reads a runtime manifest and drops what cannot be used', () => {
+    const manifest = parseRuntimeManifest({
+      files: {
+        bin: { type: 'directory' },
+        'bin/java': {
+          type: 'file',
+          executable: true,
+          downloads: { raw: { url: 'https://raw/java', sha1: 'aa', size: 1000 }, lzma: { url: 'https://lzma/java' } }
+        },
+        'lib/modules': { type: 'file', downloads: { raw: { url: 'https://raw/modules', size: 2000 } } },
+        'lib/lzma-only': { type: 'file', downloads: { lzma: { url: 'https://lzma/only' } } },
+        'legal/java.base': { type: 'link', target: 'bin/java' }
+      }
+    })
+    expectEqual(manifest.directories, ['bin'], 'directories are listed separately')
+    expectEqual(manifest.filesToDownload.map((file) => file.path), ['bin/java', 'lib/modules'], 'only raw files')
+    expectEqual(manifest.links.map((file) => file.path), ['legal/java.base'], 'links too')
+    expectEqual(manifest.bytes, 3000, 'the raw size is counted for progress')
+    expect(manifest.filesToDownload[0].executable, 'bin/java is marked executable')
+  })
+
+  check('installs a runtime exactly where the launcher later looks for it', () => {
+    for (const platform of ['linux', 'win32', 'darwin'] as NodeJS.Platform[]) {
+      const dir = runtimeDirFor({
+        instanceDir: '/games/instance',
+        component: 'java-runtime-epsilon',
+        platformDir: runtimePlatformDir(platform)
+      })
+      const candidate = runtimeCandidate('/games/instance', 'java-runtime-epsilon', platform)
+      expectEqual(
+        `${dir}/bin/${javaExecutableName(platform)}`,
+        candidate?.path,
+        `the installed runtime is the one discovery finds on ${platform}`
+      )
+    }
+    expectEqual(runtimeOsKey('win32', 'x64'), 'windows-x64', 'windows')
+    expectEqual(runtimeOsKey('win32', 'arm64'), 'windows-arm64', 'windows on arm')
+    expectEqual(runtimeOsKey('darwin', 'arm64'), 'mac-os-arm64', 'apple silicon')
+    expectEqual(runtimeOsKey('linux', 'x64'), 'linux', 'linux')
+    expectEqual(runtimeOsKey('freebsd', 'x64'), null, 'a platform Mojang does not publish for')
   })
 
   check('knows which files a resource folder will load', () => {

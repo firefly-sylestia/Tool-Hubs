@@ -28,6 +28,7 @@ import { ServerService } from './services/server-service'
 import { SettingsService } from './services/settings-service'
 import { STATE_FILE, StateStore, defaultState } from './services/state-store'
 import { TaskService } from './services/task-service'
+import { resolveVersionChain } from './minecraft/version-json'
 import { WindowController } from './window-controller'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
@@ -179,7 +180,53 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
     install: (params) => modrinth.install(as<ModrinthInstallInput>(params))
   })
   registry.register('java', {
-    detect: () => java.detect()
+    detect: () => java.detect(),
+    /** What this instance needs, what is on the machine, and what is already inside it. */
+    status: async (params) => {
+      const input = as<{ instanceId?: string | null } | undefined>(params)
+      const instance = input?.instanceId ? instances.require(input.instanceId) : instances.selected()
+      const detected = await java.detect()
+      if (!instance) {
+        return {
+          instanceId: null,
+          dir: null,
+          component: null,
+          requiredMajor: null,
+          installed: [],
+          detected
+        }
+      }
+      let component: string | null = null
+      let requiredMajor: number | null = null
+      if (instance.versionId) {
+        const resolved = resolveVersionChain(instance.dir, instance.versionId)
+        component =
+          resolved.chain
+            .map((version) => version.javaVersion?.component)
+            .find((value) => typeof value === 'string') ?? null
+        requiredMajor = resolved.merged.javaMajorVersion
+      }
+      return {
+        instanceId: instance.id,
+        dir: instance.dir,
+        component,
+        requiredMajor,
+        installed: java.installedRuntimes(instance.dir),
+        detected
+      }
+    },
+    /** Downloads Mojang's runtime for the version this instance plays. */
+    install: (params) => {
+      const input = as<{ instanceId?: string | null; component: string }>(params)
+      const instance = instances.require(input.instanceId)
+      return tasks.run(`Download Java runtime ${input.component}`, (report) =>
+        java.installRuntime({
+          instanceDir: instance.dir,
+          component: input.component,
+          onProgress: report
+        })
+      )
+    }
   })
   registry.register('server', {
     list: () => servers.list(),
