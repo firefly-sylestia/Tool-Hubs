@@ -91,7 +91,7 @@ export class WindowController {
       properties: single ? ['openFile'] : ['openFile', 'multiSelections'],
       filters: preset
         ? [
-            { name: preset.filter, extensions: preset.extensions },
+            { name: preset.label, extensions: preset.extensions },
             { name: 'Everything', extensions: ['*'] }
           ]
         : []

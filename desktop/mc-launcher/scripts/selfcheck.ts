@@ -2591,7 +2591,7 @@ console.log('\nmodpack archives, and packs this launcher writes')
     expectEqual(pickerExtensions('any'), [], 'an unfiltered picker filters nothing')
     for (const [kind, preset] of Object.entries(FILE_PICKERS)) {
       expect(
-        preset.extensions.length > 0 && preset.filter !== '' && preset.title !== '',
+        preset.extensions.length > 0 && preset.label !== '' && preset.title !== '',
         `the ${kind} picker offers something and says what it is`
       )
     }
