@@ -1,5 +1,6 @@
 import { computed, ref, shallowRef } from 'vue'
 import type {
+  FilePickerKind,
   GameInstance,
   InstanceDiagnostics,
   InstanceGameOptions,
@@ -9,6 +10,7 @@ import type {
   JavaStatus,
   InstallResult,
   InstanceImportResult,
+  LaunchOutcome,
   InstanceResources,
   InstalledVersion,
   LaunchPlan,
@@ -105,6 +107,13 @@ export function useLauncher() {
     () => servers.value.find((server) => server.id === snapshot.value?.pendingServerId) ?? null
   )
   const runningProfileId = computed<string | null>(() => snapshot.value?.runningProfileId ?? null)
+  /**
+   * How the last launch ended, including one that died on the way up.
+   *
+   * The game's own output and crash report are read on exit, so the page can say
+   * why nothing appeared instead of showing a status that quietly flipped back.
+   */
+  const lastLaunch = computed<LaunchOutcome | null>(() => snapshot.value?.lastLaunch ?? null)
   const state = computed<LauncherState | null>(() => snapshot.value)
 
   return {
@@ -119,6 +128,7 @@ export function useLauncher() {
     selectedInstance,
     pendingServer,
     runningProfileId,
+    lastLaunch,
     lines,
     validating,
     error,
@@ -233,8 +243,13 @@ export function useLauncher() {
         component
       }),
     pickFolder: () => call<{ path: string | null }>('window', 'pickFolder'),
-    /** `any` drops the jar/zip filter, which is what choosing a Java binary needs. */
-    pickFiles: (any = false) => call<{ paths: string[] }>('window', 'pickFiles', { any }),
+    /**
+     * The file dialog. `kind` says what is being chosen, so it offers only what
+     * fits — `.mrpack` for a pack, `.jar` for a mod — and `any` drops the filter
+     * entirely, which is what choosing a Java binary needs.
+     */
+    pickFiles: (kind: FilePickerKind = 'any') =>
+      call<{ paths: string[] }>('window', 'pickFiles', { kind }),
     openPath: (path: string) => call<{ opened: boolean; error: string | null }>('window', 'openPath', { path }),
 
     addServer: (name: string, host: string, port: number) =>
@@ -279,6 +294,8 @@ export function useLauncher() {
       })
     },
     stopLaunch: () => call<{ stopped: boolean }>('launch', 'stop'),
+    /** Forgets the last launch's outcome, once its page has been read. */
+    dismissLaunchOutcome: () => call<{ cleared: boolean }>('launch', 'dismiss'),
     /** The game's own crash reports and log, read and diagnosed. */
     diagnostics: (instanceId?: string | null, name?: string | null) =>
       call<InstanceDiagnostics>('diagnostics', 'report', { instanceId, name }),

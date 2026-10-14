@@ -153,7 +153,7 @@ async function findJava(): Promise<void> {
   }
 }
 
-/** Downloads the runtime the version json names, into this instance. */
+/** Downloads the runtime the version json names, into the launcher's shared game folder. */
 async function downloadJava(): Promise<void> {
   const component = status.value?.component
   if (!component) {
@@ -168,7 +168,7 @@ async function downloadJava(): Promise<void> {
     const result = await installJava(component)
     javaNote.value =
       `Installed ${component} (Java ${result.major ?? 'unknown'}): ${result.files} files, ` +
-      `${(result.bytes / 1048576).toFixed(0)} MB. The launcher uses it for this instance automatically.`
+      `${(result.bytes / 1048576).toFixed(0)} MB. The launcher uses it automatically for every instance.`
     await refreshJava()
   } catch {
     // Surfaced by the composable.
@@ -179,7 +179,7 @@ async function downloadJava(): Promise<void> {
 
 async function browseJava(): Promise<void> {
   // A Java binary is not a mod: the picker has to offer everything.
-  const picked = await pickFiles(true)
+  const picked = await pickFiles('any')
   if (picked.paths[0]) form.javaPath = picked.paths[0]
 }
 
@@ -254,9 +254,9 @@ onMounted(() => {
           needs {{ requiredLabel }}<template v-if="status?.component"> ({{ status.component }})</template>.
         </p>
         <p class="mb-0">
-          Java is installed <em>inside the game directory</em>, which is what the official launcher
-          does too, so every instance can have the version it needs and nothing has to be installed
-          system-wide.
+          Java is downloaded into the launcher's own game folder, which is what the official
+          launcher does too, so every instance can have the version it needs and nothing has to be
+          installed system-wide — and it is fetched once, not once per instance.
         </p>
       </v-alert>
 
@@ -264,7 +264,7 @@ onMounted(() => {
         <v-list-item
           v-for="runtime in status?.installed ?? []"
           :key="runtime.component"
-          :title="`${runtime.component}, installed in this instance`"
+          :title="`${runtime.component}, downloaded by the launcher`"
           :subtitle="runtime.path"
         >
           <template #prepend>
@@ -276,7 +276,7 @@ onMounted(() => {
         </v-list-item>
       </v-list>
       <v-alert v-else-if="selectedInstance" type="warning" variant="tonal" class="mb-2">
-        No Java runtime inside this instance yet.
+        No Java runtime downloaded by the launcher yet.
       </v-alert>
 
       <v-btn
@@ -296,8 +296,9 @@ onMounted(() => {
       <v-divider class="my-6" />
 
       <p class="text-medium-emphasis">
-        Which Java this instance runs. Automatic uses the runtime inside the instance, then one of the
-        ones this machine has, and downloads Mojang's for the version if none of them is new enough.
+        Which Java this instance runs. Automatic uses the runtime the launcher has already downloaded,
+        then one of the ones this machine has, and downloads Mojang's for the version if none of them
+        is new enough.
       </p>
       <div class="d-flex ga-2 align-center mt-2">
         <v-select

@@ -14,11 +14,109 @@ const {
   error,
   tasks,
   profiles,
+  selectedProfile,
   runningProfileId,
   dismissError,
   stopLaunch,
-  launchSelected
+  launchSelected,
+  selectProfile,
+  createProfile,
+  updateProfile,
+  removeProfile
 } = useLauncher()
+
+/**
+ * The account section, which is what a profile actually is.
+ *
+ * There is no account here and never will be, so the drawer's account slot is
+ * filled with the one identity the launcher has: the local profile, what it is
+ * called, the offline UUID the game will report, and the four things anyone
+ * wants to do with one — switch, add, rename, remove. That is why the Play page
+ * no longer carries a profile picker: a window that is always open is a better
+ * home for it than one page.
+ */
+const newProfileName = ref('')
+const creatingProfile = ref(false)
+const profilesOpen = ref(false)
+const renameOpen = ref(false)
+const renameName = ref('')
+const removeOpen = ref(false)
+const profileBusy = ref(false)
+const copiedUuid = ref(false)
+
+const initials = computed(() => (selectedProfile.value?.name ?? '?').slice(0, 1).toUpperCase())
+
+async function addProfile(): Promise<void> {
+  const name = newProfileName.value.trim()
+  if (name === '') return
+  creatingProfile.value = true
+  try {
+    await createProfile(name)
+    newProfileName.value = ''
+    profilesOpen.value = false
+  } catch {
+    // Reported in the snackbar, which is the one that explains why.
+  } finally {
+    creatingProfile.value = false
+  }
+}
+
+async function chooseProfile(id: string | null): Promise<void> {
+  if (id === null || id === selectedProfile.value?.id) return
+  try {
+    await selectProfile(id)
+  } catch {
+    // Reported in the snackbar.
+  }
+}
+
+function openRename(): void {
+  const profile = selectedProfile.value
+  if (!profile) return
+  renameName.value = profile.name
+  renameOpen.value = true
+}
+
+async function renameProfile(): Promise<void> {
+  const profile = selectedProfile.value
+  const name = renameName.value.trim()
+  if (!profile || name === '') return
+  profileBusy.value = true
+  try {
+    await updateProfile(profile.id, { name })
+    renameOpen.value = false
+  } catch {
+    // Reported in the snackbar; the dialog stays open to be corrected.
+  } finally {
+    profileBusy.value = false
+  }
+}
+
+async function deleteProfile(): Promise<void> {
+  const profile = selectedProfile.value
+  if (!profile) return
+  profileBusy.value = true
+  try {
+    await removeProfile(profile.id)
+    removeOpen.value = false
+  } catch {
+    // Reported in the snackbar.
+  } finally {
+    profileBusy.value = false
+  }
+}
+
+async function copyUuid(): Promise<void> {
+  const uuid = selectedProfile.value?.uuid
+  if (!uuid) return
+  try {
+    await navigator.clipboard?.writeText(uuid)
+  } catch {
+    return // A packaged app is loaded from file://, where the clipboard may not be exposed.
+  }
+  copiedUuid.value = true
+  window.setTimeout(() => (copiedUuid.value = false), 1500)
+}
 
 /**
  * The theme the window paints, which the launcher's settings own.
@@ -256,15 +354,103 @@ onBeforeUnmount(() => {
         </v-list-item>
       </v-list>
 
+      <!-- The account slot: a local profile, which is the only identity there is.
+           No sign-in, so this says who the game will play as instead. -->
       <template #append>
         <v-divider />
-        <v-list density="compact" class="py-2">
-          <v-list-item
-            title="No account"
-            subtitle="Nothing here signs in"
-            prepend-icon="mdi-account-off-outline"
+        <div class="account-section px-3 py-3">
+          <div class="d-flex align-center ga-2">
+            <v-avatar size="34" rounded color="primary" variant="tonal" class="account-section__avatar">
+              <span>{{ initials }}</span>
+            </v-avatar>
+            <div class="flex-grow-1 overflow-hidden">
+              <div class="text-body-2 text-truncate">
+                {{ selectedProfile?.name ?? 'No profile' }}
+              </div>
+              <small class="text-medium-emphasis">
+                {{ selectedProfile ? 'offline profile' : 'nothing to play as' }}
+              </small>
+            </div>
+            <v-menu location="top end">
+              <template #activator="{ props: activatorProps }">
+                <v-btn
+                  icon="mdi-dots-vertical"
+                  variant="text"
+                  size="small"
+                  aria-label="Account actions"
+                  v-bind="activatorProps"
+                />
+              </template>
+              <v-list density="compact" min-width="230">
+                <v-list-item
+                  v-for="profile in profiles"
+                  :key="profile.id"
+                  :title="profile.name"
+                  :subtitle="profile.id === selectedProfile?.id ? 'playing as this' : 'switch to it'"
+                  :prepend-icon="profile.id === selectedProfile?.id ? 'mdi-account-check' : 'mdi-account-outline'"
+                  @click="chooseProfile(profile.id)"
+                />
+                <v-divider />
+                <v-list-item
+                  title="New profile"
+                  prepend-icon="mdi-account-plus-outline"
+                  @click="profilesOpen = true"
+                />
+                <v-list-item
+                  title="Rename this profile"
+                  prepend-icon="mdi-rename-outline"
+                  :disabled="!selectedProfile"
+                  @click="openRename"
+                />
+                <v-list-item
+                  title="Remove this profile"
+                  prepend-icon="mdi-trash-can-outline"
+                  :disabled="!selectedProfile || runningProfileId !== null"
+                  @click="removeOpen = true"
+                />
+              </v-list>
+            </v-menu>
+          </div>
+
+          <div v-if="selectedProfile" class="d-flex align-center ga-1 mt-2">
+            <code class="account-section__uuid text-truncate">{{ selectedProfile.uuid }}</code>
+            <v-btn
+              :icon="copiedUuid ? 'mdi-check' : 'mdi-content-copy'"
+              :color="copiedUuid ? 'success' : undefined"
+              size="x-small"
+              variant="text"
+              aria-label="Copy the offline UUID"
+              @click="copyUuid"
+            />
+          </div>
+          <p v-else class="text-medium-emphasis text-caption mt-2 mb-0">
+            Create a profile to play as someone.
+          </p>
+
+          <!-- A name field rather than only a dialog: adding the first profile is
+               the first thing anyone does here. -->
+          <v-text-field
+            v-model="newProfileName"
+            label="New profile name"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="mt-3"
+            @keyup.enter="addProfile"
           />
-        </v-list>
+          <v-btn
+            block
+            color="primary"
+            variant="tonal"
+            class="mt-2"
+            prepend-icon="mdi-account-plus-outline"
+            :loading="creatingProfile"
+            :disabled="creatingProfile || newProfileName.trim() === ''"
+            @click="addProfile"
+          >
+            Create profile
+          </v-btn>
+        </div>
       </template>
     </v-navigation-drawer>
 
@@ -289,6 +475,72 @@ onBeforeUnmount(() => {
     <v-snackbar :model-value="showError" color="error" timeout="6000" @update:model-value="dismissError">
       {{ error }}
     </v-snackbar>
+
+    <v-dialog v-model="renameOpen" max-width="460">
+      <v-card>
+        <v-card-title class="d-flex align-center ga-2">
+          <v-icon icon="mdi-rename-outline" size="small" />
+          Rename {{ selectedProfile?.name }}
+        </v-card-title>
+        <v-card-text>
+          <v-text-field
+            v-model="renameName"
+            label="Profile name"
+            hint="3-16 characters: letters, numbers and underscores."
+            persistent-hint
+            autofocus
+            @keyup.enter="renameProfile"
+          />
+          <p class="text-medium-emphasis mt-4 mb-0">
+            The offline UUID is derived from this name, so renaming changes the identity the game
+            reports: a server that already knows the old one sees a new player with none of the old
+            one's progress.
+          </p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="renameOpen = false">Cancel</v-btn>
+          <v-btn
+            color="primary"
+            prepend-icon="mdi-check"
+            :disabled="profileBusy || renameName.trim() === '' || renameName.trim() === selectedProfile?.name"
+            @click="renameProfile"
+          >
+            Rename
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="removeOpen" max-width="460">
+      <v-card>
+        <v-card-title class="d-flex align-center ga-2">
+          <v-icon icon="mdi-trash-can-outline" size="small" color="error" />
+          Remove {{ selectedProfile?.name }}
+        </v-card-title>
+        <v-card-text>
+          <p class="mb-2">
+            A profile is only an identity, so this removes the name and stops anything playing as it.
+            The instance it was playing, its worlds and its files are untouched.
+          </p>
+          <p v-if="runningProfileId !== null" class="text-warning mb-0">
+            The game is running as this profile. Stop it first.
+          </p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="removeOpen = false">Cancel</v-btn>
+          <v-btn
+            color="error"
+            prepend-icon="mdi-trash-can-outline"
+            :disabled="profileBusy || runningProfileId !== null"
+            @click="deleteProfile"
+          >
+            Remove
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-app>
 </template>
 
@@ -328,6 +580,20 @@ onBeforeUnmount(() => {
 
 .window-controls__close:hover {
   color: rgb(var(--v-theme-error));
+}
+
+/* The account slot at the foot of the drawer. */
+.account-section {
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+
+.account-section__avatar {
+  font-weight: 600;
+}
+
+.account-section__uuid {
+  font-size: 0.68rem;
+  opacity: 0.62;
 }
 
 /* Shown only while the modifier is held: a shortcut nobody is told about is a

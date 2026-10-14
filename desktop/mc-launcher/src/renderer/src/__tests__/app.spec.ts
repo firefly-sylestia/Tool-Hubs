@@ -24,7 +24,8 @@ const baseState: LauncherState = {
   },
   tasks: [],
   installations: [],
-  runningProfileId: null
+  runningProfileId: null,
+  lastLaunch: null
 }
 
 const steveState: LauncherState = {
@@ -487,6 +488,51 @@ describe('renderer shell', () => {
     // What came back, and that nothing was taken away to make room for it.
     expect(wrapper.text()).toContain('Restored My World 2')
     expect(wrapper.text()).toContain('untouched')
+  })
+
+  it('says why a launch that died on the way up did nothing', async () => {
+    const { wrapper, router } = await mountApp()
+    // The complaint this exists for: the game exits seconds after the launcher
+    // said it was running, the status flips back to Launch, and the app says
+    // nothing at all — its own output is in a file nobody opens.
+    pushSnapshot({
+      ...steveState,
+      lastLaunch: {
+        instanceId: 'i1',
+        instanceName: 'Steve’s world',
+        profileName: 'Steve',
+        versionId: '1.21.4',
+        startedAt: '2026-10-14T12:00:00.000Z',
+        finishedAt: '2026-10-14T12:00:04.000Z',
+        seconds: 4,
+        exitCode: 1,
+        signal: null,
+        failed: true,
+        tail: ['Exception in thread "main" java.lang.UnsupportedClassVersionError'],
+        findings: [
+          {
+            id: 'java-too-old',
+            severity: 'error',
+            title: 'Java 17 is too old for this version',
+            evidence: 'UnsupportedClassVersionError',
+            hints: ['Point Settings at a newer java.']
+          }
+        ],
+        logPath: '/games/instances/steves-world/logs/latest.log'
+      }
+    })
+    await router.push('/')
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('stopped after 4s')
+    expect(text).toContain('Exit code 1')
+    expect(text).toContain('Java 17 is too old for this version')
+    expect(text).toContain('UnsupportedClassVersionError')
+
+    await buttonByText(wrapper, 'Dismiss').trigger('click')
+    await flushPromises()
+    expect(calls).toContainEqual({ service: 'launch', method: 'dismiss', params: undefined })
   })
 
   it('marks a project the selected instance already has', async () => {

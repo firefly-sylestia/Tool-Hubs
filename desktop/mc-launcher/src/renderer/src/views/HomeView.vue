@@ -1,46 +1,62 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { LaunchPlan, Profile, TaskRecord } from '@shared/types'
+import type { JavaStatus, LaunchPlan, TaskRecord } from '@shared/types'
 import { useLauncher } from '@renderer/composables/useLauncher'
 
+/**
+ * Play: one instance, what launching it will do, and one button.
+ *
+ * The profile used to be chosen here too, which put two dropdowns and a name
+ * field between someone and the thing this page exists for. A profile is an
+ * account, so it lives in the drawer's account slot now; this page is about the
+ * instance, and it says what pressing Launch will actually do.
+ */
 const router = useRouter()
 const {
-  profiles,
   instances,
+  settings,
   selectedProfile,
   selectedInstance,
   pendingServer,
   runningProfileId,
+  lastLaunch,
   tasks,
-  createProfile,
-  updateProfile,
-  removeProfile,
-  selectProfile,
   selectInstance,
   openPath,
+  dismissLaunchOutcome,
+  resources,
+  javaStatus,
   launchSelected,
   stopLaunch,
   planLaunch
 } = useLauncher()
 
-const newName = ref('')
 const busy = ref(false)
-const note = ref<string | null>(null)
-const noteType = ref<'info' | 'success' | 'warning'>('info')
-
-/** Renaming and removing a profile, which the page used to only be able to add to. */
-const renameOpen = ref(false)
-const renameName = ref('')
-const removeOpen = ref(false)
 const plan = ref<LaunchPlan | null>(null)
 const showPlan = ref(false)
-const copied = ref(false)
+
+/** What the instance holds and what it needs, so the page says more than a name. */
+const counts = ref({ mods: 0, resourcepacks: 0, shaderpacks: 0, modsOff: 0 })
+const javaInfo = ref<JavaStatus | null>(null)
+const detailsBusy = ref(false)
 
 const spinning = ref(false)
 const menuOpen = ref(false)
 
 const isRunning = computed(() => runningProfileId.value !== null)
+
+/** How the last launch ended, and its own last words, for the panel above. */
+const launchOutcome = lastLaunch
+const outcomeTail = computed(() => (launchOutcome.value?.tail ?? []).slice(-10).join('\n'))
+
+async function dismissOutcome(): Promise<void> {
+  try {
+    await dismissLaunchOutcome()
+  } catch {
+    // Reported in the snackbar.
+  }
+}
 const canLaunch = computed(
   () => selectedProfile.value !== null && selectedInstance.value?.versionId != null && !isRunning.value
 )
@@ -107,97 +123,77 @@ function playedLine(value: string | null): string {
   return value ? `last played ${value.slice(0, 10)}` : 'never played'
 }
 
-function profileProps(profile: Profile): { subtitle: string } {
-  return { subtitle: playedLine(profile.lastPlayedAt) }
-}
-
-function openRename(): void {
-  const profile = selectedProfile.value
-  if (!profile) return
-  renameName.value = profile.name
-  renameOpen.value = true
-}
-
-function report(message: string, type: 'info' | 'success' | 'warning' = 'info'): void {
-  noteType.value = type
-  note.value = message
-}
-
-async function renameProfile(): Promise<void> {
-  const profile = selectedProfile.value
-  const name = renameName.value.trim()
-  if (!profile || name === '') return
-  busy.value = true
+/**
+ * What launching this instance will do, read from the instance itself.
+ *
+ * The counts are of files the game will load, so a mod switched off is not
+ * counted as one of the mods.
+ */
+async function loadDetails(): Promise<void> {
+  const instance = selectedInstance.value
+  if (!instance) {
+    counts.value = { mods: 0, resourcepacks: 0, shaderpacks: 0, modsOff: 0 }
+    javaInfo.value = null
+    return
+  }
+  detailsBusy.value = true
   try {
-    const updated = await updateProfile(profile.id, { name })
-    renameOpen.value = false
-    report(
-      `Renamed to ${updated.name}. The offline UUID is derived from the name, so it changed with it: ` +
-        `a server that already knows the old one will see a new player.`,
-      'success'
-    )
+    const found = await resources(instance.id)
+    const of = (kind: 'mod' | 'resourcepack' | 'shaderpack'): number =>
+      found.entries[kind].filter((entry) => entry.enabled).length
+    counts.value = {
+      mods: of('mod'),
+      resourcepacks: of('resourcepack'),
+      shaderpacks: of('shaderpack'),
+      modsOff: found.entries.mod.filter((entry) => !entry.enabled).length
+    }
+    try {
+      javaInfo.value = await javaStatus(instance.id)
+    } catch {
+      javaInfo.value = null
+    }
   } catch {
-    // Reported in the snackbar, which keeps the dialog open to be corrected.
+    // Reported in the snackbar; the card simply says less.
   } finally {
-    busy.value = false
+    detailsBusy.value = false
   }
 }
 
-async function deleteProfile(): Promise<void> {
-  const profile = selectedProfile.value
-  if (!profile) return
-  busy.value = true
-  try {
-    await removeProfile(profile.id)
-    removeOpen.value = false
-    report(`Removed ${profile.name}. Instances, worlds and files are untouched.`, 'success')
-  } catch {
-    // Reported in the snackbar.
-  } finally {
-    busy.value = false
-  }
-}
+/** The memory this launch will ask for, from the instance or from the launcher. */
+const memoryLine = computed(() => {
+  const own = selectedInstance.value?.maxMemoryMb ?? null
+  if (own !== null) return `${own} MB, set for this instance`
+  return `${settings.value?.maxMemoryMb ?? 4096} MB, the launcher's default`
+})
 
-function selectProfileById(id: string | null): void {
-  void selectProfile(id)
-}
+const javaLine = computed(() => {
+  const instance = selectedInstance.value
+  if (!instance) return 'No instance'
+  if (instance.javaPath) return `${instance.javaPath}, set for this instance`
+  const required = javaInfo.value?.requiredMajor ?? null
+  const installed = javaInfo.value?.installed ?? []
+  if (installed.length > 0) {
+    const wanted = required !== null ? `, which wants Java ${required}` : ''
+    return `${installed[0].component} downloaded by the launcher${wanted}`
+  }
+  return required !== null
+    ? `Automatic: this version asks for Java ${required}`
+    : 'Automatic, and this version does not name one'
+})
 
 function selectInstanceById(id: string): void {
   void selectInstance(id)
 }
+
+watch(() => selectedInstance.value?.id ?? null, () => void loadDetails(), { immediate: true })
+
+onMounted(() => void loadDetails())
 
 /** A second line under each instance, so the picker says what would be launched. */
 function instanceProps(instance: { versionId: string | null; loader: string | null }): { subtitle: string } {
   const version = instance.versionId ?? 'no version yet'
   const loader = instance.loader && instance.loader !== 'vanilla' ? ` · ${instance.loader}` : ''
   return { subtitle: `${version}${loader}` }
-}
-
-async function create(): Promise<void> {
-  if (newName.value.trim() === '') return
-  busy.value = true
-  try {
-    await createProfile(newName.value.trim())
-    newName.value = ''
-  } catch {
-    // The composable surfaces the message in the snackbar.
-  } finally {
-    busy.value = false
-  }
-}
-
-async function copyUuid(): Promise<void> {
-  const uuid = selectedProfile.value?.uuid
-  if (!uuid) return
-  // A packaged app is loaded from file://, where the clipboard API is not
-  // always exposed; the UUID is on screen either way.
-  try {
-    await navigator.clipboard?.writeText(uuid)
-  } catch {
-    return
-  }
-  copied.value = true
-  window.setTimeout(() => (copied.value = false), 1500)
 }
 
 async function launch(): Promise<void> {
@@ -273,63 +269,18 @@ onBeforeUnmount(() => {
         </v-card-text>
 
         <v-card-text class="pt-0">
-          <v-row density="compact">
-            <v-col cols="12" sm="7">
-              <v-select
-                :items="instances"
-                item-title="name"
-                item-value="id"
-                label="Instance"
-                prepend-inner-icon="mdi-cube-outline"
-                :model-value="selectedInstance?.id ?? null"
-                :disabled="instances.length === 0"
-                :item-props="instanceProps"
-                hide-details
-                @update:model-value="selectInstanceById"
-              />
-            </v-col>
-            <v-col cols="12" sm="5">
-              <v-select
-                :items="profiles"
-                item-title="name"
-                item-value="id"
-                label="Profile"
-                prepend-inner-icon="mdi-account-outline"
-                :item-props="profileProps"
-                :model-value="selectedProfile?.id ?? null"
-                hide-details
-                @update:model-value="selectProfileById"
-              >
-                <template #append>
-                  <v-menu location="bottom end">
-                    <template #activator="{ props: activatorProps }">
-                      <v-btn
-                        icon="mdi-dots-vertical"
-                        variant="text"
-                        size="small"
-                        aria-label="Profile actions"
-                        :disabled="!selectedProfile"
-                        v-bind="activatorProps"
-                      />
-                    </template>
-                    <v-list density="compact">
-                      <v-list-item
-                        title="Rename this profile"
-                        prepend-icon="mdi-rename-outline"
-                        @click="openRename()"
-                      />
-                      <v-list-item
-                        title="Remove this profile"
-                        prepend-icon="mdi-trash-can-outline"
-                        :disabled="isRunning"
-                        @click="removeOpen = true"
-                      />
-                    </v-list>
-                  </v-menu>
-                </template>
-              </v-select>
-            </v-col>
-          </v-row>
+          <v-select
+            :items="instances"
+            item-title="name"
+            item-value="id"
+            label="Instance"
+            prepend-inner-icon="mdi-cube-outline"
+            :model-value="selectedInstance?.id ?? null"
+            :disabled="instances.length === 0"
+            :item-props="instanceProps"
+            hide-details
+            @update:model-value="selectInstanceById"
+          />
 
           <v-alert v-if="instances.length === 0" type="info" variant="tonal" class="mt-4">
             No instance yet. Create one or import a folder you already have on
@@ -345,35 +296,18 @@ onBeforeUnmount(() => {
             <strong>Instances</strong>.
           </v-alert>
 
-          <div v-if="selectedProfile" class="identity-line mt-4">
-            <v-icon icon="mdi-account-key-outline" size="small" />
-            <code>{{ selectedProfile.uuid }}</code>
-            <span class="text-medium-emphasis">offline UUID, derived from the name</span>
-            <v-btn
-              :icon="copied ? 'mdi-check' : 'mdi-content-copy'"
-              :color="copied ? 'success' : undefined"
-              size="x-small"
-              variant="text"
-              aria-label="Copy the UUID"
-              @click="copyUuid"
-            />
-          </div>
-
-          <v-alert v-if="note" :type="noteType" variant="tonal" class="mt-4">{{ note }}</v-alert>
-
-          <div class="d-flex ga-2 align-center mt-4">
-            <v-text-field
-              v-model="newName"
-              label="New profile name"
-              prepend-inner-icon="mdi-account-plus-outline"
-              density="compact"
-              hide-details
-              @keyup.enter="create"
-            />
-            <v-btn :disabled="busy || newName.trim() === ''" :loading="busy" @click="create">
-              Create profile
-            </v-btn>
-          </div>
+          <!-- The profile is not this page's business any more, so it says where
+               to go for one instead of carrying a picker of its own. -->
+          <v-alert
+            v-if="!selectedProfile"
+            type="info"
+            variant="tonal"
+            class="mt-4"
+            prepend-icon="mdi-account-outline"
+          >
+            No profile yet. A profile is the name the game reports and nothing else — create one in the
+            account section at the foot of the sidebar, then press Launch.
+          </v-alert>
 
           <v-alert
             v-if="pendingServer"
@@ -389,6 +323,46 @@ onBeforeUnmount(() => {
           <v-alert v-if="activeTask" type="info" variant="tonal" prepend-icon="mdi-progress-download" class="mt-4">
             {{ activeTask.name }}: {{ activeTask.message }}
             <template v-if="activeTask.state === 'running'">({{ Math.round(activeTask.progress * 100) }}%)</template>
+          </v-alert>
+
+          <!-- What the last launch actually did. A game that fails on the way up
+               exits seconds after the launcher said it was running, and its own
+               words go to its log rather than to this window; without this the
+               only sign was a status that quietly flipped back to Launch. -->
+          <v-alert
+            v-if="launchOutcome?.failed"
+            type="error"
+            variant="tonal"
+            class="mt-4"
+            :title="`${launchOutcome.instanceName} stopped after ${launchOutcome.seconds}s`"
+          >
+            <p class="mb-2">
+              {{ launchOutcome.exitCode !== null ? `Exit code ${launchOutcome.exitCode}` : `Stopped by ${launchOutcome.signal ?? 'a signal'}` }}
+              on {{ launchOutcome.versionId }} as {{ launchOutcome.profileName }}: the game never got
+              as far as a window.
+            </p>
+            <div v-if="launchOutcome.findings.length > 0" class="mb-2">
+              <p v-for="finding in launchOutcome.findings.slice(0, 3)" :key="finding.id" class="mb-1">
+                <strong>{{ finding.title }}</strong>
+                <span v-if="finding.hints[0]"> — {{ finding.hints[0] }}</span>
+              </p>
+            </div>
+            <pre v-if="outcomeTail" class="failure-tail">{{ outcomeTail }}</pre>
+            <div class="d-flex flex-wrap ga-2 mt-3">
+              <v-btn size="small" variant="flat" color="primary" @click="router.push('/logs')">
+                Read the log
+              </v-btn>
+              <v-btn
+                v-if="launchOutcome.logPath"
+                size="small"
+                variant="text"
+                prepend-icon="mdi-text-box-outline"
+                @click="openPath(launchOutcome.logPath)"
+              >
+                Open the game's log
+              </v-btn>
+              <v-btn size="small" variant="text" @click="dismissOutcome">Dismiss</v-btn>
+            </div>
           </v-alert>
         </v-card-text>
 
@@ -552,66 +526,6 @@ onBeforeUnmount(() => {
     </v-card>
   </v-dialog>
 
-  <v-dialog v-model="renameOpen" max-width="440">
-    <v-card>
-      <v-card-title class="d-flex align-center ga-2">
-        <v-icon icon="mdi-rename-outline" size="small" />
-        Rename {{ selectedProfile?.name }}
-      </v-card-title>
-      <v-card-text>
-        <v-text-field
-          v-model="renameName"
-          label="Profile name"
-          hint="3-16 characters: letters, numbers and underscores."
-          persistent-hint
-          autofocus
-          @keyup.enter="renameProfile"
-        />
-        <p class="text-medium-emphasis mt-4 mb-0">
-          The offline UUID is derived from this name, so renaming changes the identity the game
-          reports: a server that already knows the old one sees a new player with none of the old
-          one's progress.
-        </p>
-      </v-card-text>
-      <v-card-actions>
-        <v-spacer />
-        <v-btn variant="text" @click="renameOpen = false">Cancel</v-btn>
-        <v-btn
-          color="primary"
-          prepend-icon="mdi-check"
-          :disabled="busy || renameName.trim() === '' || renameName.trim() === selectedProfile?.name"
-          @click="renameProfile"
-        >
-          Rename
-        </v-btn>
-      </v-card-actions>
-    </v-card>
-  </v-dialog>
-
-  <v-dialog v-model="removeOpen" max-width="440">
-    <v-card>
-      <v-card-title class="d-flex align-center ga-2">
-        <v-icon icon="mdi-trash-can-outline" size="small" color="error" />
-        Remove {{ selectedProfile?.name }}
-      </v-card-title>
-      <v-card-text>
-        <p class="mb-2">
-          The profile is only an identity, so this removes the name and stops anything playing as it.
-          The instance it was playing, its worlds and its files are untouched.
-        </p>
-        <p v-if="isRunning" class="text-warning mb-0">
-          The game is running as this profile. Stop it first.
-        </p>
-      </v-card-text>
-      <v-card-actions>
-        <v-spacer />
-        <v-btn variant="text" @click="removeOpen = false">Cancel</v-btn>
-        <v-btn color="error" prepend-icon="mdi-trash-can-outline" :disabled="busy || isRunning" @click="deleteProfile">
-          Remove
-        </v-btn>
-      </v-card-actions>
-    </v-card>
-  </v-dialog>
 </template>
 
 <style scoped>
@@ -626,6 +540,20 @@ onBeforeUnmount(() => {
 
 .identity-line code {
   font-size: 0.78rem;
+}
+
+/* The game's own output when a launch fails: monospaced and scrollable, because
+   the reason is usually the last few lines of a stack trace. */
+.failure-tail {
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px 10px;
+  margin: 0;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  background: rgba(var(--v-theme-surface-variant), 0.4);
 }
 
 /* The running state, in place of the launch pill. */

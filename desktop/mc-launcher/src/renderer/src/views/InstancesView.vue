@@ -408,7 +408,7 @@ async function importWorldNow(): Promise<void> {
 async function importWorldZip(): Promise<void> {
   const instance = selectedInstance.value
   if (!instance) return
-  const picked = await pickFiles()
+  const picked = await pickFiles('world')
   const source = picked.paths[0]
   if (!source) return
   worldsBusy.value = true
@@ -686,7 +686,7 @@ async function removeOption(key: string): Promise<void> {
 async function addResourceFiles(): Promise<void> {
   const instance = selectedInstance.value
   if (!instance) return
-  const picked = await pickFiles()
+  const picked = await pickFiles(resourceTab.value)
   if (picked.paths.length === 0) return
   busy.value = true
   try {
@@ -814,7 +814,7 @@ async function installFromBrowse(versionId?: string): Promise<void> {
 }
 
 async function chooseModpack(): Promise<void> {
-  const picked = await pickFiles()
+  const picked = await pickFiles('modpack')
   const path = picked.paths[0]
   if (!path) return
   busy.value = true
@@ -960,9 +960,10 @@ onMounted(async () => {
           </div>
 
           <v-alert v-if="instances.length === 0" type="info" variant="tonal" class="mt-4">
-            An instance is one game directory with its own version and its own mods, resource packs
-            and shader packs. Create one, copy a version folder into it, or point the launcher at a
-            game directory you already have.
+            An instance is one game directory with its own mods, resource packs and worlds. The game
+            itself — the version, its libraries and its assets — is downloaded once into the
+            launcher's own folder and played by every instance, so a second instance on the same
+            version downloads nothing.
           </v-alert>
 
           <v-alert v-if="note" :type="noteType" variant="tonal" class="mt-4">{{ note }}</v-alert>
@@ -1062,9 +1063,11 @@ onMounted(async () => {
           />
 
           <p class="text-medium-emphasis mt-4 mb-0">
-            Files come from Mojang's own servers, and from Fabric's or Quilt's metadata for a loader.
-            Each one is checked against the hash its version json declares, and an interrupted
-            download resumes rather than starting over.
+            Files come from Mojang's own servers, and from Fabric's or Quilt's metadata for a loader,
+            into the launcher's shared game folder — which every instance plays from, so one you have
+            already downloaded is reused instead of fetched again. Each file is checked against the
+            hash its version json declares, and an interrupted download resumes rather than starting
+            over.
           </p>
         </v-card-text>
         <v-card-actions>
@@ -1182,11 +1185,17 @@ onMounted(async () => {
   <v-card v-if="tab === 'version'" class="mt-4">
     <v-card-title class="d-flex align-center">
       <v-icon icon="mdi-tag-multiple-outline" size="small" class="mr-2" />
-      Versions in this instance
+      Versions available to this instance
     </v-card-title>
         <v-card-text>
+          <p class="text-medium-emphasis text-body-2 mb-3">
+            Kept in the launcher's own game folder rather than in the instance: a version is hundreds
+            of megabytes of Minecraft's own files, so every instance plays the same copy of it. A
+            version already listed here installs in seconds with nothing to download.
+          </p>
           <v-alert v-if="installations.length === 0" type="info" variant="tonal" class="mb-2">
-            Nothing under <code>versions/</code> yet.
+            No version downloaded yet. Install one above; it is kept in the launcher's game folder
+            and every instance can then play it.
           </v-alert>
           <v-list v-else density="comfortable">
             <v-list-item
