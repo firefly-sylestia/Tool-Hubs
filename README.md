@@ -66,16 +66,21 @@ file, and QR scanning runs on-device through CameraX and the bundled ML Kit barc
 ## MC Launcher (desktop)
 
 An Electron + Vue 3 Minecraft launcher built around **instances**: one game directory each, with its
-own version, loader, mods, resource packs and shader packs. It **downloads and installs** game versions
-from Mojang's manifest and Fabric or Quilt loaders from their metadata — verifying every file against
-the hash its version json declares, resuming interrupted downloads, and unpacking native libraries —
-resolves the version json (`inheritsFrom` chains, per-OS library rules), builds the classpath, shows
-the exact java command, and launches. It finds a Java runtime itself (Mojang's own runtime in the game
-directory, `JAVA_HOME`, or an installed JDK) instead of assuming one is on PATH, and every instance
-can be given its own runtime and memory limit — one machine that plays both 1.12.2 and 1.21 needs
-two. It imports a folder
-(a game directory is used in place, a single version folder is copied in) and a modpack (Modrinth
-`.mrpack`, or a CurseForge pack's overrides, into a new instance). Mods, resource packs and shader
+own loader, mods, resource packs, shader packs and worlds, all playing from **one shared copy of the
+game**. It **downloads and installs** game versions from Mojang's manifest and Fabric or Quilt
+loaders from their metadata into a launcher-owned folder that every instance plays from — verifying
+every file against the hash its version json declares, resuming interrupted downloads, and
+unpacking native libraries — and reuses any copy already on disk instead of downloading it again.
+It resolves the version json (`inheritsFrom` chains, per-OS library rules), builds the classpath, shows
+the exact java command, and launches. It finds a Java runtime itself (a runtime it has already downloaded, `JAVA_HOME`,
+or an installed JDK) instead of assuming one is on PATH, downloads Mojang's own when none answers,
+and every instance can be given its own memory limit and java path — one machine that plays both
+1.12.2 and 1.21.1 needs two. It imports a folder (a game directory is used in place and its files
+are reused from there, a single version folder goes into the shared game folder) and a modpack
+(Modrinth `.mrpack`, or a CurseForge pack's `.zip`, into a new instance that installs the game and
+loader the pack names). A version that fails to start is reported on the Play page with what the
+
+game itself said. Mods, resource packs and shader
 packs are turned on and off from the app, which renames them rather than keeping a list, and mods,
 resource packs and shader packs can be searched and installed from Modrinth — filtered by the
 instance's version and loader, with every file hash-checked and required dependencies followed. Each

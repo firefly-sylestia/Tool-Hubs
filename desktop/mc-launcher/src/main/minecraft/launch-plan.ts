@@ -13,7 +13,15 @@ export interface LaunchTarget {
 }
 
 export interface LaunchPlanInput {
+  /** The instance's own folder: where the game is told to look for its mods, its worlds and its options. */
   gameDir: string
+  /**
+   * The launcher's shared game folder, where the version's own files live:
+   * its jar, its libraries, its assets and its natives. Held separately from
+   * `gameDir` because the two are now different places — one version serves
+   * every instance, while the mods and the worlds do not.
+   */
+  sharedDir: string
   profile: Profile
   versionId: string
   settings: LauncherSettings
@@ -63,8 +71,8 @@ export function supportsQuickPlay(versionId: string): boolean {
  * the join, which is expected.
  */
 export function buildLaunchPlan(input: LaunchPlanInput): LaunchPlan {
-  const { gameDir, profile, versionId, settings, connect, ctx } = input
-  const resolved = resolveVersionChain(gameDir, versionId)
+  const { gameDir, sharedDir, profile, versionId, settings, connect, ctx } = input
+  const resolved = resolveVersionChain(sharedDir, versionId)
   const merged = resolved.merged
 
   if (!merged.mainClass) {
@@ -79,8 +87,8 @@ export function buildLaunchPlan(input: LaunchPlanInput): LaunchPlan {
     )
   }
 
-  const librariesDir = join(gameDir, 'libraries')
-  const assetsDir = join(gameDir, 'assets')
+  const librariesDir = join(sharedDir, 'libraries')
+  const assetsDir = join(sharedDir, 'assets')
   const { classpath, natives } = resolveLibraries(merged.libraries, ctx)
 
   const nativesDir = join(resolved.dir, `${versionId}-natives`)

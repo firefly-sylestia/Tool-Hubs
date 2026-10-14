@@ -1,8 +1,9 @@
 # MC Launcher
 
 A desktop Minecraft launcher with **local profiles only**, built around
-**instances**: one game directory each, with its own version, loader, mods,
-resource packs and shader packs. It downloads game versions and Fabric or Quilt
+**instances**: one game directory each, with its own loader, mods, resource
+packs and shader packs — all of them playing from **one shared copy of the
+game**. It downloads game versions and Fabric or Quilt
 loaders from the official metadata services, imports folders and modpacks,
 manages what is in each instance's resource folders, and joins offline-mode
 servers. Electron + Vue 3 + Vuetify, TypeScript throughout.
@@ -16,12 +17,30 @@ snapshot state protocol, and a launch pipeline built from the version json.
 - **Local profiles.** A name (your in-game name) and nothing else. The profile's
   UUID is derived from that name (`UUID.nameUUIDFromBytes("OfflinePlayer:<name>")`,
   an RFC 4122 v3 UUID) — no account is created, stored, or contacted.
-- **Downloads and installs.** Pick any version Mojang's manifest lists — releases,
-  snapshots or both — optionally with a Fabric or Quilt loader on top, and press
-  Install. The client jar, every library the per-OS rules allow, the asset index
-  and its objects are fetched from Mojang, and a loader profile is written from
-  Fabric's or Quilt's metadata. Native libraries are unpacked into the version's
-  `natives` directory, which is what the launch plan needs on older versions.
+- **Downloads and installs, once for every instance.** Pick any version Mojang's
+  manifest lists — releases, snapshots or both — optionally with a Fabric or
+  Quilt loader on top, and press Install. The client jar, every library the
+  per-OS rules allow, the asset index and its objects are fetched from Mojang,
+  and a loader profile is written from Fabric's or Quilt's metadata. The files go
+  into the launcher's own game folder rather than into the instance: one copy of
+  `versions/`, `libraries/` and `assets/` serves every instance, so a second
+  instance on a version you already have installs in seconds with nothing to
+  download, and only an instance's own mods, configs and worlds stay in it.
+  Native libraries are unpacked into the version's `natives` directory, which is
+  created for every version even when there is nothing to unpack — the game's own
+  arguments point `java.library.path` and LWJGL's extraction path at it, and a
+  version from 1.19 on declares no natives to unpack while still needing the
+  directory to exist.
+- **Nothing the machine already has is downloaded again.** A file the shared
+  game folder is missing is looked for in every other game directory first — an
+  instance imported from the official launcher, a folder pointed at in place, and
+  the conventional `.minecraft` — because the same relative path under any of
+  them is the same file: assets are named by their own hash, libraries are one
+  published artifact, and a version's jar comes from Mojang. What is found is
+  hard-linked when the filesystem allows it and copied when it does not, and
+  nothing is ever written back to the folder it came from. This is also how an
+  installation made before this existed moves over: its files are adopted on the
+  first launch rather than fetched again.
 - **Every file is verified, and nothing half-fetched counts.** A file is only
   renamed into place once its sha1 matches the hash the version json declared;
   a download that is interrupted keeps its `.part` file and resumes with a range
@@ -81,13 +100,22 @@ snapshot state protocol, and a launch pipeline built from the version json.
 - **Launching repairs what it is about to run.** Before a game starts, the
   installer's plan is run again and anything absent or the wrong size is
   fetched — a deleted jar, a half-finished download, assets missing after a game
-  directory was copied from another machine, natives that were never unpacked.
-  A complete installation is checked without a single request, and the log says
-  what a repair had to fetch. Java is resolved the same way: a runtime already
-  installed for the instance is used, then the machine's own, and if neither
-  answers Mojang's runtime is downloaded for the version — including for versions
-  old enough that their json names no runtime at all, which are matched by the
-  Java their release needs rather than by whatever the machine happens to have.
+  directory was copied from another machine, natives that were never unpacked —
+  or, for anything another game directory on the machine already has, linked
+  into the shared game folder instead. A complete installation is checked
+  without a single request, and the log says what a repair had to fetch. Java is
+  resolved the same way: the runtime the launcher has already downloaded is
+  used, then the machine's own, and if neither answers Mojang's runtime is
+  downloaded — once, for the launcher rather than once per instance — including
+  for versions old enough that their json names no runtime at all, which are
+  matched by the Java their release needs rather than by whatever the machine
+  happens to have.
+- **A game that does not start says why.** A version that fails on the way up
+  exits seconds after the launcher reports it running, and its own words go to
+  `logs/latest.log` rather than to the window. The Play page now says it: how
+  long it ran, what it exited with, the crash report's findings or the last of
+  its own output, with the log openable beside it — instead of a status that
+  quietly flips back to Launch while the app shows nothing at all.
 - **Instances, one at a time.** An instance is one game directory with its own
   version, loader, `mods/`, `resourcepacks/` and `shaderpacks/`. The page leads
   with the instance itself — its state, its version, its loader and its folder —
@@ -140,13 +168,18 @@ snapshot state protocol, and a launch pipeline built from the version json.
   different Minecraft version, or a second copy of the same mod id is flagged in
   the folder listing, where it can be fixed. A version range the launcher cannot
   read produces no warning rather than a wrong one.
-- **Modpack import.** A Modrinth `.mrpack` is read from its index: Minecraft
+- **Modpack import.** A Modrinth `.mrpack` — or a CurseForge pack's `.zip`, the
+  two extensions a pack ever has — is read from its index: Minecraft
   version, loader, and every file with a URL and hashes are installed, entries
   the pack excludes from the client are skipped, and its `overrides/` tree is
-  unpacked into the instance. A CurseForge pack's files are identified only by
+  unpacked into the instance. The game version and loader the pack names are
+  installed as part of the import rather than asked for afterwards. A CurseForge
+  pack's files are identified only by
   project and file id, which needs their keyed API, so its overrides are
   imported and the rest is reported rather than half-installed. The pack is
   inspected before anything is written, and always goes into a new instance.
+  The file dialog for it offers only those two extensions, and a file with any
+  other extension is refused by name before it is read as an archive.
 - **Modpack export, the other half of it.** An instance writes itself out as a
   `.mrpack` that any launcher reading the format can install: its mods, resource
   packs, shader packs, `config`, `defaultconfigs`, `scripts` and `options.txt`
@@ -248,7 +281,7 @@ independently of Chime and Network Switcher.
 - A JDK for the game: the version json records what it wants
   (`javaVersion.component` and `javaVersion.majorVersion` — 17 for ≤1.20.4-era
   versions, 21, 25 and up after that). It does **not** have to be on `PATH` or
-  installed at all: the launcher looks in the game directory, `JAVA_HOME` and the
+  installed at all: the launcher looks in the shared game folder, `JAVA_HOME` and the
   usual install locations, and downloads Mojang's runtime when there is none.
 - Network access for installing. Nothing else needs it: launching an installed
   version is entirely offline, and no account is contacted either way.
@@ -291,11 +324,13 @@ src/main/            Electron main process
   minecraft/         version json, rules, classpath, arguments, launch plan,
                      download, install plan, loader metadata, modpack indexes,
                      modrinth api, jar metadata, resource folders, game
-                     options, java discovery, mojang java runtimes, zip, manifest
+                     options, java discovery, mojang java runtimes, zip, manifest,
+                     adopting files from another game directory on disk
 src/preload/         contextBridge: serviceChannels, windowController, bootstrap, taskMonitor
 src/renderer/        Vue 3 + Vuetify UI (Play, Modrinth, Instances, Servers,
                      Settings, Logs)
-src/shared/          types and channel constants shared by all three
+src/shared/          types, channel constants and the file-picker presets shared
+                     by all three
 scripts/selfcheck.ts logic checks, runnable under plain Node
 scripts/netcheck.ts  the installer against the live metadata services
 ```
@@ -310,13 +345,17 @@ as a snapshot event, so the UI keeps a working copy instead of guessing.
 Verified locally on Linux with Node 24.21:
 
 - `npm run typecheck` — clean for main, preload, shared and the Vue renderer.
-- `npm run selfcheck` — 115 checks: the offline UUID, rule evaluation,
+- `npm run selfcheck` — 129 checks: the offline UUID, rule evaluation,
   inheritance, classpath and natives resolution (including a library listed twice
   with the natives on the second listing), argument substitution, the launch
   plan and its failure paths, zip reading and extraction (including a modpack's
   `overrides/` tree and an archive that tries to climb out of the instance),
   install planning, loader metadata, the downloader (resume, checksum rejection,
-  retries, byte progress), instance creation and naming, resource classification
+  retries, byte progress), the file picker offering each importer the extensions
+  it accepts and the pack import refusing anything that is not a pack by name,
+  adopting a file another game directory already has (hard link or copy, the
+  wrong size refused, and a destination outside the game folder left alone),
+  instance creation and naming, resource classification
   and the `.disabled` toggle, importing a folder, both modpack index formats and
   what each refuses, java version parsing and runtime selection, Modrinth search
   facets and responses, version selection, required-dependency following and the
@@ -345,33 +384,49 @@ Verified locally on Linux with Node 24.21:
   behind), the index and its dependencies, and a whole instance written out and
   read back, including the instance with nothing in it that is refused.
 - `npm run netcheck` — the same install path against live services: Mojang's
-  manifest and a real version json, a real asset index, libraries and assets
-  downloaded and hash-checked (664 KB), a real native jar unpacked (1.16.5's
-  LWJGL), the 39.6 MB client jar fetched and verified, real Fabric and Quilt
-  loader profiles parsed, Modrinth searched and resolved for the current release
-  (a real Sodium build downloaded with its hash verified and its name read back
-  out of the jar, plus a real project page and a modpack search), and Mojang's own
+  manifest (919 versions, latest release 26.3), a real version json, a real asset
+  index, libraries and assets downloaded and hash-checked (664 KB), a real native
+  jar unpacked (1.16.5's LWJGL), the 39.6 MB client jar fetched and verified, real
+  Fabric and Quilt loader profiles parsed for 26.3, Modrinth searched and resolved
+  for the current release (a real Sodium build for mc26.3 downloaded with its hash
+  verified and its name read back out of the jar, plus a real project page and a
+  modpack search), and Mojang's own
   Java runtime downloaded, unpacked, marked executable, run to confirm its
   version, and then found again by the resolver. Plus a real status ping:
-  `mc.hypixel.net` answered in 70 ms during the last run, with its version and
-  14870/200000 players.
+  `mc.hypixel.net` answered in 84 ms during the last run, with its version and
+  25916/200000 players.
 - `npm run netcheck --launch` — opt-in, because it installs a whole version and
   takes a couple of minutes: 1.12.2 (1327 files, including the natives it still
-  needs) is installed, the client jar, an asset and the natives directory are
-  deleted, and the launch-time check fetches all three back and then reports
-  nothing left to do on a second pass. `PATH` and `JAVA_HOME` are then blanked so
-  no machine runtime can answer, the launcher downloads Java 8 for it, and the
-  game is started with the command the launcher builds. It reaches its own
-  graphics code — the LWJGL natives load from the instance's natives directory —
-  and stops there because this environment has no display and no X11 client
-  libraries. That is as far as a headless machine can go; the window itself has
-  only been checked on a desktop.
-- `npm run test` — 9 renderer tests: boot from the bridge, snapshot rendering, a
+  needs) is installed into the shared game folder, the client jar, an asset and
+  the natives directory are deleted, and the launch-time check fetches all three
+  back and then reports nothing left to do on a second pass. The install also
+  asserts that the version's `natives` directory exists afterwards whatever the
+  version declares — a modern version declares nothing to unpack and still needs
+  it, which is the bug that made every modern version die on the way up. `PATH`
+  and `JAVA_HOME` are then blanked so no machine runtime can answer, the launcher
+  downloads Java 8 for it, and the game is started with the command the launcher
+  builds. It reaches its own graphics code — the LWJGL natives load from the
+  shared natives directory — and stops there because this environment has no
+  display and no X11 client libraries. That is as far as a headless machine can
+  go; the window itself has only been checked on a desktop. 324.7 MB in total for
+  the last run.
+
+  A modern version with a loader was verified the same way by hand: 1.21.1 with
+  Fabric 0.19.5 installs into the shared game folder, the plan builds and the
+  game loads Minecraft 1.21.1 with the Fabric loader, stopping at the same GLFW
+  display check — and a second install of it, with an old-layout instance on
+  disk, takes every file from that instance as a hard link rather than fetching
+  a byte.
+- `npm run test` — 14 renderer tests: boot from the bridge, snapshot rendering, a
   UI action reaching the service bridge, error surfacing, navigation, the install
   picker installing what it offers into the selected instance, the worlds card
   listing a world and asking for a backup, the Modrinth page opening on the
-  catalogue and then opening a project page, and the store loading the catalogue
-  with no instance selected and no search word.
+  catalogue and then opening a project page, the store loading the catalogue
+  with no instance selected and no search word, a restored backup named beside
+  the world already there, a project the selected instance already has, the
+  keyboard shortcuts, the instances page opening on the tab it was linked to,
+  and a launch that died on the way up being reported with what the game said
+  rather than flipping back to Launch in silence.
 - `npm run build` — main, preload and renderer bundles build.
 
 ## License

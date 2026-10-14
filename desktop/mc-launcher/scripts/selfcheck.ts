@@ -143,7 +143,9 @@ import { InstallService } from '../src/main/services/install-service'
 import { ServiceRegistry } from '../src/main/services/registry'
 import { StateStore, defaultState, migrateState } from '../src/main/services/state-store'
 import { ProfileService } from '../src/main/services/profile-service'
-import { ModpackService } from '../src/main/services/modpack-service'
+import { ModpackService, PACK_EXTENSIONS } from '../src/main/services/modpack-service'
+import { adoptFiles, adoptVersions } from '../src/main/minecraft/adopt'
+import { FILE_PICKERS, pickerExtensions } from '../src/shared/file-pickers'
 import { ModrinthService } from '../src/main/services/modrinth-service'
 import { baseGameVersion } from '../src/main/minecraft/version-id'
 import { presentInstalls, readStoreInstalls, writeStoreInstalls } from '../src/main/services/modrinth-service'
@@ -448,6 +450,7 @@ console.log('\nlaunch plan')
 check('builds a complete offline command', () => {
   const plan = buildLaunchPlan({
     gameDir,
+    sharedDir: gameDir,
     profile,
     versionId: '1.21.4',
     settings: { instancesDir: gameDir, javaPath: null, maxMemoryMb: 2048, width: 1024, height: 768, theme: 'system' },
@@ -475,6 +478,7 @@ check('builds a complete offline command', () => {
 check('appends the loader arguments after the inherited ones', () => {
   const plan = buildLaunchPlan({
     gameDir,
+    sharedDir: gameDir,
     profile,
     versionId: '1.21.4-forge',
     settings: { instancesDir: gameDir, javaPath: '/usr/bin/java', maxMemoryMb: 4096, width: 1280, height: 720, theme: 'system' },
@@ -491,6 +495,7 @@ check('uses quick play for 1.20 and newer, and the legacy flags below', () => {
   expect(!supportsQuickPlay('custom-build'), 'unknown ids are treated as legacy')
   const modern = buildLaunchPlan({
     gameDir,
+    sharedDir: gameDir,
     profile,
     versionId: '1.21.4',
     settings: { instancesDir: gameDir, javaPath: null, maxMemoryMb: 2048, width: 1280, height: 720, theme: 'system' },
@@ -500,6 +505,7 @@ check('uses quick play for 1.20 and newer, and the legacy flags below', () => {
   expectEqual(modern.args.slice(-2), ['--quickPlayMultiplayer', '127.0.0.1:25566'], 'quick play args')
   const legacy = buildLaunchPlan({
     gameDir,
+    sharedDir: gameDir,
     profile,
     versionId: '1.19.4',
     settings: { instancesDir: gameDir, javaPath: null, maxMemoryMb: 2048, width: 1280, height: 720, theme: 'system' },
@@ -519,6 +525,7 @@ check('lets one instance have its own memory without touching the default', () =
   }
   const own = buildLaunchPlan({
     gameDir,
+    sharedDir: gameDir,
     profile,
     versionId: '1.21.4',
     settings,
@@ -531,6 +538,7 @@ check('lets one instance have its own memory without touching the default', () =
 
   const inherited = buildLaunchPlan({
     gameDir,
+    sharedDir: gameDir,
     profile,
     versionId: '1.21.4',
     settings,
@@ -547,6 +555,7 @@ check('fails with an actionable message when natives are missing', () => {
     () =>
       buildLaunchPlan({
         gameDir,
+        sharedDir: gameDir,
         profile,
         versionId: '1.21.4-nolibs',
         settings: { instancesDir: gameDir, javaPath: null, maxMemoryMb: 2048, width: 1280, height: 720, theme: 'system' },
@@ -610,6 +619,115 @@ console.log('\ngame options')
 
 }
 
+console.log('\nreusing files the machine already has')
+{
+  check('takes a file another game directory has instead of downloading it', () => {
+    const sharedDir = join(root, 'adopt-game')
+    const oldGame = join(root, 'adopt-old')
+
+    const object = join(oldGame, 'assets', 'objects', 'ab', 'abcdef')
+    mkdirSync(join(oldGame, 'assets', 'objects', 'ab'), { recursive: true })
+    writeFileSync(object, 'asset-bytes')
+
+    const adopted = adoptFiles({
+      sharedDir,
+      files: [
+        {
+          url: 'https://resources/ab/abcdef',
+          dest: join(sharedDir, 'assets', 'objects', 'ab', 'abcdef'),
+          sha1: 'abcdef',
+          size: 11,
+          label: 'asset abcdef'
+        }
+      ],
+      sources: [oldGame]
+    })
+    expectEqual(adopted.adopted.length, 1, 'the file was taken rather than fetched')
+    expectEqual(adopted.remaining.length, 0, 'and is no longer left to download')
+    expectEqual(
+      readFileSync(join(sharedDir, 'assets', 'objects', 'ab', 'abcdef'), 'utf8'),
+      'asset-bytes',
+      'the bytes are the ones it was copied from'
+    )
+
+    // The source directory is left exactly as it was: nothing is ever written
+    // back to a folder somebody else owns.
+    expectEqual(readFileSync(object, 'utf8'), 'asset-bytes', 'the source still has its file')
+  })
+
+  check('brings a version folder another game directory already has', () => {
+    const sharedDir = join(root, 'adopt-versions-game')
+    const oldGame = join(root, 'adopt-versions-old')
+    mkdirSync(join(oldGame, 'versions', '1.20.1'), { recursive: true })
+    writeFileSync(join(oldGame, 'versions', '1.20.1', '1.20.1.json'), JSON.stringify({ id: '1.20.1' }))
+    writeFileSync(join(oldGame, 'versions', '1.20.1', '1.20.1.jar'), 'jar-bytes')
+    mkdirSync(join(oldGame, 'versions', 'already-there'), { recursive: true })
+    writeFileSync(join(oldGame, 'versions', 'already-there', 'already-there.json'), '{}')
+
+    const taken = adoptVersions({ sharedDir, sources: [oldGame, join(root, 'no-such-directory')] })
+    expectEqual(
+      [...taken].sort(),
+      ['1.20.1', 'already-there'],
+      'both versions were taken, and a directory with no versions in it is skipped'
+    )
+    expect(
+      existsSync(join(sharedDir, 'versions', '1.20.1', '1.20.1.json')) &&
+        existsSync(join(sharedDir, 'versions', 'already-there', 'already-there.json')),
+      'the jsons landed in the shared folder'
+    )
+    expectEqual(
+      readFileSync(join(sharedDir, 'versions', '1.20.1', '1.20.1.jar'), 'utf8'),
+      'jar-bytes',
+      'and so did the jar'
+    )
+
+    // The shared folder is never a source, and a version it already has is left
+    // exactly as it is: a second run takes nothing.
+    writeFileSync(
+      join(sharedDir, 'versions', '1.20.1', '1.20.1.json'),
+      JSON.stringify({ id: '1.20.1', mine: true })
+    )
+    expectEqual(adoptVersions({ sharedDir, sources: [oldGame] }), [], 'nothing is taken twice')
+    expect(
+      readFileSync(join(sharedDir, 'versions', '1.20.1', '1.20.1.json'), 'utf8').includes('"mine"'),
+      'and the copy already there is not overwritten'
+    )
+  })
+
+  check('refuses a file of the wrong size and a destination outside the game folder', () => {
+    const sharedDir = join(root, 'adopt-game-2')
+    const oldGame = join(root, 'adopt-old-2')
+    const library = join(oldGame, 'libraries', 'org', 'example', '1.0', 'example-1.0.jar')
+    mkdirSync(join(oldGame, 'libraries', 'org', 'example', '1.0'), { recursive: true })
+    // A half-finished download somewhere else is exactly what the size check
+    // exists to catch; it is not a source of anything.
+    writeFileSync(library, 'short')
+
+    const short = adoptFiles({
+      sharedDir,
+      files: [
+        {
+          url: 'https://libraries/example-1.0.jar',
+          dest: join(sharedDir, 'libraries', 'org', 'example', '1.0', 'example-1.0.jar'),
+          size: 999,
+          label: 'example-1.0.jar'
+        }
+      ],
+      sources: [oldGame]
+    })
+    expectEqual(short.adopted.length, 0, 'the wrong size is not adopted')
+    expectEqual(short.remaining.length, 1, 'and the file stays on the download list')
+
+    const outside = adoptFiles({
+      sharedDir,
+      files: [{ url: 'https://example/x', dest: join(root, 'not-in-the-game-folder.txt'), label: 'outside' }],
+      sources: [oldGame]
+    })
+    expectEqual(outside.adopted.length, 0, 'a destination outside the game folder is never adopted')
+    expectEqual(outside.remaining.length, 1, 'it is left alone')
+  })
+}
+
 console.log('\nlog plumbing')
 {
   const seen: string[] = []
@@ -626,6 +744,9 @@ const registry = new ServiceRegistry()
 const environment = {
   userDataDir: stateDir,
   defaultInstancesDir: join(root, 'instances'),
+  // The launcher's own game folder: what the app keeps the version files in,
+  // separate from the instance folders that hold their mods and worlds.
+  sharedDir: join(root, 'game'),
   defaultGameDir: gameDir,
   launcherName: 'mc-launcher',
   launcherVersion: '0.0.0',
@@ -639,7 +760,7 @@ const state = new StateStore(
 )
 const profiles = new ProfileService(state)
 const settings = new SettingsService(state)
-const installations = new InstallationService(state, () => {})
+const installations = new InstallationService(state, environment, () => {})
 const instances = new InstanceService(state, environment, installations, settings, () => {})
 // The server list reads and writes the game's own `servers.dat`, which lives in
 // an instance's directory, so it is built after the instances.
@@ -2195,7 +2316,7 @@ console.log('\nimporting what is already on disk')
 {
   const importRoot = join(root, 'import')
 
-  check('copies a single version folder into the selected instance', () => {
+  check('copies a single version folder into the launcher\u2019s game folder', () => {
     const source = join(importRoot, 'downloaded', 'Imported-1.0')
     mkdirSync(source, { recursive: true })
     writeFileSync(
@@ -2205,9 +2326,16 @@ console.log('\nimporting what is already on disk')
     const result = instances.importFrom(source)
     expectEqual(result.versionCount, 1, 'one version was copied')
     expect(
-      existsSync(join(gameDir, 'versions', 'Imported-1.0', 'Imported-1.0.json')),
-      'the json landed under versions/'
+      existsSync(join(environment.sharedDir, 'versions', 'Imported-1.0', 'Imported-1.0.json')),
+      'the json landed under versions/ in the shared game folder'
     )
+    // A version is not one instance's business: the instance it happened to be
+    // selected when it was imported keeps nothing of the game in it.
+    expect(
+      !existsSync(join(gameDir, 'versions', 'Imported-1.0')),
+      'and not inside the instance'
+    )
+    expect(result.message.includes('every instance can play it'), 'the message says where it went')
   })
 
   check('uses a game directory in place rather than copying gigabytes', () => {
@@ -2452,6 +2580,27 @@ console.log('\nmodpack archives, and packs this launcher writes')
     expectEqual(detectModpackFormat(['mods/a.jar']), null, 'neither')
   })
 
+  check('offers every picker the files its own importer accepts', () => {
+    // The bug this exists for: a pack dialog that offered only `.jar` and
+    // `.zip` hid every Modrinth pack behind "Everything".
+    expectEqual(pickerExtensions('modpack'), ['mrpack', 'zip'], 'a pack is .mrpack or .zip')
+    expectEqual(pickerExtensions('mod'), ['jar'], 'a mod is a jar')
+    expectEqual(pickerExtensions('resourcepack'), ['zip'], 'a resource pack is a zip')
+    expectEqual(pickerExtensions('shaderpack'), ['zip'], 'a shader pack is a zip')
+    expectEqual(pickerExtensions('world'), ['zip'], 'a world archive is a zip')
+    expectEqual(pickerExtensions('any'), [], 'an unfiltered picker filters nothing')
+    for (const [kind, preset] of Object.entries(FILE_PICKERS)) {
+      expect(
+        preset.extensions.length > 0 && preset.filter !== '' && preset.title !== '',
+        `the ${kind} picker offers something and says what it is`
+      )
+    }
+    expect(
+      PACK_EXTENSIONS.every((extension) => pickerExtensions('modpack').includes(extension.replace('.', ''))),
+      'the pack picker offers every extension the importer reads'
+    )
+  })
+
   check('reads a Modrinth index into something installable', () => {
     const plan = parseModrinthIndex({
       name: 'Fabulously Optimized',
@@ -2618,6 +2767,16 @@ console.log('\nmodpack archives, and packs this launcher writes')
   })
 
   const modpacks = new ModpackService(installer, instances, tasks, () => {})
+
+  check('refuses a file that is not a pack by name, before reading it as one', () => {
+    // A `.txt` chosen by mistake used to be read as a zip, which reports a
+    // corrupt archive rather than the file being the wrong file.
+    const notAPack = join(root, 'notes.txt')
+    writeFileSync(notAPack, 'this is not an archive')
+    expectThrows(() => modpacks.inspect(notAPack), 'is not a modpack file')
+    expectThrows(() => modpacks.inspect(join(root, 'gone.mrpack')), 'Choose the pack again')
+    expectThrows(() => modpacks.inspect(''), 'needs a file')
+  })
 
   // A store install, end to end and with no network: the service is handed its
   // own fetch, which is also what makes the progress messages below observable.
@@ -2813,6 +2972,7 @@ console.log('\njava')
       {
         userDataDir: root,
         defaultInstancesDir: join(root, 'instances'),
+        sharedDir: join(root, 'game'),
         defaultGameDir: gameDir,
         launcherName: 'mc-launcher',
         launcherVersion: 'selfcheck',

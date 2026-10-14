@@ -82,7 +82,7 @@ export interface InstalledJavaRuntime {
  */
 export interface JavaStatus {
   instanceId: string | null
-  /** The instance's game directory, which is where a runtime is installed. */
+  /** The launcher's shared game folder, which is where a runtime is installed. */
   dir: string | null
   /** The component the version json names, e.g. `java-runtime-epsilon`. */
   component: string | null
@@ -123,6 +123,16 @@ export interface InstanceGameOptions {
 
 /** The three folders a launcher manages as resources. Saves belong to the game. */
 export type ResourceKind = 'mod' | 'resourcepack' | 'shaderpack'
+
+/**
+ * What a file dialog is choosing.
+ *
+ * Each one is a different kind of file, and the picker offers only what it is
+ * for: a pack is a `.mrpack` (Modrinth) or a `.zip` (CurseForge), a mod is a
+ * `.jar`, and the rest are `.zip` archives. `any` drops the filter, which is
+ * what choosing a Java binary needs.
+ */
+export type FilePickerKind = ResourceKind | 'modpack' | 'world' | 'any'
 
 /**
  * What a mod's jar says about itself, read from the jar rather than from its
@@ -617,6 +627,40 @@ export interface LauncherState {
   /** Versions found under the selected instance. */
   installations: InstalledVersion[]
   runningProfileId: string | null
+  /**
+   * How the last launch ended.
+   *
+   * A game that fails to start exits on its own, seconds after the launcher
+   * said it was running, and its own output goes to a file. That reads as
+   * "nothing happened" from inside the app, so what it said on the way out is
+   * kept here and the pages can show it.
+   */
+  lastLaunch: LaunchOutcome | null
+}
+
+/** The end of the last launch, kept whether it went well or badly. */
+export interface LaunchOutcome {
+  instanceId: string
+  instanceName: string
+  profileName: string
+  versionId: string
+  startedAt: string
+  finishedAt: string
+  /** Whole seconds the process lived. */
+  seconds: number
+  exitCode: number | null
+  signal: string | null
+  /**
+   * True when it did not run long enough to be a session, or exited non-zero.
+   * Nothing is claimed about a game that was closed on purpose a minute in.
+   */
+  failed: boolean
+  /** The game's own last words, as it printed them. */
+  tail: string[]
+  /** What the crash report or the game's log says went wrong, when it does. */
+  findings: LogFinding[]
+  /** Where the game kept its log, so the app can point at it. */
+  logPath: string
 }
 
 export interface InstalledVersion {

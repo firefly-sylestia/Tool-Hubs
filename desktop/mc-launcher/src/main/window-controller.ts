@@ -1,4 +1,6 @@
 import { BrowserWindow, dialog, shell } from 'electron'
+import { FILE_PICKERS } from '@shared/file-pickers'
+import type { FilePickerKind } from '@shared/types'
 
 /**
  * Window actions exposed to the renderer as `windowController`. This lives in
@@ -67,25 +69,32 @@ export class WindowController {
   /**
    * The file picker, for adding mods, resource packs and shader packs.
    *
-   * Passing `any: true` drops the filter, which is what choosing a Java binary
-   * needs: a picker offering only .jar and .zip cannot choose `java`. It also
-   * picks several files, which a Java binary does not want, so a single one is
-   * all that comes back in that mode.
+   * Each caller says what it is choosing, so the dialog leads with files it can
+   * actually use: a modpack import has to offer `.mrpack` (Modrinth) and `.zip`
+   * (CurseForge), a mod is a `.jar`, and everything the game reads from a folder
+   * of packs is a `.zip`. `any` drops the filter, which is what choosing a Java
+   * binary needs — a picker offering only archives cannot choose `java`.
+   *
+   * "Everything" stays in the list behind each filter, because a pack or a jar
+   * that is named unusually is still the file someone means.
    */
   async pickFiles(
     event?: Electron.IpcMainInvokeEvent,
-    input: { any?: boolean } = {}
+    input: { kind?: FilePickerKind } = {}
   ): Promise<{ paths: string[] }> {
     const window = this.windowFor(event)
+    const kind = input.kind ?? 'any'
+    const single = kind === 'any' || kind === 'modpack' || kind === 'world'
+    const preset = kind === 'any' ? null : FILE_PICKERS[kind]
     const options: Electron.OpenDialogOptions = {
-      title: input.any ? 'Choose a file' : 'Choose files',
-      properties: input.any ? ['openFile'] : ['openFile', 'multiSelections'],
-      filters: input.any
-        ? []
-        : [
-            { name: 'Mods, packs and shaders', extensions: ['jar', 'zip'] },
+      title: preset ? preset.title : 'Choose a file',
+      properties: single ? ['openFile'] : ['openFile', 'multiSelections'],
+      filters: preset
+        ? [
+            { name: preset.filter, extensions: preset.extensions },
             { name: 'Everything', extensions: ['*'] }
           ]
+        : []
     }
     const result = window
       ? await dialog.showOpenDialog(window, options)

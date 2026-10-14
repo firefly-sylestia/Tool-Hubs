@@ -24,7 +24,8 @@ export function defaultState(instancesDir: string): LauncherState {
     },
     tasks: [],
     installations: [],
-    runningProfileId: null
+    runningProfileId: null,
+    lastLaunch: null
   }
 }
 
@@ -84,6 +85,10 @@ export function migrateState(
   // A state file from before the theme was a setting follows the desktop, which
   // is what the app did then too.
   if (next.settings.theme === undefined) next.settings.theme = 'system'
+
+  // Nothing has been launched since the app was last started a version ago, so
+  // there is no outcome to show.
+  if (next.lastLaunch === undefined) next.lastLaunch = null
 
   // The old fields are gone from the types; drop them so a rewritten state file
   // does not keep carrying values nothing reads.

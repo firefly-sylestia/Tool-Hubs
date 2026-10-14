@@ -1,9 +1,11 @@
+import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { BrowserWindow, app, ipcMain, net, shell } from 'electron'
 import { IPC, type ServiceCallMessage } from '@shared/ipc'
 import type {
+  FilePickerKind,
   GameInstance,
   InstallRequest,
   LauncherSettings,
@@ -80,6 +82,9 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   const environment = {
     userDataDir: app.getPath('userData'),
     defaultInstancesDir: join(app.getPath('userData'), 'instances'),
+    // The launcher's own copy of the game, not the user's `.minecraft`: what is
+    // written here is a version's files and nothing of theirs.
+    sharedDir: join(app.getPath('userData'), 'game'),
     defaultGameDir: join(homedir(), '.minecraft'),
     launcherName: 'mc-launcher',
     launcherVersion: app.getVersion(),
@@ -94,9 +99,13 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
     warn
   )
 
+  // Made before anything can look in it, so the first install finds a game
+  // folder rather than creating one under a locked path mid-download.
+  mkdirSync(environment.sharedDir, { recursive: true })
+
   const settings = new SettingsService(state)
   const profiles = new ProfileService(state)
-  const installations = new InstallationService(state, warn)
+  const installations = new InstallationService(state, environment, warn)
   const instances = new InstanceService(state, environment, installations, settings, warn)
   const servers = new ServerService(state, instances, warn)
   const tasks = new TaskService(state, registry)
@@ -106,12 +115,29 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   const install = new InstallService(environment, tasks, installations, instances, warn, {}, saves)
   // A launch checks the installation and repairs it before it builds a command,
   // which means it owns the same installer every other path uses.
-  const launch = new LaunchService(state, environment, log, tasks, servers, java, install)
+  const launch = new LaunchService(state, environment, log, tasks, servers, java, install, diagnostics)
   const modpacks = new ModpackService(install, instances, tasks, warn)
   const modrinth = new ModrinthService(environment, instances, modpacks, tasks, warn)
   const windows = new WindowController()
 
   const as = <T,>(params: unknown): T => params as T
+
+  /**
+   * A path the renderer says it has, checked where it arrives.
+   *
+   * Every one of these comes from the OS file dialog, so the only way to get
+   * here without one is a bug on the other side of the bridge. A service that
+   * is handed `undefined` fails inside `node:path` with a message about the
+   * argument's type, which names neither the file nor the thing that wanted it;
+   * this says both before any work starts.
+   */
+  const requirePath = (params: unknown, what: string): string => {
+    const value = (params as { path?: unknown } | undefined)?.path
+    if (typeof value !== 'string' || value.trim() === '') {
+      throw new Error(`${what} needs a file, and none was chosen. Pick one and try again.`)
+    }
+    return value
+  }
   const profileInput = (params: unknown): { id: string; patch: UpdateProfileInput } =>
     as<{ id: string; patch: UpdateProfileInput }>(params)
   const instanceInput = (params: unknown): { id: string; patch: Partial<GameInstance> } =>
@@ -170,7 +196,8 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
       const input = as<{ instanceId?: string | null; kind: ResourceKind; paths: string[] }>(params)
       return instances.addResources({ instanceId: input.instanceId, kind: input.kind, paths: input.paths })
     },
-    importFolder: (params) => instances.importFrom(as<{ path: string }>(params).path)
+    importFolder: (params) =>
+      instances.importFrom(requirePath(params, 'Importing a game folder'))
   })
   registry.register('installation', {
     list: () => installations.list(),
@@ -182,8 +209,8 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
     start: (params) => install.install(as<InstallRequest>(params))
   })
   registry.register('modpack', {
-    inspect: (params) => modpacks.inspect(as<{ path: string }>(params).path),
-    import: (params) => modpacks.import(as<{ path: string }>(params).path),
+    inspect: (params) => modpacks.inspect(requirePath(params, 'Importing a modpack')),
+    import: (params) => modpacks.import(requirePath(params, 'Importing a modpack')),
     /** The other half of the modpack story: this instance as a pack. */
     export: (params) =>
       modpacks.export(
@@ -225,7 +252,7 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
       let component: string | null = null
       let requiredMajor: number | null = null
       if (instance.versionId) {
-        const resolved = resolveVersionChain(instance.dir, instance.versionId)
+        const resolved = resolveVersionChain(environment.sharedDir, instance.versionId)
         component =
           resolved.chain
             .map((version) => version.javaVersion?.component)
@@ -234,10 +261,10 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
       }
       return {
         instanceId: instance.id,
-        dir: instance.dir,
+        dir: environment.sharedDir,
         component,
         requiredMajor,
-        installed: java.installedRuntimes(instance.dir),
+        installed: java.installedRuntimes(environment.sharedDir),
         detected
       }
     },
@@ -247,7 +274,9 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
       const instance = instances.require(input.instanceId)
       return tasks.run(`Download Java runtime ${input.component}`, (report) =>
         java.installRuntime({
-          instanceDir: instance.dir,
+          // The shared game folder: a runtime Mojang publishes is the same
+          // for every instance, so it is fetched once for the launcher.
+          instanceDir: environment.sharedDir,
           component: input.component,
           onProgress: report
         })
@@ -263,16 +292,21 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
       )
     },
     restoreBackup: (params) => {
-      const input = as<{ instanceId?: string | null; path: string }>(params)
-      return tasks.run('Restore a backup', () => saves.restoreBackup(input))
+      const input = as<{ instanceId?: string | null; path?: unknown }>(params)
+      const path = requirePath(params, 'Restoring a backup')
+      return tasks.run('Restore a backup', () => saves.restoreBackup({ ...input, path }))
     },
     exportWorld: (params) => {
       const input = as<{ instanceId?: string | null; folder: string; destDir: string }>(params)
       return tasks.run(`Export ${input.folder}`, () => saves.exportWorld(input))
     },
     importWorld: (params) => {
-      const input = as<{ instanceId?: string | null; source: string }>(params)
-      return tasks.run('Import a world', () => saves.importWorld(input))
+      const input = as<{ instanceId?: string | null; source?: unknown }>(params)
+      const source = (params as { source?: unknown } | undefined)?.source
+      if (typeof source !== 'string' || source.trim() === '') {
+        throw new Error('Importing a world needs a folder or a .zip to import, and none was chosen.')
+      }
+      return tasks.run('Import a world', () => saves.importWorld({ ...input, source }))
     }
   })
   registry.register('server', {
@@ -299,7 +333,8 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
       return launch.start(input.profileId, input.serverId, input.instanceId)
     },
     stop: () => launch.stop(),
-    status: () => launch.status()
+    status: () => launch.status(),
+    dismiss: () => launch.dismissOutcome()
   })
   registry.register('task', {
     list: () => tasks.list(),
@@ -325,16 +360,22 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
     toggleDevTools: () => windows.toggleDevTools(),
     pickFolder: () => windows.pickFolder(),
     pickFiles: (params) =>
-      windows.pickFiles(undefined, as<{ any?: boolean } | undefined>(params) ?? {}),
-    openPath: (params) => windows.openPath(as<{ path: string }>(params))
+      windows.pickFiles(undefined, as<{ kind?: FilePickerKind } | undefined>(params) ?? {}),
+    openPath: (params) => windows.openPath({ path: requirePath(params, 'Opening a folder') })
   })
 
   // First inspection of the selected instance, so the UI has something to show
-  // on boot. Failures are logged, not fatal.
+  // on boot. Version folders the launcher's own folder does not have yet are
+  // taken from the instances that hold them first, so what the UI lists and
+  // what a launch can read includes every version already on this machine.
   try {
+    const adopted = install.adoptVersions()
+    if (adopted.length > 0) {
+      warn(`Adopted ${adopted.length} version(s) already on this machine: ${adopted.join(', ')}.`)
+    }
     const selected = instances.selected()
     if (selected) instances.ensureFolders(selected)
-    installations.rescan(selected?.dir ?? null)
+    installations.rescan()
   } catch (error) {
     warn(`Initial scan failed: ${(error as Error).message}`)
   }

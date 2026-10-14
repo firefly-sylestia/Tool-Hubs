@@ -2,18 +2,25 @@ import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { InstalledVersion } from '@shared/types'
 import { readVersionJson } from '../minecraft/version-json'
+import type { AppEnvironment } from './env'
 import type { StateStore } from './state-store'
 
 /**
- * Finds versions that are already installed under `<gameDir>/versions`.
+ * Finds versions that are already installed under `<sharedDir>/versions`.
  *
  * This is a scan, not a repair: it reports what is on disk. Installing a
  * version that is missing — or completing one that is incomplete — is the
  * installer's job, and that is a separate service so a scan stays instant.
+ *
+ * The versions belong to the launcher rather than to one instance, because the
+ * files behind them do: every one of them can be played by any instance, and an
+ * instance only has to say which one it plays. That is why this reads the shared
+ * game folder and not the instance's own.
  */
 export class InstallationService {
   constructor(
     private readonly state: StateStore,
+    private readonly env: AppEnvironment,
     private readonly warn: (message: string) => void
   ) {}
 
@@ -22,13 +29,11 @@ export class InstallationService {
   }
 
   /**
-   * Scans an instance's `versions/`. Without a directory it scans the selected
-   * instance, which is what every caller means by "rescan".
+   * Scans the launcher's `versions/`. The directory can still be named — the
+   * checks point this at a throwaway folder — but nothing in the app does.
    */
   rescan(dir?: string | null): InstalledVersion[] {
-    const snapshot = this.state.snapshot()
-    const instance = snapshot.instances.find((candidate) => candidate.id === snapshot.selectedInstanceId)
-    const gameDir = dir ?? instance?.dir ?? null
+    const gameDir = dir ?? this.env.sharedDir ?? null
 
     if (gameDir === null) {
       return this.state.update((state) => {

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { InstallRequest, InstallResult, LoaderOption, RemoteVersion } from '@shared/types'
 import {
@@ -12,7 +12,8 @@ import {
   nativesDirFor,
   needsRefresh,
   planInstallation,
-  type AssetIndexJson
+  type AssetIndexJson,
+  type PlannedFile
 } from '../minecraft/install-plan'
 import {
   loaderListUrl,
@@ -29,6 +30,7 @@ import {
   parseVersionManifest,
   type VersionManifest
 } from '../minecraft/version-manifest'
+import { adoptFiles, adoptVersions } from '../minecraft/adopt'
 import { extractZip, isNativeLibraryEntry } from '../minecraft/zip'
 import type { AppEnvironment } from './env'
 import type { InstallationService } from './installation-service'
@@ -45,6 +47,8 @@ export interface InstallCompletion {
   refreshed: number
   downloaded: number
   reused: number
+  /** Files taken from another installation on this machine instead of fetched. */
+  adopted: number
   bytes: number
   nativesExtracted: number
   /** False when nothing had to be done, so a launch can stay quiet about it. */
@@ -142,21 +146,49 @@ export class InstallService {
     if (!instance.versionId) {
       throw new Error(`Instance "${instance.name}" has no version yet. Install one, then launch.`)
     }
+    this.adoptVersions()
 
-    const resolved = resolveVersionChain(instance.dir, instance.versionId)
+    const resolved = resolveVersionChain(this.environment.sharedDir, instance.versionId)
     const ctx: RuleContext = ruleContextFor(this.environment.platform, this.environment.arch, {
       is_demo_user: false,
       has_custom_resolution: false,
       has_quick_plays_support: true
     })
-    const assetIndex = await this.readAssetIndex(instance.dir, resolved.chain)
-    const plan = planInstallation({ gameDir: instance.dir, chain: resolved.chain, ctx, assetIndex })
+    const assetIndex = await this.readAssetIndex(this.environment.sharedDir, resolved.chain)
+    const plan = planInstallation({
+      gameDir: this.environment.sharedDir,
+      chain: resolved.chain,
+      ctx,
+      assetIndex
+    })
 
-    const stale = needsRefresh(plan.files, (path) => sizeOf(path))
-    const nativesDir = nativesDirFor(instance.dir, instance.versionId)
+    // Native jars are the part of a version the plan keeps beside its files
+    // rather than among them, so one that was deleted was never fetched again
+    // and the natives directory stayed empty. They belong to the same repair.
+    for (const jar of plan.nativeJars) {
+      plan.files.push({ url: jar.url, dest: jar.path, sha1: jar.sha1, size: jar.size, label: jar.label })
+    }
+
+    let stale = needsRefresh(plan.files, (path) => sizeOf(path))
+    const toAdopt = stale.length
+    this.adopt(stale)
+    stale = stale.filter((file) => !existsSync(file.dest))
+    const nativesDir = nativesDirFor(this.environment.sharedDir, instance.versionId)
     const nativesMissing = plan.nativeJars.length > 0 && !hasEntries(nativesDir)
+    /**
+     * The directory has to exist even when nothing is unpacked into it.
+     *
+     * A version from 1.19 on ships its native libraries as ordinary jars on the
+     * classpath and declares nothing to extract, so this used to be skipped —
+     * and the version json points `java.library.path`, JNA's temp directory and
+     * LWJGL's own extraction path at `${natives_directory}`, which then
+     * substituted as an empty string. The game died in LWJGL with "Failed to
+     * locate library: liblwjgl.so" before it drew anything, which looked like a
+     * launcher that reported a launch and did nothing.
+     */
+    const nativesDirMissing = !existsSync(nativesDir)
 
-    if (stale.length === 0 && !nativesMissing) {
+    if (stale.length === 0 && !nativesMissing && !nativesDirMissing) {
       report(1, `Every one of ${plan.files.length} files is in place`)
       return {
         versionId: instance.versionId,
@@ -164,14 +196,17 @@ export class InstallService {
         refreshed: 0,
         downloaded: 0,
         reused: plan.files.length,
+        adopted: 0,
         bytes: 0,
         nativesExtracted: 0,
         changed: false
       }
     }
 
+    const adopted = toAdopt - stale.length
     const nativesNote = nativesMissing ? ` and ${plan.nativeJars.length} native libraries to unpack` : ''
     report(0.05, `${stale.length} of ${plan.files.length} files are missing or incomplete${nativesNote}`)
+    if (adopted > 0) report(0.08, `Reused ${adopted} file(s) from another installation on this machine`)
 
     const result =
       stale.length > 0
@@ -190,6 +225,8 @@ export class InstallService {
           })
         : { downloaded: 0, reused: 0, bytes: 0 }
 
+    if (nativesDirMissing) mkdirSync(nativesDir, { recursive: true })
+
     let nativesExtracted = 0
     if (nativesMissing) {
       for (const jar of plan.nativeJars) {
@@ -205,9 +242,12 @@ export class InstallService {
     return {
       versionId: instance.versionId,
       files: plan.files.length,
-      refreshed: stale.length,
+      // Counted before adoption, because "refreshed" is what had to be put
+      // right however it ended up being put right.
+      refreshed: toAdopt,
       downloaded: result.downloaded,
-      reused: result.reused,
+      reused: adopted + result.reused,
+      adopted,
       bytes: result.bytes,
       nativesExtracted,
       changed: true
@@ -240,6 +280,54 @@ export class InstallService {
     }
   }
 
+  /**
+   * Game directories that may already hold files the shared folder is missing.
+   *
+   * Every instance's own folder comes first — one imported from the official
+   * launcher has a complete installation in it — and the conventional game
+   * directory is last, because someone who has played with the official launcher
+   * already has exactly these files. Reading them is all this does: nothing is
+   * ever written back.
+   */
+  private adoptionSources(): string[] {
+    const sources: string[] = []
+    for (const instance of this.instances.list()) {
+      if (instance.dir && instance.dir !== this.environment.sharedDir) sources.push(instance.dir)
+    }
+    if (this.environment.defaultGameDir !== this.environment.sharedDir) {
+      sources.push(this.environment.defaultGameDir)
+    }
+    return sources
+  }
+
+  /**
+   * Version folders other game directories already hold, brought into the
+   * shared folder.
+   *
+   * Run before anything resolves a version, because the json has to be readable
+   * before a chain can be walked and before the libraries and assets behind it
+   * can be looked for. Returns the ids it took, so a caller can say so.
+   */
+  adoptVersions(): string[] {
+    return adoptVersions({
+      sharedDir: this.environment.sharedDir,
+      sources: this.adoptionSources()
+    })
+  }
+
+  /** Fills in what the shared folder is missing from copies of the game on disk. */
+  private adopt(files: PlannedFile[]): number {
+    if (files.length === 0) return 0
+    const sources = this.adoptionSources()
+    if (sources.length === 0) return 0
+    const { adopted } = adoptFiles({
+      sharedDir: this.environment.sharedDir,
+      files,
+      sources
+    })
+    return adopted.length
+  }
+
   private async loadManifest(refresh: boolean): Promise<VersionManifest> {
     if (this.manifest && !refresh) return this.manifest
     const manifest = parseVersionManifest(
@@ -254,7 +342,10 @@ export class InstallService {
     report: (progress: number, message: string) => void
   ): Promise<InstallResult> {
     const instance = this.instances.require(input.instanceId)
-    const gameDir = instance.dir
+    // The game's own files go to the launcher's shared folder, not into the
+    // instance: two instances playing 1.21.1 share one copy of it, and the
+    // second one installs in seconds because every file is already there.
+    const gameDir = this.environment.sharedDir
     const ctx: RuleContext = ruleContextFor(this.environment.platform, this.environment.arch, {
       is_demo_user: false,
       has_custom_resolution: false,
@@ -266,6 +357,11 @@ export class InstallService {
     // when there is nothing to lose.
     const backup = await this.saves?.backupBeforeChange(instance.id)
     if (backup) report(0.01, `Backed up the worlds to ${backup.name}`)
+
+    // Version folders another game directory already holds are brought over
+    // before anything is planned, so an installation that predates the shared
+    // folder is reused rather than fetched again.
+    this.adoptVersions()
 
     report(0.02, 'Reading the version manifest')
     const manifest = await this.loadManifest(false)
@@ -328,7 +424,14 @@ export class InstallService {
     }
 
     const alreadyThere = files.filter((file) => existsSync(file.dest)).length
-    report(0.15, `${files.length} files needed, ${alreadyThere} already on disk`)
+    // Anything another game directory already has is taken from there rather
+    // than fetched again: a version's files are the same files wherever they are.
+    const adopted = this.adopt(files.filter((file) => !existsSync(file.dest)))
+    report(
+      0.15,
+      `${files.length} files needed, ${alreadyThere} already on disk` +
+        (adopted > 0 ? `, ${adopted} reused from another installation` : '')
+    )
 
     const result = await downloadAll(files, {
       fetchImpl: this.fetchImpl,
@@ -350,6 +453,10 @@ export class InstallService {
 
     report(0.92, 'Unpacking native libraries')
     const nativesDir = nativesDirFor(gameDir, targetId)
+    // Made whether or not there is anything to unpack: the version's own
+    // arguments point at it, and for anything modern it is the only thing the
+    // game is given for `java.library.path`.
+    mkdirSync(nativesDir, { recursive: true })
     let nativesExtracted = 0
     for (const jar of versionPlan.nativeJars) {
       if (!existsSync(jar.path)) continue
@@ -368,7 +475,7 @@ export class InstallService {
     })
 
     report(0.97, 'Rescanning installations')
-    this.installations.rescan(instance.dir)
+    this.installations.rescan()
     this.warn(
       `Installed ${targetId} into ${instance.name}: ${result.downloaded} files downloaded, ` +
         `${result.reused} already present, ${nativesExtracted} native libraries unpacked.`

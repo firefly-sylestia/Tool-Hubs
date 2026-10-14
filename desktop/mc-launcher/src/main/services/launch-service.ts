@@ -1,17 +1,27 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import type { LaunchPlan, Profile } from '@shared/types'
+import type { LaunchOutcome, LaunchPlan, LogFinding, Profile } from '@shared/types'
 import type { Readable } from 'node:stream'
 import { inferJavaMajor } from '../minecraft/java'
 import { type LaunchTarget, buildLaunchPlan } from '../minecraft/launch-plan'
 import { ruleContextFor } from '../minecraft/rules'
 import { resolveVersionChain } from '../minecraft/version-json'
 import type { AppEnvironment } from './env'
+import type { DiagnosticService } from './diagnostic-service'
 import type { InstallService } from './install-service'
 import type { JavaService } from './java-service'
 import type { LogService } from './log-service'
 import type { ServerService } from './server-service'
 import type { StateStore } from './state-store'
 import type { TaskService } from './task-service'
+
+/** How much of the game's own output is kept to explain a launch that failed. */
+const OUTPUT_TAIL_LINES = 40
+/**
+ * Under this, the game cannot have been played: it crashed on the way up. The
+ * official launcher treats a quick exit as a failure for the same reason — a
+ * session that ends in four seconds is a problem, not someone stopping.
+ */
+const CRASH_BEFORE_SECONDS = 20
 
 export interface LaunchStatus {
   running: boolean
@@ -29,7 +39,9 @@ export class LaunchService {
     private readonly tasks: TaskService,
     private readonly servers: ServerService,
     private readonly java: JavaService,
-    private readonly install: InstallService
+    private readonly install: InstallService,
+    /** The game's own crash reports and log, read when a launch fails. */
+    private readonly diagnostics: DiagnosticService
   ) {}
 
   /**
@@ -54,7 +66,7 @@ export class LaunchService {
       throw new Error(`Instance "${instance.name}" has no version yet. Install one, then launch.`)
     }
 
-    const resolved = resolveVersionChain(instance.dir, instance.versionId)
+    const resolved = resolveVersionChain(this.env.sharedDir, instance.versionId)
     const component =
       resolved.chain.map((version) => version.javaVersion?.component).find((value) => typeof value === 'string') ??
       null
@@ -64,7 +76,9 @@ export class LaunchService {
     // Nothing installed on this machine is not a dead end: Mojang's own runtime
     // for this version is downloaded, exactly as the official launcher does.
     const java = await this.java.ensure({
-      instanceDir: instance.dir,
+      // The shared game folder, so a runtime Mojang's own download provides is
+      // fetched once for the launcher rather than once per instance.
+      instanceDir: this.env.sharedDir,
       component,
       requiredMajor,
       // This instance's own choice first: 1.12.2 wants Java 8 on a machine whose
@@ -74,7 +88,10 @@ export class LaunchService {
     })
 
     return buildLaunchPlan({
+      // The instance's folder is where mods, worlds and options live; the
+      // version's own files come from the launcher's shared game folder.
       gameDir: instance.dir,
+      sharedDir: this.env.sharedDir,
       instanceId: instance.id,
       profile,
       versionId: instance.versionId,
@@ -106,8 +123,9 @@ export class LaunchService {
       if (completion.changed) {
         this.log.append(
           'stdout',
-          `Completed ${completion.versionId}: ${completion.refreshed} file(s) fetched ` +
-            `(${formatMegabytes(completion.bytes)})` +
+          `Completed ${completion.versionId}: ${completion.refreshed} file(s) put right, ` +
+            `${formatMegabytes(completion.bytes)} fetched` +
+            (completion.adopted > 0 ? `, ${completion.adopted} reused from another installation` : '') +
             (completion.nativesExtracted > 0
               ? `, ${completion.nativesExtracted} native libraries unpacked`
               : '')
@@ -145,6 +163,21 @@ export class LaunchService {
     }
   }
 
+  /**
+   * Forgets the last outcome, which is what dismissing the panel on Play means.
+   *
+   * Only a launch that has already finished can be forgotten: the panel and the
+   * running state are different things, and clearing one must never look like
+   * stopping the game.
+   */
+  dismissOutcome(): { cleared: boolean } {
+    if (!this.state.snapshot().lastLaunch) return { cleared: false }
+    this.state.update((state) => {
+      state.lastLaunch = null
+    })
+    return { cleared: true }
+  }
+
   private requireProfile(profileId: string): Profile {
     const profile = this.state.snapshot().profiles.find((candidate) => candidate.id === profileId)
     if (!profile) throw new Error(`Unknown profile ${profileId}.`)
@@ -160,6 +193,15 @@ export class LaunchService {
 
   private spawnPlan(plan: LaunchPlan): Promise<number> {
     return new Promise<number>((resolve, reject) => {
+      const startedAt = new Date()
+      // The game's own output, kept as it arrives, so a launch that dies on the
+      // way up can be quoted instead of leaving an empty window behind.
+      const tail: string[] = []
+      const keep = (line: string): void => {
+        tail.push(line)
+        if (tail.length > OUTPUT_TAIL_LINES) tail.shift()
+      }
+
       const child = spawn(plan.javaPath, plan.args, {
         cwd: plan.cwd,
         env: process.env,
@@ -179,19 +221,75 @@ export class LaunchService {
         resolve(child.pid ?? -1)
       })
 
-      if (child.stdout) pipeLines(child.stdout, (line) => this.log.append('stdout', line))
-      if (child.stderr) pipeLines(child.stderr, (line) => this.log.append('stderr', line))
+      if (child.stdout) {
+        pipeLines(child.stdout, (line) => {
+          keep(line)
+          this.log.append('stdout', line)
+        })
+      }
+      if (child.stderr) {
+        pipeLines(child.stderr, (line) => {
+          keep(line)
+          this.log.append('stderr', line)
+        })
+      }
 
       child.once('exit', (code, signal) => {
         this.child = null
+        const finishedAt = new Date()
+        const seconds = Math.max(
+          0,
+          Math.round((finishedAt.getTime() - startedAt.getTime()) / 1000)
+        )
         const detail = signal ? `signal ${signal}` : `exit code ${code ?? 'unknown'}`
-        this.log.append('stdout', `Game process finished (${detail})`)
+        // A game that exited on its own before anyone could play it failed, and
+        // saying so is the whole point of keeping this. A long session that was
+        // closed is not a failure, whatever the code says.
+        const failed = signal !== null || (code ?? 0) !== 0 || seconds < CRASH_BEFORE_SECONDS
+        this.log.append(
+          failed ? 'stderr' : 'stdout',
+          `Game process finished (${detail}) after ${seconds}s`
+        )
+
+        let findings: LogFinding[] = []
+        let logPath = ''
+        if (failed && plan.instanceId) {
+          try {
+            const report = this.diagnostics.report({ instanceId: plan.instanceId })
+            findings = report.findings
+            logPath = report.logPath
+          } catch (error) {
+            // An instance removed while its game was running has nothing left to
+            // read; the outcome is still worth recording without it.
+            this.log.append('stderr', `Could not read the game's own log: ${(error as Error).message}`)
+          }
+        }
+        if (findings.length > 0) {
+          this.log.append('stderr', `What the game reported: ${findings.map((found) => found.title).join('; ')}`)
+        }
+
         this.state.update((state) => {
           state.runningProfileId = null
           const profile = state.profiles.find((candidate) => candidate.id === plan.profileId)
-          if (profile) profile.lastPlayedAt = new Date().toISOString()
+          if (profile) profile.lastPlayedAt = finishedAt.toISOString()
           const instance = state.instances.find((candidate) => candidate.id === plan.instanceId)
-          if (instance) instance.lastPlayedAt = new Date().toISOString()
+          if (instance) instance.lastPlayedAt = finishedAt.toISOString()
+          const outcome: LaunchOutcome = {
+            instanceId: plan.instanceId ?? '',
+            instanceName: instance?.name ?? 'the instance',
+            profileName: profile?.name ?? 'the profile',
+            versionId: plan.versionId,
+            startedAt: startedAt.toISOString(),
+            finishedAt: finishedAt.toISOString(),
+            seconds,
+            exitCode: code,
+            signal,
+            failed,
+            tail,
+            findings,
+            logPath
+          }
+          state.lastLaunch = outcome
         })
       })
     })

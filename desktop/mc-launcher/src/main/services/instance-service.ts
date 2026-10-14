@@ -166,7 +166,7 @@ export class InstanceService {
       state.instances.push(instance)
       state.selectedInstanceId = instance.id
     })
-    this.installations.rescan(instance.dir)
+    this.installations.rescan()
     this.warn(`Created instance ${instance.name} at ${instance.dir}.`)
     return instance
   }
@@ -214,7 +214,7 @@ export class InstanceService {
     this.state.update((state) => {
       state.selectedInstanceId = instance.id
     })
-    this.installations.rescan(instance.dir)
+    this.installations.rescan()
     return instance
   }
 
@@ -254,7 +254,7 @@ export class InstanceService {
       }
     })
     if (options.deleteFiles) rmSync(instance.dir, { recursive: true, force: true })
-    this.installations.rescan(this.selected()?.dir ?? null)
+    this.installations.rescan()
     this.warn(`Removed instance ${instance.name}${options.deleteFiles ? ' and its files' : ' (files kept)'}.`)
     return { removed: instance.name, deleted: Boolean(options.deleteFiles), dir: instance.dir }
   }
@@ -480,8 +480,10 @@ export class InstanceService {
    * Turns a folder into an instance.
    *
    * A game directory — one with `versions/` — becomes an instance that keeps
-   * its own path, because copying a game directory is several gigabytes. A
-   * version folder is small, so it is copied into an instance.
+   * its own path, because copying a game directory is several gigabytes; its
+   * files are then reused from there rather than downloaded again. A version
+   * folder is small, so it is copied into the launcher's game folder, where
+   * every instance can play it.
    */
   importFrom(path: string): InstanceImportResult {
     const source = resolve(path)
@@ -501,7 +503,8 @@ export class InstanceService {
         instance,
         versionCount: versions.length,
         message:
-          `Using ${source} in place — ${versions.length} version folder(s) there` +
+          `Using ${source} in place — ${versions.length} version folder(s) there, which the launcher ` +
+          `reuses when a version is installed or played rather than downloading again` +
           (missing.length > 0 ? `, but it has no ${missing.join(' or ')} yet.` : '.')
       }
     }
@@ -512,21 +515,23 @@ export class InstanceService {
       if (!instance) {
         instance = this.create({ name, source: 'created' })
       }
-      const dest = join(instance.dir, 'versions', name)
+      // A version folder is the game itself, so it goes where every instance
+      // can play it rather than into this one instance's folder.
+      const dest = join(this.env.sharedDir, 'versions', name)
       if (existsSync(dest)) {
-        throw new Error(`${name} is already installed in ${instance.name}. Remove it first to replace it.`)
+        throw new Error(`${name} is already installed. Remove it from ${this.env.sharedDir} first to replace it.`)
       }
-      mkdirSync(join(instance.dir, 'versions'), { recursive: true })
+      mkdirSync(join(this.env.sharedDir, 'versions'), { recursive: true })
       cpSync(source, dest, { recursive: true })
       const updated = this.update(instance.id, {
         versionId: instance.versionId ?? name,
         loader: instance.loader ?? null
       })
-      this.installations.rescan(updated.dir)
+      this.installations.rescan()
       return {
         instance: updated,
         versionCount: 1,
-        message: `Copied ${name} into ${updated.name}. Its files are not checked; open the instance to see what is there.`
+        message: `Copied ${name} into the launcher's game folder; every instance can play it. Its files are not checked; install it to have them verified.`
       }
     }
 

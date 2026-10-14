@@ -326,6 +326,7 @@ await step('ping a real server the way the server list does', async () => {
   const pingEnv = {
     userDataDir: pingRoot,
     defaultInstancesDir: join(pingRoot, 'instances'),
+    sharedDir: join(pingRoot, 'game'),
     defaultGameDir: join(pingRoot, 'game'),
     launcherName: 'mc-launcher',
     launcherVersion: 'netcheck',
@@ -336,7 +337,7 @@ await step('ping a real server the way the server list does', async () => {
   const pingInstances = new InstanceService(
     store,
     pingEnv,
-    new InstallationService(store, () => {}),
+    new InstallationService(store, pingEnv, () => {}),
     new SettingsService(store),
     () => {}
   )
@@ -364,6 +365,7 @@ await step("download Mojang's own Java runtime and run it", async () => {
     {
       userDataDir: root,
       defaultInstancesDir: join(root, 'instances'),
+      sharedDir: join(root, 'game'),
       defaultGameDir: join(root, 'game'),
       launcherName: 'mc-launcher',
       launcherVersion: 'netcheck',
@@ -398,6 +400,7 @@ if (launch) {
     const launchEnv = {
       userDataDir: launchRoot,
       defaultInstancesDir: join(launchRoot, 'instances'),
+      sharedDir: join(launchRoot, 'game'),
       defaultGameDir: instanceDir,
       launcherName: 'mc-launcher',
       launcherVersion: 'netcheck',
@@ -409,7 +412,7 @@ if (launch) {
       defaultState(launchEnv.defaultInstancesDir),
       registry
     )
-    const installations = new InstallationService(store, () => {})
+    const installations = new InstallationService(store, launchEnv, () => {})
     const instances = new InstanceService(store, launchEnv, installations, new SettingsService(store), () => {})
     const tasks = new TaskService(store, registry)
     const installer = new InstallService(launchEnv, tasks, installations, instances, () => {})
@@ -429,17 +432,25 @@ if (launch) {
     }
     if (installed.files < 100) throw new Error(`only ${installed.files} files were planned for ${versionId}`)
 
+    // The directory the version's own arguments point `java.library.path` and
+    // LWJGL's extraction path at. A version from 1.19 on declares no natives to
+    // unpack, and used to be installed without this directory — the game then
+    // died in LWJGL looking for its own library before it drew anything.
+    if (!existsSync(nativesDirFor(launchEnv.sharedDir, installed.targetId))) {
+      throw new Error(`${installed.targetId} was installed with no natives directory`)
+    }
+
     // What a launch sends when the machine has been tidied up: a jar deleted to
     // free space, an asset lost to a half-finished copy. The launcher is expected
     // to notice and put them back rather than fail.
-    const resolved = resolveVersionChain(instanceDir, installed.targetId)
+    const resolved = resolveVersionChain(launchEnv.sharedDir, installed.targetId)
     const clientJar = resolved.merged.clientJar
     if (!clientJar) throw new Error('the installed version has no client jar to delete')
     const assetIndex = resolved.merged.assetsIndex ?? 'legacy'
-    const assetDir = join(instanceDir, 'assets', 'objects')
+    const assetDir = join(launchEnv.sharedDir, 'assets', 'objects')
     const asset = assetSample(assetDir)
     rmSync(clientJar, { force: true })
-    rmSync(nativesDirFor(instanceDir, installed.targetId), { recursive: true, force: true })
+    rmSync(nativesDirFor(launchEnv.sharedDir, installed.targetId), { recursive: true, force: true })
     if (asset) rmSync(asset, { force: true })
 
     const completion = await installer.complete({ instanceId: instance.id })
@@ -466,7 +477,9 @@ if (launch) {
     let java: { path: string; major: number | null }
     try {
       java = await javaService.ensure({
-        instanceDir,
+        // The launcher passes its shared game folder, so one runtime serves
+        // every instance.
+        instanceDir: launchEnv.sharedDir,
         component: undefined,
         requiredMajor: resolved.merged.javaMajorVersion,
         onProgress: () => {}
@@ -478,6 +491,7 @@ if (launch) {
     }
     const plan = buildLaunchPlan({
       gameDir: instanceDir,
+      sharedDir: launchEnv.sharedDir,
       profile: {
         id: 'netcheck',
         name: 'Netcheck',

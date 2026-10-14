@@ -1,5 +1,29 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.16.0, one copy of the game, and a launch that says why it died
+
+- [x] **One shared game store.** `versions/`, `libraries/` and `assets/` moved into the launcher's
+      own folder (`<userData>/game`); an instance keeps only its mods, packs, worlds, options and
+      logs. A second instance on a version already downloaded installs with nothing to fetch, and an
+      imported version folder goes where every instance can play it.
+- [x] **Files already on disk are reused instead of downloaded.** Every other game directory is
+      searched before a fetch — hard link where the filesystem allows it, copy where it does not —
+      which also migrates an installation from before this change on its next launch. A file of the
+      wrong size is never a source; nothing is written back to a source directory.
+- [x] **Every modern version launches.** A version from 1.19 on declares no natives to unpack and
+      still needs its `natives` directory to exist, because its own arguments point
+      `java.library.path` and LWJGL's paths at it; without it the game died in LWJGL before drawing
+      anything. The directory is now made on install and repaired before a launch, and netcheck
+      asserts it. Verified live: 1.21.1 + Fabric 0.19.5 loads Minecraft and the loader.
+- [x] **A launch that fails says so on the Play page** — how long it ran, its exit code or signal,
+      the crash report's findings or the last of the game's own output, the log one click away, and a
+      dismiss. Read on exit, so the message is still there when the page is next opened.
+- [x] **File dialogs offer the extensions their importer accepts** — `.mrpack`/`.zip` for a pack,
+      `.jar` for a mod, `.zip` for packs and worlds, and no filter only for a Java binary. A path that
+      never arrived now names the operation instead of the runtime's path error, and a pack file with
+      the wrong extension is refused by name.
+- [x] Version bumped to `0.16.0` in `desktop/mc-launcher/package.json`, lockfile included.
+
 ## Desktop launcher — MC Launcher 0.15.0, downloads you can watch
 
 - [x] **A Downloads page** listing every task, running and finished, with percentage, elapsed time,

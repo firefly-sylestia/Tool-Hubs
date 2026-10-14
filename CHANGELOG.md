@@ -11,6 +11,53 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.16.0]
+
+One copy of the game is downloaded and every instance plays from it, a modern version no longer
+dies on the way up, a game that fails to start says so inside the app, and the file dialogs now
+offer the extensions their own importers accept.
+
+### Added
+- **One shared game store.** `versions/`, `libraries/` and `assets/` live in the launcher's own
+  folder (`<userData>/game`) rather than inside each instance, so a second instance on a version you
+  already have installs in seconds with nothing to download. An instance keeps only what is its own:
+  its mods, resource packs, shader packs, worlds, options and logs. A version folder that is imported
+  goes into the shared folder rather than into the instance, and the Versions card says what it is
+  listing and that a version already there costs nothing.
+- **Nothing the machine already has is downloaded again.** Before fetching, a file the shared folder
+  is missing is looked for in every other game directory — an instance imported from the official
+  launcher, a folder used in place, and the conventional `.minecraft` — and hard-linked, or copied
+  where linking is impossible. That is also how an installation made before this change moves over:
+  its files are adopted on the next install or launch rather than fetched again. A file of the wrong
+  size is never a source, because that is a half-finished download somewhere else, and nothing is
+  written back to the directory it came from.
+- **A game that does not start says why.** A version that fails on the way up exits seconds after the
+  launcher reports it running, and its own output goes to `logs/latest.log` rather than to the
+  window. The Play page now says how long it ran, what it exited with, the crash report's findings
+  or the last of its own output, and opens the log — instead of a status that quietly flips back to
+  Launch with nothing on screen. The outcome is read on exit, so it is there on the next launch too.
+- **File dialogs offer what they are for.** Each dialog says what it is choosing: a pack offers
+  `.mrpack` and `.zip`, a mod `.jar`, a resource pack and a shader pack `.zip`, a world `.zip`, and
+  only a Java binary gets no filter at all. "Everything" stays in the list behind each one.
+
+### Fixed
+- **Every version from 1.19 on launched and died at once.** A modern version json declares no natives
+  to unpack — they ship as ordinary jars on the classpath — so the installer never made the version's
+  `natives` directory, and the game's own arguments point `java.library.path`, JNA's temp directory
+  and LWJGL's extraction path at it. Those three substituted as an empty string, and LWJGL died with
+  "Failed to locate library: liblwjgl.so" before anything was drawn, which looked like a launcher
+  that said it was playing and did nothing. The directory is now made for every install, and the
+  repair before a launch puts one back for anyone already affected. Verified against the live
+  services: 1.21.1 with Fabric 0.19.5 installs, loads Minecraft and the loader, and stops only at the
+  GLFW display check this headless environment cannot pass.
+- **A path the renderer failed to send is named instead of throwing Node's own error.** Importing a
+  modpack, importing a folder or a world, and opening a path all reported the runtime's
+  `ERR_INVALID_ARG_TYPE` — "the path argument must be of type string" — which named neither the file
+  nor what wanted it. Each now says what was being done and that nothing was chosen.
+- **A pack that is not a pack is refused by name.** A `.rar`, a `.part` or anything else chosen for
+  a modpack import used to be read as an archive, which reported a corrupt zip. It now says a
+  Modrinth pack is a `.mrpack` and a CurseForge pack a `.zip`, before reading a byte.
+
 ## [MC Launcher 0.15.0]
 
 There is a Downloads page, an install says which file it is fetching and how many bytes have arrived,

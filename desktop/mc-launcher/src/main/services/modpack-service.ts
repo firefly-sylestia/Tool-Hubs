@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { basename, join, relative, sep } from 'node:path'
+import { basename, extname, join, relative, sep } from 'node:path'
 import type { ModpackImportResult, ModpackSummary, PackExportResult } from '@shared/types'
 import { downloadAll, type DownloadProgress } from '../minecraft/download'
 import {
@@ -33,6 +33,16 @@ import type { TaskService } from './task-service'
  * the pack's own files in place — downloading the ones it links to and
  * unpacking the ones it carries.
  */
+/**
+ * The two extensions a pack file can have.
+ *
+ * A Modrinth pack is a `.mrpack`, which is a zip with a `modrinth.index.json`
+ * inside. CurseForge has no extension of its own: its export is a plain `.zip`
+ * with a `manifest.json`. Both are read by what is inside them, so the extension
+ * is only ever a first answer to "is this the file you meant?".
+ */
+export const PACK_EXTENSIONS = ['.mrpack', '.zip']
+
 export class ModpackService {
   constructor(
     private readonly install: InstallService,
@@ -118,7 +128,22 @@ export class ModpackService {
   }
 
   private read(path: string): { plan: ModpackPlan; buffer: Buffer } {
-    if (!existsSync(path)) throw new Error(`${path} does not exist.`)
+    if (typeof path !== 'string' || path.trim() === '') {
+      throw new Error('Importing a modpack needs a file: choose a .mrpack or a .zip first.')
+    }
+    if (!existsSync(path)) {
+      throw new Error(`${path} is not there any more. Choose the pack again.`)
+    }
+    // Checked by name as well as by content, so choosing the wrong kind of file
+    // is answered before the archive is read: a pack is a `.mrpack` from
+    // Modrinth or a `.zip` from CurseForge, whatever it is called inside.
+    const extension = extname(path).toLowerCase()
+    if (!PACK_EXTENSIONS.includes(extension)) {
+      throw new Error(
+        `${basename(path)} is not a modpack file: a Modrinth pack is a \`.mrpack\` and a ` +
+          `CurseForge pack is a \`.zip\`. Choose one of those.`
+      )
+    }
     const buffer = readFileSync(path)
     const entries = listZipEntries(buffer)
     const names = entries.map((entry) => entry.name)
