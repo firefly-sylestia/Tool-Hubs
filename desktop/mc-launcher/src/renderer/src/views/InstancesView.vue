@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type {
   GameInstance,
   InstallLoader,
+  InstanceGameOptions,
   InstanceResources,
   LoaderOption,
   ModpackSummary,
@@ -13,6 +14,7 @@ import type {
   ResourceKind
 } from '@shared/types'
 import { useLauncher } from '@renderer/composables/useLauncher'
+import { parseJvmArgs } from '@shared/jvm-args'
 
 const {
   instances,
@@ -28,6 +30,8 @@ const {
   setResourceEnabled,
   addResources,
   removeResource,
+  gameOptions,
+  saveGameOptions,
   inspectModpack,
   importModpack,
   modrinthSearch,
@@ -108,6 +112,15 @@ const entryWarnings = computed(() =>
     (entry.metadata?.warnings ?? []).map((warning) => `${entry.title}: ${warning}`)
   )
 )
+/** The instance's own options.txt, and its JVM arguments. */
+const options = ref<InstanceGameOptions | null>(null)
+const optionForm = reactive<Record<string, string>>({})
+const jvmText = ref('')
+const savingOptions = ref(false)
+const extraKey = ref('')
+const extraValue = ref('')
+const showEveryOption = ref(false)
+
 const tabKindLabel = computed(
   () => tabKinds.find((kind) => kind.value === resourceTab.value)?.title ?? 'mods'
 )
@@ -268,6 +281,88 @@ async function install(): Promise<void> {
     // Reported in the snackbar.
   } finally {
     busy.value = false
+  }
+}
+
+async function loadOptions(): Promise<void> {
+  if (!selectedInstance.value) {
+    options.value = null
+    return
+  }
+  try {
+    const loaded = await gameOptions(selectedInstance.value.id)
+    options.value = loaded
+    for (const key of Object.keys(optionForm)) delete optionForm[key]
+    for (const field of loaded.fields) optionForm[field.key] = loaded.quick[field.key] ?? ''
+    jvmText.value = loaded.jvmArgs.join('\n')
+  } catch {
+    // Reported in the snackbar.
+  }
+}
+
+async function saveOptions(): Promise<void> {
+  const instance = selectedInstance.value
+  if (!instance) return
+  savingOptions.value = true
+  try {
+    // Only what actually changed is written, and a cleared field removes its
+    // key so the game falls back to its own default.
+    const changes: Record<string, string | null> = {}
+    for (const field of options.value?.fields ?? []) {
+      const next = (optionForm[field.key] ?? '').trim()
+      const before = options.value?.quick[field.key] ?? ''
+      if (next === before) continue
+      changes[field.key] = next === '' ? null : next
+    }
+
+    const saved = await saveGameOptions({
+      instanceId: instance.id,
+      changes,
+      jvmArgs: parseJvmArgs(jvmText.value)
+    })
+    options.value = saved
+    jvmText.value = saved.jvmArgs.join('\n')
+    report(
+      Object.keys(changes).length > 0
+        ? `Saved ${Object.keys(changes).length} option(s) and the JVM arguments for ${instance.name}.`
+        : `Saved the JVM arguments for ${instance.name}.`,
+      'success'
+    )
+  } catch {
+    // Reported in the snackbar.
+  } finally {
+    savingOptions.value = false
+  }
+}
+
+/** Sets one arbitrary key, which is how a less common option is changed. */
+async function setExtraOption(): Promise<void> {
+  const instance = selectedInstance.value
+  const key = extraKey.value.trim()
+  if (!instance || key === '') return
+  try {
+    options.value = await saveGameOptions({
+      instanceId: instance.id,
+      changes: { [key]: extraValue.value.trim() === '' ? null : extraValue.value.trim() }
+    })
+    optionForm[key] = options.value.quick[key] ?? extraValue.value.trim()
+    extraKey.value = ''
+    extraValue.value = ''
+    report(`Set ${key} in options.txt.`, 'success')
+  } catch {
+    // Reported in the snackbar.
+  }
+}
+
+async function removeOption(key: string): Promise<void> {
+  const instance = selectedInstance.value
+  if (!instance) return
+  try {
+    options.value = await saveGameOptions({ instanceId: instance.id, changes: { [key]: null } })
+    optionForm[key] = ''
+    report(`Removed ${key}; the game will use its own default.`, 'success')
+  } catch {
+    // Reported in the snackbar.
   }
 }
 
@@ -456,11 +551,13 @@ watch(
   () => selectedInstance.value?.id ?? null,
   () => {
     void loadResources()
+    void loadOptions()
   }
 )
 
 onMounted(async () => {
   await loadResources()
+  await loadOptions()
   await loadVersions()
 })
 </script>
@@ -648,6 +745,96 @@ onMounted(async () => {
         </v-card-text>
         <v-card-actions>
           <v-btn variant="text" :disabled="!selectedInstance" @click="rescan()">Rescan</v-btn>
+        </v-card-actions>
+      </v-card>
+
+      <v-card class="mt-4">
+        <v-card-title>Game and java options</v-card-title>
+        <v-card-text>
+          <p v-if="!selectedInstance" class="text-medium-emphasis">
+            Select an instance first.
+          </p>
+          <template v-else>
+            <p class="text-medium-emphasis">
+              These are this instance's own <code>options.txt</code> — the file the game writes in
+              {{ selectedInstance.dir }}. Only what you change is written, and every other line is
+              kept exactly where it was.
+            </p>
+            <v-alert v-if="options && !options.exists" type="info" variant="tonal" class="mb-4">
+              The game has not written its options yet. What you set here is used the first time you
+              play.
+            </v-alert>
+
+            <v-row v-for="field in options?.fields ?? []" :key="field.key" dense>
+              <v-col cols="12" sm="7">
+                <v-select
+                  v-if="field.choices"
+                  v-model="optionForm[field.key]"
+                  :items="['', ...field.choices]"
+                  :label="field.label"
+                  density="compact"
+                  hide-details
+                />
+                <v-text-field
+                  v-else
+                  v-model="optionForm[field.key]"
+                  :label="field.label"
+                  type="number"
+                  density="compact"
+                  hide-details
+                />
+              </v-col>
+              <v-col cols="12" sm="5" class="text-medium-emphasis text-body-2 align-self-center">
+                {{ field.key }}
+                <span v-if="optionForm[field.key] === ''"> · game default</span>
+              </v-col>
+            </v-row>
+
+            <v-textarea
+              v-model="jvmText"
+              label="Extra JVM arguments"
+              rows="3"
+              class="mt-4"
+              hint="One per line, e.g. -XX:+UseG1GC. Memory is set in Settings."
+              persistent-hint
+            />
+
+            <v-divider class="my-4" />
+            <p class="text-medium-emphasis mb-2">
+              Any other option can be set by key. Clearing the value removes the key, which hands it
+              back to the game's own default.
+            </p>
+            <div class="d-flex ga-2 align-center">
+              <v-text-field v-model="extraKey" label="Option key" density="compact" hide-details />
+              <v-text-field v-model="extraValue" label="Value" density="compact" hide-details />
+              <v-btn :disabled="extraKey.trim() === ''" @click="setExtraOption">Set</v-btn>
+            </div>
+
+            <v-btn variant="text" class="mt-4" @click="showEveryOption = !showEveryOption">
+              {{ showEveryOption ? 'Hide' : 'Show' }} every option in the file
+            </v-btn>
+            <v-list v-if="showEveryOption" density="compact" class="mt-2 options-list">
+              <v-list-item
+                v-for="entry in options?.entries ?? []"
+                :key="entry.key"
+                :title="`${entry.key}: ${entry.value}`"
+              >
+                <template #append>
+                  <v-btn size="small" variant="text" @click="removeOption(entry.key)">Remove</v-btn>
+                </template>
+              </v-list-item>
+            </v-list>
+          </template>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn
+            color="primary"
+            :disabled="!selectedInstance || savingOptions"
+            :loading="savingOptions"
+            @click="saveOptions"
+          >
+            Save options
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-col>

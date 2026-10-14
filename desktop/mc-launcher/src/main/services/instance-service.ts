@@ -1,15 +1,33 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
 import { basename, isAbsolute, join, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
   GameInstance,
   InstallLoader,
+  InstanceGameOptions,
   InstanceImportResult,
   InstanceResources,
   ResourceEntry,
   ResourceKind,
   ResourceMetadata
 } from '@shared/types'
+import {
+  OPTIONS_FILE,
+  QUICK_OPTIONS,
+  parseOptions,
+  patchOptions,
+  quickOptionValues
+} from '../minecraft/options'
 import { modWarnings, readModMetadataFromFile, type ModMetadata } from '../minecraft/mod-metadata'
 import { matchesVersionRange } from '../minecraft/modrinth'
 import {
@@ -134,7 +152,8 @@ export class InstanceService {
       loader: input.loader ?? null,
       loaderVersion: input.loaderVersion ?? null,
       createdAt: new Date().toISOString(),
-      lastPlayedAt: null
+      lastPlayedAt: null,
+      jvmArgs: []
     }
 
     mkdirSync(instance.dir, { recursive: true })
@@ -148,7 +167,10 @@ export class InstanceService {
     return instance
   }
 
-  update(id: string, patch: Partial<Pick<GameInstance, 'name' | 'versionId' | 'loader' | 'loaderVersion'>>): GameInstance {
+  update(
+    id: string,
+    patch: Partial<Pick<GameInstance, 'name' | 'versionId' | 'loader' | 'loaderVersion' | 'jvmArgs'>>
+  ): GameInstance {
     const name = patch.name === undefined ? undefined : assertName(patch.name)
     const updated = this.state.update((state) => {
       const instance = state.instances.find((candidate) => candidate.id === id)
@@ -163,6 +185,7 @@ export class InstanceService {
       if (patch.versionId !== undefined) instance.versionId = patch.versionId
       if (patch.loader !== undefined) instance.loader = patch.loader
       if (patch.loaderVersion !== undefined) instance.loaderVersion = patch.loaderVersion
+      if (patch.jvmArgs !== undefined) instance.jvmArgs = patch.jvmArgs.filter((arg) => arg.trim() !== '')
     })
     return updated.instances.find((instance) => instance.id === id)!
   }
@@ -316,6 +339,58 @@ export class InstanceService {
         warnings
       } satisfies ResourceMetadata
     }
+  }
+
+  /**
+   * The instance's own game options, from its `options.txt`.
+   *
+   * Every instance has a game directory, so every instance has its own
+   * options.txt — the game writes it on exit. This reads it as it is; a key the
+   * launcher has never heard of is listed too, because it is the game's file.
+   */
+  gameOptions(instanceId?: string | null): InstanceGameOptions {
+    const instance = this.require(instanceId)
+    const path = join(instance.dir, OPTIONS_FILE)
+    const exists = existsSync(path)
+    const contents = exists ? readFileSync(path, 'utf8') : ''
+    return {
+      instanceId: instance.id,
+      instanceDir: instance.dir,
+      path,
+      exists,
+      entries: parseOptions(contents).entries,
+      fields: QUICK_OPTIONS,
+      quick: quickOptionValues(contents),
+      jvmArgs: instance.jvmArgs
+    }
+  }
+
+  /**
+   * Sets or removes options, and this instance's JVM arguments.
+   *
+   * The file is patched rather than rewritten, so keys this launcher does not
+   * know about survive — which is the only way a settings file that the game
+   * itself rewrites can be edited safely from outside.
+   */
+  setGameOptions(input: {
+    instanceId?: string | null
+    /** Values to set; null removes the key and lets the game use its default. */
+    changes?: Record<string, string | null>
+    jvmArgs?: string[]
+  }): InstanceGameOptions {
+    const instance = this.require(input.instanceId)
+    const path = join(instance.dir, OPTIONS_FILE)
+    const changes = input.changes ?? {}
+
+    if (Object.keys(changes).length > 0) {
+      const existing = existsSync(path) ? readFileSync(path, 'utf8') : ''
+      mkdirSync(instance.dir, { recursive: true })
+      writeFileSync(path, patchOptions(existing, changes), 'utf8')
+    }
+    if (input.jvmArgs !== undefined) {
+      this.update(instance.id, { jvmArgs: input.jvmArgs })
+    }
+    return this.gameOptions(instance.id)
   }
 
   removeResource(input: { instanceId?: string | null; kind: ResourceKind; name: string }): InstanceResources {

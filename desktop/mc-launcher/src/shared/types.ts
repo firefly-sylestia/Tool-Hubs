@@ -35,6 +35,38 @@ export interface GameInstance {
   loaderVersion: string | null
   createdAt: string
   lastPlayedAt: string | null
+  /** Extra JVM arguments for this instance, on top of the version json's and the global settings'. */
+  jvmArgs: string[]
+}
+
+/** One `key:value` line of the game's own options.txt. */
+export interface GameOptionEntry {
+  key: string
+  value: string
+}
+
+/** An option the launcher offers directly, with what it expects. */
+export interface GameOptionField {
+  key: string
+  label: string
+  /** Fixed values, shown as a select. */
+  choices?: string[]
+  numeric?: boolean
+}
+
+/** An instance's game options, as read from its own options.txt. */
+export interface InstanceGameOptions {
+  instanceId: string
+  instanceDir: string
+  path: string
+  /** True when the game has written the file at least once. */
+  exists: boolean
+  entries: GameOptionEntry[]
+  /** The options the UI offers directly, and their current values. */
+  fields: GameOptionField[]
+  quick: Record<string, string>
+  /** Extra JVM arguments for this instance. */
+  jvmArgs: string[]
 }
 
 /** The three folders a launcher manages as resources. Saves belong to the game. */

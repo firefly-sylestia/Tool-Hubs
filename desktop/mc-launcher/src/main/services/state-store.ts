@@ -62,10 +62,16 @@ export function migrateState(
         loader: null,
         loaderVersion: null,
         createdAt: new Date().toISOString(),
-        lastPlayedAt: null
+        lastPlayedAt: null,
+        jvmArgs: []
       }
     ]
     next.selectedInstanceId = next.instances[0].id
+  }
+
+  // An instance from before per-instance JVM arguments simply has none.
+  for (const instance of next.instances) {
+    if (!Array.isArray(instance.jvmArgs)) instance.jvmArgs = []
   }
 
   // The old fields are gone from the types; drop them so a rewritten state file

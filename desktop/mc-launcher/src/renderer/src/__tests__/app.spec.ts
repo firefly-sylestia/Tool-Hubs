@@ -48,7 +48,8 @@ const steveState: LauncherState = {
       loader: null,
       loaderVersion: null,
       createdAt: '2026-10-13T00:00:00.000Z',
-      lastPlayedAt: null
+      lastPlayedAt: null,
+      jvmArgs: []
     }
   ],
   selectedInstanceId: 'i1',

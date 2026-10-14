@@ -70,6 +70,8 @@ import {
   selectJava
 } from '../src/main/minecraft/java'
 import { splitResourceName, resourceFileName, isResourceFile } from '../src/main/minecraft/resources'
+import { optionValue, parseOptions, patchOptions, quickOptionValues } from '../src/main/minecraft/options'
+import { formatJvmArgs, parseJvmArgs } from '../src/shared/jvm-args'
 import { AtomicJsonStore } from '../src/main/services/atomic-store'
 import { InstanceService, slugFor } from '../src/main/services/instance-service'
 import { InstallationService } from '../src/main/services/installation-service'
@@ -455,6 +457,59 @@ check('fails with an actionable message when natives are missing', () => {
   )
 })
 
+console.log('\ngame options')
+{
+  check('patches options.txt without disturbing it', () => {
+    const contents = ['version:4325', 'fullscreen:false', 'fov:0.0', 'lang:en_us', ''].join('\n')
+    const patched = patchOptions(contents, { fullscreen: 'true', renderDistance: '16' })
+    expectEqual(
+      patched,
+      'version:4325\nfullscreen:true\nfov:0.0\nlang:en_us\nrenderDistance:16\n',
+      'the changed key stays where it was, the new one is appended'
+    )
+    expectEqual(patchOptions(contents, { fov: null }), 'version:4325\nfullscreen:false\nlang:en_us\n', 'removing a key')
+    expectEqual(
+      patchOptions(contents, {}),
+      contents,
+      'no changes, no rewrite beyond the trailing newline'
+    )
+  })
+
+  check('reads options back, including keys it has never heard of', () => {
+    const { entries } = parseOptions('fullscreen:true\nmadeUpKey:42\n\n# a comment\nbroken-line\n')
+    expectEqual(
+      entries.map((entry) => entry.key),
+      ['fullscreen', 'madeUpKey'],
+      'comments and lines without a colon are not options'
+    )
+    expectEqual(optionValue('guiScale:3\n', 'guiScale'), '3', 'value lookup')
+    expectEqual(optionValue('guiScale:3\n', 'fov'), null, 'a key that is not there')
+    expectEqual(
+      quickOptionValues('fullscreen:true\nfov:70.0\n').fullscreen,
+      'true',
+      'the quick fields are read out of the file'
+    )
+    expectEqual(
+      Object.keys(quickOptionValues('fullscreen:true\n')).length,
+      1,
+      'only the keys the file has'
+    )
+  })
+
+  check('splits JVM arguments the way a shell would', () => {
+    expectEqual(parseJvmArgs('-XX:+UseG1GC -Xms2G'), ['-XX:+UseG1GC', '-Xms2G'], 'plain')
+    expectEqual(
+      parseJvmArgs('-Dsome.option="hello world" -Xss4M'),
+      ['-Dsome.option=hello world', '-Xss4M'],
+      'a quoted value stays one argument'
+    )
+    expectEqual(parseJvmArgs('  \n -Xmx4G \n\n'), ['-Xmx4G'], 'whitespace and blank lines')
+    expectEqual(parseJvmArgs(''), [], 'nothing at all')
+    expectEqual(formatJvmArgs(['-Dopt=a b', '-Xmx4G']), '"-Dopt=a b"\n-Xmx4G', 'and back again, quoted')
+  })
+
+}
+
 console.log('\nlog plumbing')
 {
   const seen: string[] = []
@@ -587,6 +642,36 @@ check('names what each mod really is, and flags the ones that will not load', ()
 
   const plain = entries.find((entry) => entry.name === 'sodium.jar')!
   expectEqual(plain.metadata, null, 'a file with no metadata is still listed, with none')
+})
+
+check('an instance can set its own options and JVM arguments', () => {
+  const second = instances.create({ name: 'Options test', dir: join(root, 'options-instance') })
+  const before = instances.gameOptions(second.id)
+  expectEqual(before.exists, false, 'the game has not written it yet')
+  expectEqual(before.jvmArgs, [], 'and there are no JVM arguments')
+
+  const saved = instances.setGameOptions({
+    instanceId: second.id,
+    changes: { fullscreen: 'true', renderDistance: '16' },
+    jvmArgs: ['-XX:+UseG1GC']
+  })
+  expectEqual(saved.exists, true, 'the file is written')
+  expectEqual(saved.quick.fullscreen, 'true', 'the value is there')
+  expectEqual(
+    instances.list().find((entry) => entry.id === second.id)?.jvmArgs,
+    ['-XX:+UseG1GC'],
+    'arguments kept'
+  )
+  expectEqual(
+    readFileSync(join(root, 'options-instance', 'options.txt'), 'utf8'),
+    'fullscreen:true\nrenderDistance:16\n',
+    'what actually landed in the file'
+  )
+
+  const cleared = instances.setGameOptions({ instanceId: second.id, changes: { fullscreen: null } })
+  expectEqual(cleared.quick.fullscreen, undefined, 'a removed key is gone')
+  expectEqual(cleared.entries.map((entry) => entry.key), ['renderDistance'], 'and the rest stayed')
+  instances.remove(second.id)
 })
 
 console.log('\nmod metadata')

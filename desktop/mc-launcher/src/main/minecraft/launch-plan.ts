@@ -29,6 +29,12 @@ export interface LaunchPlanInput {
    * have not looked for a runtime themselves.
    */
   javaPath?: string | null
+  /**
+   * Extra JVM arguments for this instance, from its own settings. They are
+   * added after the version json's arguments and before the memory limit, so an
+   * explicit memory setting still wins.
+   */
+  extraJvmArgs?: string[]
 }
 
 /**
@@ -137,8 +143,11 @@ export function buildLaunchPlan(input: LaunchPlanInput): LaunchPlan {
   if (useNativesDir && !hasLibraryPath) {
     resolvedJvmArgs.push(`-Djava.library.path=${useNativesDir}`)
   }
+  for (const extra of input.extraJvmArgs ?? []) {
+    if (extra.trim() !== '') resolvedJvmArgs.push(extra.trim())
+  }
   // Appended last so an explicit setting wins over a value baked into the
-  // version json.
+  // version json, and over this instance's own arguments.
   resolvedJvmArgs.push(`-Xmx${settings.maxMemoryMb}m`)
   if (!hasClasspathFlag) {
     resolvedJvmArgs.push('-cp', values.classpath)

@@ -71,7 +71,8 @@ export class LaunchService {
       ctx: ruleContextFor(this.env.platform, this.env.arch),
       launcherName: this.env.launcherName,
       launcherVersion: this.env.launcherVersion,
-      javaPath: java.path
+      javaPath: java.path,
+      extraJvmArgs: instance.jvmArgs ?? []
     })
   }
 

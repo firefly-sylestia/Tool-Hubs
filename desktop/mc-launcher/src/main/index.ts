@@ -148,6 +148,12 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
       })
     },
     removeResource: (params) => instances.removeResource(resourceInput(params)),
+    gameOptions: (params) =>
+      instances.gameOptions(as<{ instanceId?: string | null } | undefined>(params)?.instanceId),
+    setGameOptions: (params) =>
+      instances.setGameOptions(
+        as<{ instanceId?: string | null; changes?: Record<string, string | null>; jvmArgs?: string[] }>(params)
+      ),
     addResources: (params) => {
       const input = as<{ instanceId?: string | null; kind: ResourceKind; paths: string[] }>(params)
       return instances.addResources({ instanceId: input.instanceId, kind: input.kind, paths: input.paths })

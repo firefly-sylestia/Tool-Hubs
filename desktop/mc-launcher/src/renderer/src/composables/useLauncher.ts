@@ -1,6 +1,7 @@
 import { computed, ref, shallowRef } from 'vue'
 import type {
   GameInstance,
+  InstanceGameOptions,
   InstallRequest,
   InstallResult,
   InstanceImportResult,
@@ -142,6 +143,14 @@ export function useLauncher() {
       call<{ added: string[]; skipped: string[]; resources: InstanceResources }>('instance', 'addResources', input),
     removeResource: (input: { instanceId?: string | null; kind: ResourceKind; name: string }) =>
       call<InstanceResources>('instance', 'removeResource', input),
+
+    gameOptions: (instanceId?: string | null) =>
+      call<InstanceGameOptions>('instance', 'gameOptions', instanceId ? { instanceId } : undefined),
+    saveGameOptions: (input: {
+      instanceId?: string | null
+      changes?: Record<string, string | null>
+      jvmArgs?: string[]
+    }) => call<InstanceGameOptions>('instance', 'setGameOptions', input),
 
     inspectModpack: (path: string) => call<ModpackSummary>('modpack', 'inspect', { path }),
     importModpack: (path: string) => call<ModpackImportResult>('modpack', 'import', { path }),
