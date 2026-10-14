@@ -1,5 +1,16 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.11.0, the shell XMCL's interface has
+
+- [x] The launch pill: the play control set into its leading edge, spinning once when clicked, the
+      instance actions set into its trailing edge with an icon that turns as the menu opens, and a lift
+      on hover.
+- [x] Motion in one stylesheet, XMCL's behaviours brought over: cards transition their border towards the
+      primary colour on hover instead of jumping to an elevation, list rows tint, rows arrive staggered,
+      a page fades up as it loads, and the app sits on a drifting grid with a slow light sweep.
+- [x] Icons in the navigation, and `prefers-reduced-motion` turning every animation off.
+- [x] Version bumped to `0.11.0` in `desktop/mc-launcher/package.json`, lockfile included.
+
 ## Desktop launcher — MC Launcher 0.10.0, servers that the game can see too
 
 - [x] A server list ping the way the game does it — handshake, status request, one JSON response —

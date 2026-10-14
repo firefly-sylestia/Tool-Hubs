@@ -11,6 +11,26 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.11.0]
+
+The launcher worked, but it looked like a form. This is the shell XMCL's interface has, brought over:
+the app sits on a background that moves, pages arrive instead of appearing, and the way to start the
+game is the pill with the play control set into it.
+
+### Added
+- **The launch pill.** A rounded button with the play control set into its leading edge and the instance
+  actions set into its trailing edge; hovering lifts it, and the play icon spins once when it is
+  clicked — the only sign a launch started before a window appears. The settings icon turns as its menu
+  opens.
+- **Motion throughout**, in one stylesheet with the reasoning next to it: cards transition their border
+  towards the theme's primary colour on hover rather than jumping to an elevation, list rows tint, rows
+  arrive one after another rather than all at once, and a page fades up as it loads.
+- **A background that moves**: a drifting grid and a slow sweep of the primary colour over the surface
+  colour, drawn in CSS rather than shipped as an asset.
+- **Icons in the navigation**, so each page is recognisable at a glance.
+- **`prefers-reduced-motion` turns all of it off.** The animations are decoration; someone who asked
+  their system for less motion should get less motion.
+
 ## [MC Launcher 0.10.0]
 
 The server list was a private list next to the game's own: a server added while playing was invisible to

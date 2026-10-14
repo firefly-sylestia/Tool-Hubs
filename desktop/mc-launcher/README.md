@@ -27,6 +27,12 @@ snapshot state protocol, and a launch pipeline built from the version json.
   a download that is interrupted keeps its `.part` file and resumes with a range
   request next time, and a hash mismatch keeps the bytes and fails loudly instead
   of leaving a corrupt jar behind a working-looking install.
+- **An interface that moves, the way XMCL's does.** The launch pill has the play
+  control set into it and spins it once when clicked; pages fade up as they
+  arrive; cards transition their border towards the primary colour on hover
+  instead of jumping to an elevation; rows arrive one after another; and the app
+  sits on a background of a drifting grid and a slow light sweep, all drawn in
+  CSS. `prefers-reduced-motion` turns every one of those off.
 - **Servers: pinged, and shared with the game.** A server in the list is pinged the
   way the game's own multiplayer screen does it — handshake, status request, one
   JSON answer — so the list shows its version, player count, round trip, icon and
