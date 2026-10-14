@@ -81,11 +81,15 @@ snapshot state protocol, and a launch pipeline built from the version json.
   answers Mojang's runtime is downloaded for the version — including for versions
   old enough that their json names no runtime at all, which are matched by the
   Java their release needs rather than by whatever the machine happens to have.
-- **Instances.** An instance is one game directory with its own version,
-  loader, `mods/`, `resourcepacks/` and `shaderpacks/`. Create one (the folder
-  name is derived from its name and cannot collide), select it, install a
-  version into it. A profile is only an identity, so several profiles can play
-  one instance and one profile can play any instance.
+- **Instances, one at a time.** An instance is one game directory with its own
+  version, loader, `mods/`, `resourcepacks/` and `shaderpacks/`. The page leads
+  with the instance itself — its state, its version, its loader and its folder —
+  and the actions that change it (create, import a folder, import a pack, export
+  a pack, remove). Everything else is a tab: installing and listing versions,
+  mods and packs, worlds and backups, and game and Java options, so one screen
+  holds one subject instead of a paragraph standing next to a control. A profile
+  is only an identity, so several profiles can play one instance and one profile
+  can play any instance.
 - **Mods, resource packs and shader packs, per instance.** Each folder lists
   what is in it and what the game will load — a mod may be a `.jar` or `.zip`, a
   resource pack or shader pack must be a zip. Turning one off renames it to

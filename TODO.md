@@ -1,5 +1,16 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.13.1, one instance at a time
+
+- [x] **The Instances page is tabs instead of four stacked cards in two columns**: a header with the
+      instance, its state and every action that changes it, then Version (install a version and the
+      versions it holds), Mods and packs, Worlds, and Options.
+- [x] The header states the instance in the words the Play page uses (Ready to play, Needs a version,
+      No instance) with its version, loader, source and folder beside it.
+- [x] The Add from Modrinth dialog lists the catalogue on open rather than waiting for a search word,
+      with a loading spinner and the icon of the kind being added on each row.
+- [x] Version bumped to `0.13.1` in `desktop/mc-launcher/package.json`, lockfile included.
+
 ## Desktop launcher — MC Launcher 0.13.0, an instance as a modpack, and an interface that says what it is doing
 
 - [x] **Export as a modpack.** The selected instance writes out as a self-contained `.mrpack`: its mods,

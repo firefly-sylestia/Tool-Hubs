@@ -11,6 +11,22 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.13.1]
+
+The Instances page was four cards deep, two to a column, each one a paragraph standing next to a
+control. It is now one instance at a time: a header that says what the instance is and carries the
+actions that change it, and tabs behind it for the rest.
+
+### Changed
+- **The Instances page is tabs rather than a wall.** Version (install a version, and the versions the
+instance already holds), Mods and packs, Worlds, and Options are each a screen of their own, so a
+control is no longer competing with two paragraphs for the same column.
+- **The instance header shows its state**, in the same words the Play page uses (Ready to play, Needs a
+version, No instance), with its version, loader, source and folder beside it instead of as two loose
+lines of text.
+- **The Add from Modrinth dialog opens on the catalogue too**, the way the store does, rather than
+waiting for a search word, and its rows carry the icon of the kind being added.
+
 ## [MC Launcher 0.13.0]
 
 An instance can leave the launcher as a modpack someone else can install, the store opens on the
