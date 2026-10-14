@@ -1,6 +1,6 @@
 {
   "name": "mc-launcher",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Offline-only Minecraft launcher: instances with their own version, mods, resource packs and shader packs, modpack import, and offline-mode servers.",
   "license": "MIT",
   "author": {
