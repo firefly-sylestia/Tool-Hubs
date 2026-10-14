@@ -1,3 +1,9 @@
+# This build produces installers for a person to download; it never publishes anything, and
+# `publish: null` is the setting that says so. It matters: a GitHub token in the environment is
+# enough for electron-builder to pick GitHub as the publisher, and a resolution that comes back
+# empty then crashes the build while it writes update metadata. Declaring no publisher means that
+# path is never taken, and no update files are written for a launcher that has no updater.
+publish: null
 appId: app.mclauncher.desktop
 productName: MC Launcher
 directories:
@@ -13,6 +19,9 @@ linux:
     - AppImage
     - deb
   category: Game
+  # A .deb records a maintainer, and electron-builder will not build one without it. This is the
+  # repository owner's own commit identity rather than an invented contact address.
+  maintainer: Mohammad Abdul Qadir Khan <khanquadir19@gmail.com>
 win:
   target:
     - nsis

@@ -88,11 +88,12 @@ jobs:
         run: npm run build
 
       - name: Package the installer for this platform
-        # `--publish never`: a build artifact, never a publish. The token is only there because
-        # electron-builder inspects the repository to decide whether it could publish at all.
+        # `--publish never`, and no token in the environment to imply otherwise. A GITHUB_TOKEN here
+        # is what made the first run of this job crash after the installer had been built: it is
+        # enough for electron-builder to treat the build as a publish, and a publisher it then
+        # cannot resolve takes the build down with it. The `publish: null` in electron-builder.yml
+        # says the same thing, so neither change depends on the other alone.
         run: npx electron-builder --publish never
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload the installers
         # Same rule as the Android workflow: the build is what this workflow is for and the artifact

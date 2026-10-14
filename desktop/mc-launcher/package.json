@@ -1,8 +1,17 @@
 {
   "name": "mc-launcher",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Offline-only Minecraft launcher: local profiles, an existing game installation, and offline-mode servers.",
   "license": "MIT",
+  "author": {
+    "name": "Mohammad Abdul Qadir Khan",
+    "email": "khanquadir19@gmail.com"
+  },
+  "homepage": "https://github.com/firefly-sylestia/Tool-Hubs/tree/main/desktop/mc-launcher",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/firefly-sylestia/Tool-Hubs.git"
+  },
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {

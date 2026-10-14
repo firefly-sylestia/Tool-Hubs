@@ -11,12 +11,13 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
-## [MC Launcher 0.1.0]
+## [MC Launcher 0.1.1]
 
 The desktop launcher now lives in this repository, under
 [`desktop/mc-launcher`](desktop/mc-launcher). It is a second toolchain — Electron, Vue 3, Vuetify and
 TypeScript, built with Node — so it is deliberately not a Gradle module and nothing in `settings.gradle.kts`
-or the Android build refers to it.
+or the Android build refers to it. `0.1.1` is the first version of it published from here, and the first
+whose installers a run can actually produce.
 
 ### Added
 - The launcher itself, imported whole: the main-process service layer behind one generic RPC channel,
@@ -27,6 +28,15 @@ and the Play / Installed versions / Servers / Settings / Logs interface.
 packages installers on Ubuntu, Windows and macOS, but only for commits that touch `desktop/` — so the
 Kotlin modules never pay for a Node build, and the Windows `.exe`, `.dmg`, `.deb` and `.AppImage` are
 available as run artifacts.
+
+### Fixed
+- Packaging no longer fails after the installer has been built. Three separate causes, all found by the
+first CI run: a `GITHUB_TOKEN` in the packaging environment is enough for electron-builder to treat the
+build as a publish, and the publisher it then resolves to `null` crashed the build while writing update
+metadata — the token is gone and `publish: null` in `electron-builder.yml` states outright that this
+build publishes nothing. The `.deb` target also needs a homepage and a maintainer, which the package
+now carries; the `.exe` and `.dmg` had been built successfully before the crash, but the failed job threw
+the artifacts away.
 
 ### Notes
 - The Android modules are untouched by this: no `core/*` or `tools/*` source, token or version changed.

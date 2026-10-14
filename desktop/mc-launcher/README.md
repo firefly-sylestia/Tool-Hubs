@@ -47,7 +47,7 @@ This app is part of the [Tool-Hubs](../../README.md) repository, at
 Android build never touches it and it never touches `core/` or `tools/`.
 
 Its version is its own, in [`package.json`](package.json), and moves
-independently of Chime and Network Switcher. `0.1.0` is its first version here.
+independently of Chime and Network Switcher. `0.1.1` is its first version here.
 
 ## Requirements
 
