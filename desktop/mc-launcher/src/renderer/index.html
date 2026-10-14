@@ -3,9 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      The renderer talks to nothing but its own main process, so `connect-src`
+      stays at 'self' and every request goes through a service call. The one
+      exception is Modrinth's image CDN: project icons and gallery images are
+      served from there and are `<img src>` rather than a fetch, so without it
+      every project in the store gets a placeholder.
+    -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.modrinth.com; connect-src 'self'"
     />
     <title>MC Launcher</title>
   </head>

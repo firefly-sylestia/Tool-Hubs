@@ -11,6 +11,16 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.14.1]
+
+The store's project icons were being blocked by the page's own content security policy.
+
+### Fixed
+- **Project icons and gallery images load.** The renderer's policy allowed images from the app itself
+  and `data:` only, so every icon Modrinth serves from its CDN was refused and each result fell back to
+  its placeholder. The CDN is now the one exception; the renderer still talks to nothing but its own
+  main process, which is why `connect-src` is untouched.
+
 ## [MC Launcher 0.14.0]
 
 Mods now match the Minecraft version an instance actually plays, Java and memory belong to the

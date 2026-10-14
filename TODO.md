@@ -1,5 +1,13 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.14.1, icons that were blocked by the page's own policy
+
+- [x] **Modrinth's image CDN is allowed in the renderer's content security policy.** The policy allowed
+      `'self'` and `data:` images only, so every project icon the store listed was refused and replaced
+      with the placeholder. `connect-src` is unchanged: the renderer still reaches nothing but its own
+      main process.
+- [x] Version bumped to `0.14.1` in `desktop/mc-launcher/package.json`, lockfile included.
+
 ## Desktop launcher — MC Launcher 0.14.0, the right game version, and one Java per instance
 
 - [x] **The store asks Modrinth for the game version an instance actually plays.** A loader plays a
