@@ -11,6 +11,40 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [MC Launcher 0.4.0]
+
+Adding a mod is what a launcher is for, and until now it meant downloading a jar in a browser and
+moving it into a folder by hand. Modrinth is a public API — no key, no account — so the launcher can do
+it properly: pick from what fits the instance, check every file against the publisher's hash, and bring
+the required dependencies with it.
+
+### Added
+- **Search and install from Modrinth.** Mods, resource packs and shader packs, filtered by the selected
+instance's game version and loader — a Quilt instance is offered Fabric mods as well, because Quilt runs
+them. Every file is downloaded through the same verified, resumable downloader the game files use, so a
+mod is checked against the sha1/sha512 Modrinth published instead of trusted because it arrived. The
+version list shows each version's game versions and loaders, and the newest release that fits is offered
+first, with betas labelled as betas.
+- **Required dependencies come with it.** A mod that needs Fabric API or an API library is the most
+common way a modded launch fails, so required dependencies are followed up to three levels deep and
+installed into the same folder. A dependency with no version for this instance is named in a warning
+instead of being installed for a different game version, and a project's own optional and embedded
+dependencies are left alone.
+- **Jars are read, so the list says what a mod really is.** Each mod's own metadata is read out of the
+jar — `fabric.mod.json`, `quilt.mod.json`, `META-INF/mods.toml`, `META-INF/neoforge.mods.toml` and the
+legacy `mcmod.info` — and shown as its real name, version and loader instead of the file name someone
+chose. Nothing is executed and nothing is extracted; only the metadata file is read.
+- **Problems are flagged before a launch fails.** A Forge or NeoForge mod in a Fabric instance, a mod
+that asks for a Minecraft version this instance is not on, a second copy of the same mod id: each is
+said in the folder listing, where it can be fixed. A range the launcher cannot read produces no warning
+at all — a wrong warning about someone's mod is worse than none.
+
+### Fixed
+- **`/project/<id>/versions` does not exist.** Modrinth's list endpoint is `/project/<id>/version`;
+the wrong one is a 404, and it was found by `npm run netcheck` calling the real API rather than by
+reading the documentation. Reading a mod's metadata was checked the same way: netcheck downloads a real
+Sodium build and reads "Sodium" back out of the jar.
+
 ## [MC Launcher 0.3.0]
 
 An instance is now the unit of play, and it owns its own mods, resource packs and shader packs. Before

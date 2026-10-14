@@ -1,5 +1,37 @@
 # Tool Hubs delivery checklist
 
+## Desktop launcher — MC Launcher 0.4.0, install mods from Modrinth
+
+- [x] Search and install mods, resource packs and shader packs from Modrinth's public API, filtered by
+      the selected instance's game version and loader, with every file checked against the published
+      sha1/sha512 through the existing resumable downloader.
+- [x] Required dependencies followed up to three levels deep and installed with the project; a
+      dependency with no version for this instance is named in a warning instead of being installed for
+      a different game version. Optional and embedded dependencies are left alone.
+- [x] Each jar's own metadata is read — `fabric.mod.json`, `quilt.mod.json`, `META-INF/mods.toml`,
+      `META-INF/neoforge.mods.toml`, legacy `mcmod.info` — so the listing shows a mod's real name,
+      version and loader, and flags a wrong loader, a Minecraft version this instance is not on, and a
+      second copy of the same mod id. An unreadable version range produces no warning rather than a
+      wrong one.
+- [x] Fixed at the cause: Modrinth's list endpoint is `/project/<id>/version`, not `/versions`; found by
+      `netcheck` against the live API.
+- [x] Version bumped to `0.4.0` in `desktop/mc-launcher/package.json`, lockfile included.
+
+### Still to build on this wave (chosen, not started)
+
+- [ ] Forge and NeoForge installation by running their installers.
+- [ ] CurseForge browsing and pack files — needs an API key.
+- [ ] Download and manage Java runtimes from Mojang's JVM index, so no system JDK is needed.
+- [ ] Saves and worlds: list per instance, export/import, and a backup before a pack change.
+- [ ] Server list parity: ping for status and latency, read and write the game's own `servers.dat`.
+- [ ] Per-instance game and JVM options (`options.txt`, custom JVM arguments).
+- [ ] Export an instance as a `.mrpack` (the other half of the modpack story).
+- [ ] Disk efficiency: hard links for files shared between instances, and ranged multi-part downloads.
+- [ ] Crash report and log help: turn a stack into the likely cause.
+- [ ] Localization and themes.
+- [ ] Auto-update from a release feed (chosen: yes).
+- [ ] Code signing stays out of scope until a certificate exists; the installers remain unsigned.
+
 ## Desktop launcher — MC Launcher 0.3.0, instances, resources and modpacks
 
 - [x] Instances: one game directory each, with its own version, loader and resource folders. Create,

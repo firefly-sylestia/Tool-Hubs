@@ -40,6 +40,22 @@ snapshot state protocol, and a launch pipeline built from the version json.
   would not load is refused with the reason (a `.jar` in `resourcepacks/` says
   "did you mean to add it to mods?") instead of being copied and ignored, and
   each folder opens in the OS file manager.
+- **Install from Modrinth.** Mods, resource packs and shader packs are found by
+  search and installed into the selected instance, filtered by its game version
+  and loader (a Quilt instance is offered Fabric mods, because Quilt runs them).
+  Every file is checked against the sha1/sha512 the publisher declared, and the
+  mod's required dependencies are followed up to three levels and installed
+  with it — a mod that silently needs another one is the most common way a
+  modded launch fails. A dependency with no version for this instance is named
+  in a warning instead of being installed for a different game version. No API
+  key and no account are involved.
+- **Each jar is read, not guessed at.** A mod's own metadata decides what the
+  list says: `fabric.mod.json`, `quilt.mod.json`, `META-INF/mods.toml`,
+  `META-INF/neoforge.mods.toml` and the legacy `mcmod.info` give the real name,
+  version and loader. A Forge mod in a Fabric instance, a mod that asks for a
+  different Minecraft version, or a second copy of the same mod id is flagged in
+  the folder listing, where it can be fixed. A version range the launcher cannot
+  read produces no warning rather than a wrong one.
 - **Modpack import.** A Modrinth `.mrpack` is read from its index: Minecraft
   version, loader, and every file with a URL and hashes are installed, entries
   the pack excludes from the client are skipped, and its `overrides/` tree is
@@ -75,12 +91,13 @@ snapshot state protocol, and a launch pipeline built from the version json.
   a local profile has none, so those servers will refuse the join. That is
   expected, and it is the reason the server list can only be useful against
   servers that you or someone else configured with `online-mode=false`.
-- **No mod catalogue or browsing.** There is no search across Modrinth or
-  CurseForge and no "install" button on a project page: a mod, resource pack or
-  shader pack is added from a file you already have, and a modpack is imported
-  from an archive you downloaded. CurseForge packs are the exception in the other
-  direction — their file list needs CurseForge's API key, so only the overrides
-  are imported.
+- **No CurseForge.** Their API needs a key and their terms have conditions this
+  app does not meet, so a CurseForge pack is imported for its overrides and its
+  file list is reported rather than fetched. Modrinth, which answers without a
+  key, is fully supported for search and install.
+- **No marketplace or modpack browsing.** There is no storefront: a modpack is
+  still imported from an archive you downloaded. What happens after a project is
+  chosen — the version that fits, the hashes, the dependencies — is done properly.
 - **No Forge or NeoForge installation.** Both publish installers that have to be
   run as a Java process and edit the version json themselves. Fabric and Quilt
   publish a finished profile json instead, which is why they are the two that
@@ -143,11 +160,12 @@ always need a desktop.
 src/main/            Electron main process
   index.ts           window creation, IPC wiring, service registration
   window-controller.ts
-  services/          profile, instance, installation, install, modpack, java,
-                     server, launch, task, log, settings
+  services/          profile, instance, installation, install, modrinth, modpack,
+                     java, server, launch, task, log, settings
   minecraft/         version json, rules, classpath, arguments, launch plan,
                      download, install plan, loader metadata, modpack indexes,
-                     resource folders, java discovery, zip, manifest
+                     modrinth api, jar metadata, resource folders, java
+                     discovery, zip, manifest
 src/preload/         contextBridge: serviceChannels, windowController, bootstrap, taskMonitor
 src/renderer/        Vue 3 + Vuetify UI
 src/shared/          types and channel constants shared by all three
@@ -165,7 +183,7 @@ as a snapshot event, so the UI keeps a working copy instead of guessing.
 Verified locally on Linux with Node 24.21:
 
 - `npm run typecheck` — clean for main, preload, shared and the Vue renderer.
-- `npm run selfcheck` — 66 checks: the offline UUID, rule evaluation,
+- `npm run selfcheck` — 77 checks: the offline UUID, rule evaluation,
   inheritance, classpath and natives resolution (including a library listed twice
   with the natives on the second listing), argument substitution, the launch
   plan and its failure paths, zip reading and extraction (including a modpack's
@@ -173,14 +191,19 @@ Verified locally on Linux with Node 24.21:
   install planning, loader metadata, the downloader (resume, checksum rejection,
   retries, byte progress), instance creation and naming, resource classification
   and the `.disabled` toggle, importing a folder, both modpack index formats and
-  what each refuses, java version parsing and runtime selection, profile/server/
+  what each refuses, java version parsing and runtime selection, Modrinth search
+  facets and responses, version selection, required-dependency following and the
+  version ranges mods publish, jar metadata for all four loader formats
+  (including the legacy one) and the warnings they produce, profile/server/
   settings validation, the state store and the migration from the old
   single-directory state file.
 - `npm run netcheck` — the same install path against live services: Mojang's
   manifest and a real version json, a real asset index, libraries and assets
   downloaded and hash-checked (664 KB), a real native jar unpacked (1.16.5's
-  LWJGL), the 39.6 MB client jar fetched and verified, and real Fabric and Quilt
-  loader profiles parsed.
+  LWJGL), the 39.6 MB client jar fetched and verified, real Fabric and Quilt
+  loader profiles parsed, and Modrinth searched and resolved for the current
+  release: a real Sodium build downloaded with its hash verified and its name
+  read back out of the jar.
 - `npm run test` — 6 renderer tests: boot from the bridge, snapshot rendering, a
   UI action reaching the service bridge, error surfacing, navigation, and the
   install picker installing what it offers into the selected instance.
