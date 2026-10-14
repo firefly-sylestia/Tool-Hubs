@@ -29,7 +29,7 @@ export const FILE_PICKERS: Record<Exclude<FilePickerKind, 'any'>, FilePickerPres
   },
   ['world']: {
     title: 'Choose a world to import',
-    label: ['World', 'archives', '(.zip)'].join(' '),
+    label: 'World archives (.zip)',
     extensions: ['zip']
   }
 }
