@@ -23,6 +23,7 @@ export type ServiceName =
   | 'installation'
   | 'install'
   | 'server'
+  | 'save'
   | 'launch'
   | 'task'
   | 'settings'

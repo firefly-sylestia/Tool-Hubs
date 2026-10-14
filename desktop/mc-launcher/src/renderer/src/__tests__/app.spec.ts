@@ -146,6 +146,44 @@ function stubBridge(): void {
         }
       ]
     }
+    if (service === 'save' && method === 'list') {
+      return {
+        instanceId: 'i1',
+        instanceDir: '/games/instances/steves-world',
+        dir: '/games/instances/steves-world/saves',
+        backupsDir: '/games/instances/steves-world/backups',
+        worlds: [
+          {
+            folder: 'My World',
+            name: 'My World',
+            version: '1.21.4',
+            lastPlayed: '2026-10-01T12:00:00.000Z',
+            gameMode: 'survival',
+            hardcore: false,
+            bytes: 2097152,
+            problem: null
+          }
+        ],
+        backups: [
+          {
+            name: 'before-20261014-101500.zip',
+            path: '/games/instances/steves-world/backups/before-20261014-101500.zip',
+            bytes: 1048576,
+            at: '2026-10-14T10:15:00.000Z',
+            kind: 'before-change'
+          }
+        ]
+      }
+    }
+    if (service === 'save' && method === 'backup') {
+      return {
+        name: 'saves-20261014-120000.zip',
+        path: '/games/instances/steves-world/backups/saves-20261014-120000.zip',
+        bytes: 1048576,
+        at: '2026-10-14T12:00:00.000Z',
+        kind: 'manual'
+      }
+    }
     if (service === 'install' && method === 'versions') {
       return [
         { id: '1.21.5-pre1', type: 'snapshot', releaseTime: '2026-10-01T00:00:00.000Z' },
@@ -319,6 +357,29 @@ describe('renderer shell', () => {
       }
     })
     expect(wrapper.text()).toContain('Installed fabric-loader-0.16.9-1.21.4')
+  })
+
+  it('lists an instance’s worlds and takes a backup on request', async () => {
+    const { wrapper, router } = await mountApp()
+    pushSnapshot(steveState)
+    await router.push('/instances')
+    await flushPromises()
+
+    expect(calls).toContainEqual({ service: 'save', method: 'list', params: { instanceId: 'i1' } })
+    const text = wrapper.text()
+    expect(text).toContain('My World')
+    // The line under a world is the world's own: its version, its game mode, when
+    // it was last played and how big it is.
+    expect(text).toContain('1.21.4 · survival · last played 2026-10-01 · 2.0 MB')
+    expect(text).toContain('before-20261014-101500.zip')
+
+    await buttonByText(wrapper, 'Back up now').trigger('click')
+    await flushPromises()
+    expect(calls).toContainEqual({
+      service: 'save',
+      method: 'backup',
+      params: { instanceId: 'i1', kind: 'manual' }
+    })
   })
 
   it('browses Modrinth and opens a project without leaving the app', async () => {

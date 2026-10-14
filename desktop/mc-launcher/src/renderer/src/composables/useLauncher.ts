@@ -2,6 +2,7 @@ import { computed, ref, shallowRef } from 'vue'
 import type {
   GameInstance,
   InstanceGameOptions,
+  InstanceSaves,
   InstallRequest,
   JavaRuntimeInfo,
   JavaStatus,
@@ -23,8 +24,11 @@ import type {
   Profile,
   RemoteVersion,
   ResourceKind,
+  SaveBackup,
   ServerEntry,
-  TaskRecord
+  TaskRecord,
+  WorldExportResult,
+  WorldImportResult
 } from '@shared/types'
 
 const snapshot = shallowRef<LauncherState | null>(null)
@@ -154,6 +158,16 @@ export function useLauncher() {
       changes?: Record<string, string | null>
       jvmArgs?: string[]
     }) => call<InstanceGameOptions>('instance', 'setGameOptions', input),
+
+    /** The worlds an instance holds and the backups kept beside them. */
+    instanceSaves: (instanceId?: string | null) =>
+      call<InstanceSaves>('save', 'list', instanceId ? { instanceId } : undefined),
+    backupWorlds: (kind: SaveBackup['kind'] = 'manual', instanceId?: string | null) =>
+      call<SaveBackup>('save', 'backup', { instanceId, kind }),
+    exportWorld: (input: { instanceId?: string | null; folder: string; destDir: string }) =>
+      call<WorldExportResult>('save', 'exportWorld', input),
+    importWorld: (input: { instanceId?: string | null; source: string }) =>
+      call<WorldImportResult>('save', 'importWorld', input),
 
     inspectModpack: (path: string) => call<ModpackSummary>('modpack', 'inspect', { path }),
     importModpack: (path: string) => call<ModpackImportResult>('modpack', 'import', { path }),

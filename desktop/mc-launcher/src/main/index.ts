@@ -24,6 +24,7 @@ import { ModpackService } from './services/modpack-service'
 import { ModrinthService } from './services/modrinth-service'
 import { ProfileService } from './services/profile-service'
 import { ServiceRegistry } from './services/registry'
+import { SaveService } from './services/save-service'
 import { ServerService } from './services/server-service'
 import { SettingsService } from './services/settings-service'
 import { STATE_FILE, StateStore, defaultState } from './services/state-store'
@@ -98,7 +99,8 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
   const servers = new ServerService(state)
   const tasks = new TaskService(state, registry)
   const java = new JavaService(environment, warn)
-  const install = new InstallService(environment, tasks, installations, instances, warn)
+  const saves = new SaveService(instances, warn)
+  const install = new InstallService(environment, tasks, installations, instances, warn, {}, saves)
   // A launch checks the installation and repairs it before it builds a command,
   // which means it owns the same installer every other path uses.
   const launch = new LaunchService(state, environment, log, tasks, servers, java, install)
@@ -230,6 +232,23 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
           onProgress: report
         })
       )
+    }
+  })
+  registry.register('save', {
+    list: (params) => saves.list(as<{ instanceId?: string | null } | undefined>(params)?.instanceId),
+    backup: (params) => {
+      const input = as<{ instanceId?: string | null; kind?: 'manual' | 'before-change' } | undefined>(params)
+      return tasks.run('Back up the worlds', () =>
+        saves.backup({ instanceId: input?.instanceId, kind: input?.kind })
+      )
+    },
+    exportWorld: (params) => {
+      const input = as<{ instanceId?: string | null; folder: string; destDir: string }>(params)
+      return tasks.run(`Export ${input.folder}`, () => saves.exportWorld(input))
+    },
+    importWorld: (params) => {
+      const input = as<{ instanceId?: string | null; source: string }>(params)
+      return tasks.run('Import a world', () => saves.importWorld(input))
     }
   })
   registry.register('server', {

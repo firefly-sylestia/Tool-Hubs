@@ -33,6 +33,7 @@ import { extractZip, isNativeLibraryEntry } from '../minecraft/zip'
 import type { AppEnvironment } from './env'
 import type { InstallationService } from './installation-service'
 import type { InstanceService } from './instance-service'
+import type { SaveService } from './save-service'
 import type { TaskService } from './task-service'
 
 /** What was wrong with an installation, and what it took to put right. */
@@ -72,7 +73,13 @@ export class InstallService {
     private readonly installations: InstallationService,
     private readonly instances: InstanceService,
     private readonly warn: (message: string) => void,
-    private readonly options: { fetchImpl?: FetchLike; concurrency?: number } = {}
+    private readonly options: { fetchImpl?: FetchLike; concurrency?: number } = {},
+    /**
+     * Worlds are backed up before an install that changes the game they were
+     * written by, because that is the install that can break them. Absent in the
+     * checks, which have no worlds to lose.
+     */
+    private readonly saves: SaveService | null = null
   ) {}
 
   private get fetchImpl(): FetchLike | undefined {
@@ -253,6 +260,12 @@ export class InstallService {
       has_custom_resolution: false,
       has_quick_plays_support: true
     })
+
+    // Before anything is written: this is the operation that can make a world
+    // unreadable, by changing the loader and the mods under it. It is skipped
+    // when there is nothing to lose.
+    const backup = await this.saves?.backupBeforeChange(instance.id)
+    if (backup) report(0.01, `Backed up the worlds to ${backup.name}`)
 
     report(0.02, 'Reading the version manifest')
     const manifest = await this.loadManifest(false)

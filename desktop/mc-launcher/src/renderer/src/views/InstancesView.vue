@@ -5,13 +5,15 @@ import type {
   InstallLoader,
   InstanceGameOptions,
   InstanceResources,
+  InstanceSaves,
   LoaderOption,
   ModpackSummary,
   ModrinthHit,
   ModrinthVersion,
   RemoteVersion,
   ResourceEntry,
-  ResourceKind
+  ResourceKind,
+  WorldInfo
 } from '@shared/types'
 import { useLauncher } from '@renderer/composables/useLauncher'
 import { parseJvmArgs } from '@shared/jvm-args'
@@ -37,6 +39,10 @@ const {
   modrinthSearch,
   modrinthVersions,
   installFromModrinth,
+  instanceSaves,
+  backupWorlds,
+  exportWorld,
+  importWorld,
   pickFolder,
   pickFiles,
   openPath,
@@ -72,6 +78,10 @@ const tabKinds: { title: string; value: ResourceKind }[] = [
   { title: 'Resource packs', value: 'resourcepack' },
   { title: 'Shader packs', value: 'shaderpack' }
 ]
+
+/** Worlds and their backups, read from the instance's own `saves/` folder. */
+const savesInfo = ref<InstanceSaves | null>(null)
+const worldsBusy = ref(false)
 
 /** Modpack. */
 const modpackSummary = ref<ModpackSummary | null>(null)
@@ -166,6 +176,96 @@ async function loadResources(): Promise<void> {
     instanceResources.value = await resources(selectedInstance.value.id)
   } catch {
     // Reported in the snackbar.
+  }
+}
+
+async function loadSaves(): Promise<void> {
+  if (!selectedInstance.value) {
+    savesInfo.value = null
+    return
+  }
+  try {
+    savesInfo.value = await instanceSaves(selectedInstance.value.id)
+  } catch {
+    // Reported in the snackbar.
+  }
+}
+
+function worldSubtitle(world: WorldInfo): string {
+  if (world.problem) return world.problem
+  const parts: string[] = []
+  if (world.version) parts.push(world.version)
+  if (world.gameMode) parts.push(world.hardcore ? `${world.gameMode}, hardcore` : world.gameMode)
+  parts.push(world.lastPlayed ? `last played ${world.lastPlayed.slice(0, 10)}` : 'never played')
+  parts.push(`${(world.bytes / 1048576).toFixed(1)} MB`)
+  return parts.join(' · ')
+}
+
+async function backupWorldsNow(): Promise<void> {
+  const instance = selectedInstance.value
+  if (!instance) return
+  worldsBusy.value = true
+  try {
+    const backup = await backupWorlds('manual', instance.id)
+    await loadSaves()
+    report(`Backed the worlds up to ${backup.name} (${(backup.bytes / 1048576).toFixed(1)} MB).`, 'success')
+  } catch {
+    // Reported in the snackbar.
+  } finally {
+    worldsBusy.value = false
+  }
+}
+
+async function exportWorldNow(world: WorldInfo): Promise<void> {
+  const instance = selectedInstance.value
+  if (!instance) return
+  const picked = await pickFolder()
+  if (!picked.path) return
+  worldsBusy.value = true
+  try {
+    const result = await exportWorld({ instanceId: instance.id, folder: world.folder, destDir: picked.path })
+    report(`Exported ${world.name} to ${result.path} (${result.files} files).`, 'success')
+  } catch {
+    // Reported in the snackbar.
+  } finally {
+    worldsBusy.value = false
+  }
+}
+
+async function importWorldNow(): Promise<void> {
+  const instance = selectedInstance.value
+  if (!instance) return
+  // A folder first: an unpacked world is the common case, and a zip of one is
+  // what people get sent. Either can be picked from the same dialog.
+  const picked = await pickFolder()
+  if (!picked.path) return
+  worldsBusy.value = true
+  try {
+    const result = await importWorld({ instanceId: instance.id, source: picked.path })
+    await loadSaves()
+    report(`Imported ${result.folder} into ${instance.name}: ${result.files} file(s).`, 'success')
+  } catch {
+    // Reported in the snackbar.
+  } finally {
+    worldsBusy.value = false
+  }
+}
+
+async function importWorldZip(): Promise<void> {
+  const instance = selectedInstance.value
+  if (!instance) return
+  const picked = await pickFiles()
+  const source = picked.paths[0]
+  if (!source) return
+  worldsBusy.value = true
+  try {
+    const result = await importWorld({ instanceId: instance.id, source })
+    await loadSaves()
+    report(`Imported ${result.folder} into ${instance.name}: ${result.files} file(s).`, 'success')
+  } catch {
+    // Reported in the snackbar.
+  } finally {
+    worldsBusy.value = false
   }
 }
 
@@ -552,12 +652,14 @@ watch(
   () => {
     void loadResources()
     void loadOptions()
+    void loadSaves()
   }
 )
 
 onMounted(async () => {
   await loadResources()
   await loadOptions()
+  await loadSaves()
   await loadVersions()
 })
 </script>
@@ -745,6 +847,83 @@ onMounted(async () => {
         </v-card-text>
         <v-card-actions>
           <v-btn variant="text" :disabled="!selectedInstance" @click="rescan()">Rescan</v-btn>
+        </v-card-actions>
+      </v-card>
+
+      <v-card class="mt-4">
+        <v-card-title>Worlds and backups</v-card-title>
+        <v-card-text>
+          <p v-if="!selectedInstance" class="text-medium-emphasis">
+            Select an instance first.
+          </p>
+          <template v-else>
+            <p class="text-medium-emphasis">
+              Read from this instance's own <code>saves/</code> folder and from each world's
+              <code>level.dat</code>, so the name and the version are the game's rather than the
+              folder's. Installing a different version or loader backs these up first.
+            </p>
+
+            <v-alert v-if="savesInfo && savesInfo.worlds.length === 0" type="info" variant="tonal">
+              No worlds yet. Play the instance once, or import one you already have.
+            </v-alert>
+            <v-list v-else density="compact">
+              <v-list-item
+                v-for="world in savesInfo?.worlds ?? []"
+                :key="world.folder"
+                :title="world.name"
+                :subtitle="worldSubtitle(world)"
+              >
+                <template #append>
+                  <v-btn
+                    size="small"
+                    variant="text"
+                    :disabled="worldsBusy || world.problem !== null"
+                    @click="exportWorldNow(world)"
+                  >
+                    Export
+                  </v-btn>
+                </template>
+              </v-list-item>
+            </v-list>
+
+            <v-divider v-if="savesInfo && savesInfo.backups.length > 0" class="my-3" />
+            <p v-if="savesInfo && savesInfo.backups.length > 0" class="text-medium-emphasis mb-2">
+              Backups, newest first. <strong>before-</strong> ones were taken automatically because the
+              game underneath the worlds was about to change.
+            </p>
+            <v-list v-if="savesInfo && savesInfo.backups.length > 0" density="compact">
+              <v-list-item
+                v-for="backup in savesInfo.backups"
+                :key="backup.path"
+                :title="backup.name"
+                :subtitle="`${backup.kind === 'before-change' ? 'before an install' : 'taken by hand'} · ${backup.at.slice(0, 16).replace('T', ' ')} · ${(backup.bytes / 1048576).toFixed(1)} MB`"
+              >
+                <template #append>
+                  <v-btn size="small" variant="text" @click="openPath(backup.path)">Show</v-btn>
+                </template>
+              </v-list-item>
+            </v-list>
+          </template>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn variant="text" :disabled="!selectedInstance" @click="selectedInstance && openPath(savesInfo?.dir ?? selectedInstance.dir)">
+            Saves folder
+          </v-btn>
+          <v-spacer />
+          <v-btn variant="text" :disabled="!selectedInstance || worldsBusy" @click="importWorldNow()">
+            Import a world…
+          </v-btn>
+          <v-btn variant="text" :disabled="!selectedInstance || worldsBusy" @click="importWorldZip()">
+            Import a zip…
+          </v-btn>
+          <v-btn
+            color="primary"
+            variant="tonal"
+            :disabled="!selectedInstance || worldsBusy"
+            @click="backupWorldsNow()"
+          >
+            Back up now
+          </v-btn>
         </v-card-actions>
       </v-card>
 

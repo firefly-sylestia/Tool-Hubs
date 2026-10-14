@@ -7,7 +7,7 @@
  * argument substitution, profile/server validation and the state store. No
  * Electron, no network, no game files.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
@@ -62,7 +62,18 @@ import {
   readTomlValues,
   type ModMetadata
 } from '../src/main/minecraft/mod-metadata'
-import { extractZip, isNativeLibraryEntry, listZipEntries } from '../src/main/minecraft/zip'
+import { extractZip, isNativeLibraryEntry, listZipEntries, readZipEntry } from '../src/main/minecraft/zip'
+import { writeZip } from '../src/main/minecraft/zip-writer'
+import { isGzipped, nbtAt, nbtScalar, readNbt, writeNbt } from '../src/main/minecraft/nbt'
+import {
+  backupFileName,
+  describeWorld,
+  detectWorldRoot,
+  sanitizeWorldFolder,
+  uniqueWorldFolder
+} from '../src/main/minecraft/saves'
+import { SaveService } from '../src/main/services/save-service'
+import type { NbtValue } from '../src/main/minecraft/nbt'
 import {
   detectModpackFormat,
   instancePathFor,
@@ -953,6 +964,232 @@ console.log('\nzip reading')
 
   check('refuses a truncated archive, the way a part-downloaded zip looks', () => {
     expectThrows(() => listZipEntries(archive.subarray(0, archive.length - 24)), 'partially downloaded')
+  })
+}
+
+console.log('\nworlds')
+{
+  const sample: Record<string, NbtValue> = {
+    Data: {
+      tag: 'compound',
+      value: {
+        LevelName: { tag: 'string', value: 'My World' },
+        LastPlayed: { tag: 'long', value: Date.UTC(2026, 9, 1, 12) },
+        GameType: { tag: 'int', value: 1 },
+        hardcore: { tag: 'byte', value: 1 },
+        Version: { tag: 'compound', value: { Name: { tag: 'string', value: '1.21.4' } } },
+        seed: { tag: 'longArray', value: [1, 2] },
+        stats: { tag: 'intArray', value: [7, 8] },
+        flags: { tag: 'byteArray', value: [1, 0, 1] },
+        time: { tag: 'double', value: 1.5 },
+        ratio: { tag: 'float', value: 0.5 },
+        daylight: { tag: 'double', value: 0.75 },
+        players: { tag: 'list', element: 'string', items: [{ tag: 'string', value: 'Steve' }] },
+        empty: { tag: 'list', element: 'end', items: [] }
+      }
+    }
+  }
+
+  check('reads back everything it writes, gzipped or not', () => {
+    for (const gzipped of [true, false]) {
+      const bytes = writeNbt({ name: '', root: sample, gzipped })
+      expectEqual(isGzipped(bytes), gzipped, gzipped ? 'gzipped on the way out' : 'plain on the way out')
+      const read = readNbt(bytes)
+      expectEqual(nbtScalar(read.root, 'Data.LevelName'), 'My World', 'a string')
+      expectEqual(
+        nbtScalar(read.root, 'Data.LastPlayed'),
+        Date.UTC(2026, 9, 1, 12),
+        'a long, which is how a world says when it was played'
+      )
+      expectEqual(nbtScalar(read.root, 'Data.Version.Name'), '1.21.4', 'a nested compound')
+      expectEqual(nbtAt(read.root, 'Data.seed'), { tag: 'longArray', value: [1, 2] }, 'a long array')
+      expectEqual(nbtAt(read.root, 'Data.flags'), { tag: 'byteArray', value: [1, 0, 1] }, 'a byte array')
+      expectEqual(
+        nbtAt(read.root, 'Data.players'),
+        { tag: 'list', element: 'string', items: [{ tag: 'string', value: 'Steve' }] },
+        'a list of strings'
+      )
+      expectEqual(nbtAt(read.root, 'Data.empty'), { tag: 'list', element: 'end', items: [] }, 'an empty list')
+      expectEqual(nbtScalar(read.root, 'Data.ratio'), 0.5, 'a float')
+    }
+  })
+
+  check('says so when a level.dat is truncated', () => {
+    const bytes = writeNbt({ name: '', root: sample, gzipped: false })
+    expectThrows(() => readNbt(bytes.subarray(0, bytes.length - 20)), 'part-way through a value')
+    expectThrows(() => readNbt(Buffer.from([1, 2, 3])), 'expected a compound')
+  })
+
+  check('describes a world from its own level.dat, and survives one it cannot read', () => {
+    const data = nbtAt(sample, 'Data')
+    const world = describeWorld({
+      folder: 'some-folder',
+      bytes: 1024,
+      level: (data as { value: Record<string, NbtValue> }).value
+    })
+    expectEqual(world.name, 'My World', 'the name the game shows, not the folder')
+    expectEqual(world.version, '1.21.4', 'the version that last wrote it')
+    expectEqual(world.gameMode, 'creative', 'the game mode')
+    expect(world.hardcore, 'hardcore is reported')
+    expectEqual(world.lastPlayed, new Date(Date.UTC(2026, 9, 1, 12)).toISOString(), 'when it was played')
+
+    const broken = describeWorld({ folder: 'lost', bytes: 0, level: null, problem: 'no level.dat' })
+    expectEqual(broken.name, 'lost', 'a world that cannot be read still has a name')
+    expectEqual(broken.problem, 'no level.dat', 'and says why')
+  })
+
+  check('keeps an imported world from landing on one that is already there', () => {
+    expectEqual(uniqueWorldFolder('New World', []), 'New World', 'nothing in the way')
+    expectEqual(uniqueWorldFolder('New World', ['New World']), 'New World 2', 'one already there')
+    expectEqual(
+      uniqueWorldFolder('New World', ['New World', 'New World 2']),
+      'New World 3',
+      'two already there'
+    )
+    expectEqual(sanitizeWorldFolder('bad/name:here'), 'bad-name-here', 'a folder name the OS accepts')
+    expectEqual(sanitizeWorldFolder('...'), 'world', 'and never an empty one')
+    expectEqual(backupFileName(new Date(2026, 9, 14, 15, 30, 12)), 'saves-20261014-153012.zip', 'manual')
+    expectEqual(
+      backupFileName(new Date(2026, 9, 14, 15, 30, 12), 'before-change'),
+      'before-20261014-153012.zip',
+      'automatic, and named so it reads as such later'
+    )
+  })
+
+  check('finds the one world inside an archive, and refuses two', () => {
+    expectEqual(detectWorldRoot(['level.dat', 'region/r.0.0.mca']), '', 'a bare world')
+    expectEqual(detectWorldRoot(['My World/level.dat', 'My World/region/r.0.0.mca']), 'My World', 'inside a folder')
+    expectEqual(detectWorldRoot(['a/level.dat', 'b/level.dat']), null, 'two worlds')
+    expectEqual(detectWorldRoot(['a/notes.txt']), null, 'no level.dat at all')
+    expectEqual(detectWorldRoot([]), null, 'nothing')
+  })
+
+  const zipDir = join(root, 'zip-write')
+
+  await acheck('writes a zip that the reader reads back, streaming a file in', async () => {
+    mkdirSync(zipDir, { recursive: true })
+    const big = join(zipDir, 'region.mca')
+    writeFileSync(big, Buffer.alloc(64 * 1024, 7))
+    const dest = join(zipDir, 'out.zip')
+    await writeZip(dest, [
+      { name: 'world/level.dat', contents: Buffer.from('level-bytes') },
+      { name: 'world/region/r.0.0.mca', path: big },
+      { name: 'repeated.txt', contents: Buffer.from('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') }
+    ])
+
+    const buffer = readFileSync(dest)
+    const entries = listZipEntries(buffer)
+    expectEqual(entries.map((entry) => entry.name), ['world/level.dat', 'world/region/r.0.0.mca', 'repeated.txt'], 'names and order')
+    expectEqual(
+      readZipEntry(buffer, entries[0]).toString('utf8'),
+      'level-bytes',
+      'an in-memory entry survives the round trip'
+    )
+    expectEqual(
+      readZipEntry(buffer, entries[1]).length,
+      64 * 1024,
+      'a streamed file arrives whole'
+    )
+    expectEqual(readZipEntry(buffer, entries[1])[0], 7, 'and byte for byte')
+    // Deflating costs a few bytes of its own, so content that does not get
+    // smaller is stored: an 11-byte file deflates to 13 and would grow.
+    expectEqual(entries[0].method, 0, 'content that does not compress is stored')
+    expectEqual(entries[1].method, 0, 'a streamed file is stored, not deflated')
+    expectEqual(entries[2].method, 8, 'content that does compress is deflated')
+    expectEqual(listZipEntries(buffer)[2].uncompressedSize, 32, 'and the sizes are the real ones')
+  })
+
+  const saves = new SaveService(instances, () => {})
+  const worldInstance = instances.create({ name: 'Worlds', dir: join(root, 'worlds-game'), source: 'created' })
+
+  await acheck('lists, backs up, exports and imports a world', async () => {
+    expectEqual((await saves.backupBeforeChange(worldInstance.id)), null, 'nothing to back up yet')
+
+    const savesDir = join(worldInstance.dir, 'saves', 'A World')
+    mkdirSync(join(savesDir, 'region'), { recursive: true })
+    writeFileSync(join(savesDir, 'level.dat'), writeNbt({ name: '', root: sample }))
+    writeFileSync(join(savesDir, 'region', 'r.0.0.mca'), Buffer.alloc(2048, 3))
+
+    const listed = saves.list(worldInstance.id)
+    expectEqual(listed.worlds.length, 1, 'one world')
+    expectEqual(listed.worlds[0].name, 'My World', 'named by its own level.dat')
+    expectEqual(listed.worlds[0].version, '1.21.4', 'and its version')
+    expectEqual(listed.worlds[0].problem, null, 'readable')
+    expect(listed.worlds[0].bytes > 2048, 'its size is summed from the files')
+
+    const backup = await saves.backup({ instanceId: worldInstance.id })
+    expect(existsSync(backup.path), 'the backup file is written')
+    const backedUp = listZipEntries(readFileSync(backup.path))
+    expect(
+      backedUp.some((entry) => entry.name === 'saves/A World/level.dat'),
+      'the world is inside it, under saves/'
+    )
+    expectEqual(saves.list(worldInstance.id).backups.length, 1, 'and the list sees it')
+
+    const exportedDir = join(root, 'exports')
+    mkdirSync(exportedDir, { recursive: true })
+    const exported = await saves.exportWorld({
+      instanceId: worldInstance.id,
+      folder: 'A World',
+      destDir: exportedDir
+    })
+    expectEqual(exported.files, 2, 'both files exported')
+    expect(existsSync(exported.path), 'the export is a file')
+
+    // Back in: the same world, from the archive, under a folder that is free.
+    const imported = await saves.importWorld({ instanceId: worldInstance.id, source: exported.path })
+    expectEqual(imported.folder, 'A World 2', 'the name that was taken gets a number')
+    expect(existsSync(join(worldInstance.dir, 'saves', 'A World 2', 'level.dat')), 'the world is there')
+    expectEqual(saves.list(worldInstance.id).worlds.length, 2, 'and the game will list both')
+
+    // A world copied out of another installation is a folder, not an archive.
+    const loose = join(root, 'loose-world')
+    mkdirSync(loose, { recursive: true })
+    writeFileSync(join(loose, 'level.dat'), writeNbt({ name: '', root: sample }))
+    const fromFolder = await saves.importWorld({ instanceId: worldInstance.id, source: loose })
+    expectEqual(fromFolder.folder, 'loose-world', 'the folder imports as itself')
+    expectEqual(saves.list(worldInstance.id).worlds.length, 3, 'three worlds now')
+
+    await expectRejects(
+      () => saves.importWorld({ instanceId: worldInstance.id, source: join(root, 'not-a-world.txt') }),
+      'does not exist'
+    )
+
+    // Creating an instance selects it; the checks after this one import into the
+    // selected instance, so put the first one back.
+    instances.select(instance.id)
+  })
+
+  await acheck('backs the worlds up before an install that changes the game', async () => {
+    const installerWithSaves = new InstallService(
+      environment,
+      tasks,
+      installations,
+      instances,
+      () => {},
+      {
+        fetchImpl: async () => {
+          throw new Error('offline')
+        }
+      },
+      saves
+    )
+    // The install cannot get past its first request here, which is the point:
+    // the worlds have to be safe before anything is written, not after.
+    await expectRejects(
+      () =>
+        installerWithSaves.install({
+          versionId: '1.12.2',
+          loader: 'vanilla',
+          instanceId: worldInstance.id
+        }),
+      'offline'
+    )
+    const backups = readdirSync(join(worldInstance.dir, 'backups'))
+    expect(
+      backups.some((name) => name.startsWith('before-')),
+      'a backup was taken even though the install then failed'
+    )
   })
 }
 

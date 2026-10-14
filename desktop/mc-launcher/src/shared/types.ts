@@ -140,6 +140,59 @@ export interface InstanceResources {
   entries: Record<ResourceKind, ResourceEntry[]>
 }
 
+/**
+ * A world in an instance's `saves/` folder, described by the world's own
+ * `level.dat` rather than by its folder name wherever that file says more.
+ */
+export interface WorldInfo {
+  /** The directory name under `saves/`, which is what the game lists. */
+  folder: string
+  /** `LevelName`, or the folder when the file does not name one. */
+  name: string
+  /** The version that last wrote this world, when `level.dat` says. */
+  version: string | null
+  lastPlayed: string | null
+  gameMode: string | null
+  hardcore: boolean
+  bytes: number
+  /** Why the world could not be read, so it is listed with a reason rather than hidden. */
+  problem: string | null
+}
+
+/** A zip of an instance's `saves/` folder, kept next to it under `backups/`. */
+export interface SaveBackup {
+  name: string
+  path: string
+  bytes: number
+  at: string
+  /** A backup taken by hand, or one taken automatically before the game changed. */
+  kind: 'manual' | 'before-change'
+}
+
+export interface InstanceSaves {
+  instanceId: string
+  instanceDir: string
+  /** `<instance>/saves`, whether or not it exists yet. */
+  dir: string
+  backupsDir: string
+  worlds: WorldInfo[]
+  backups: SaveBackup[]
+}
+
+export interface WorldExportResult {
+  path: string
+  files: number
+  bytes: number
+}
+
+export interface WorldImportResult {
+  /** The folder under `saves/` the world landed in. */
+  folder: string
+  files: number
+  bytes: number
+  source: string
+}
+
 /** A game version offered by Mojang's manifest, as the install picker shows it. */
 export interface RemoteVersion {
   id: string
