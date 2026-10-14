@@ -64,16 +64,28 @@ export class WindowController {
     return { path: result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0] }
   }
 
-  /** The file picker, for adding mods, resource packs and shader packs. */
-  async pickFiles(event?: Electron.IpcMainInvokeEvent): Promise<{ paths: string[] }> {
+  /**
+   * The file picker, for adding mods, resource packs and shader packs.
+   *
+   * Passing `any: true` drops the filter, which is what choosing a Java binary
+   * needs: a picker offering only .jar and .zip cannot choose `java`. It also
+   * picks several files, which a Java binary does not want, so a single one is
+   * all that comes back in that mode.
+   */
+  async pickFiles(
+    event?: Electron.IpcMainInvokeEvent,
+    input: { any?: boolean } = {}
+  ): Promise<{ paths: string[] }> {
     const window = this.windowFor(event)
     const options: Electron.OpenDialogOptions = {
-      title: 'Choose files',
-      properties: ['openFile', 'multiSelections'],
-      filters: [
-        { name: 'Mods, packs and shaders', extensions: ['jar', 'zip'] },
-        { name: 'Everything', extensions: ['*'] }
-      ]
+      title: input.any ? 'Choose a file' : 'Choose files',
+      properties: input.any ? ['openFile'] : ['openFile', 'multiSelections'],
+      filters: input.any
+        ? []
+        : [
+            { name: 'Mods, packs and shaders', extensions: ['jar', 'zip'] },
+            { name: 'Everything', extensions: ['*'] }
+          ]
     }
     const result = window
       ? await dialog.showOpenDialog(window, options)

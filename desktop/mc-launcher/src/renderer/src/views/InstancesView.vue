@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import type {
   GameInstance,
   InstallLoader,
   InstanceGameOptions,
   InstanceResources,
   InstanceSaves,
+  JavaStatus,
   LoaderOption,
   ModpackSummary,
   ModrinthHit,
@@ -13,9 +15,10 @@ import type {
   RemoteVersion,
   ResourceEntry,
   ResourceKind,
+  SaveBackup,
   WorldInfo
 } from '@shared/types'
-import { useLauncher } from '@renderer/composables/useLauncher'
+import { useLauncher, type DetectedJava } from '@renderer/composables/useLauncher'
 import { parseJvmArgs } from '@shared/jvm-args'
 
 const {
@@ -40,8 +43,10 @@ const {
   modrinthSearch,
   modrinthVersions,
   installFromModrinth,
+  javaStatus,
   instanceSaves,
   backupWorlds,
+  restoreWorldBackup,
   exportWorld,
   importWorld,
   pickFolder,
@@ -61,8 +66,36 @@ const loadingVersions = ref(false)
  * The page is four cards deep and each one is a whole subject, so they are put
  * behind tabs rather than stacked: the version it runs, what is in it, its
  * worlds and its options.
+ *
+ * The open tab lives in the query string, so it survives navigating away and
+ * can be linked: `#/instances?tab=worlds` is the worlds of the selected
+ * instance, which is the one thing worth pointing somebody at.
  */
-const tab = ref<'version' | 'content' | 'worlds' | 'options'>('version')
+const TABS = ['version', 'content', 'worlds', 'options'] as const
+type InstanceTab = (typeof TABS)[number]
+
+function tabFromQuery(value: unknown): InstanceTab {
+  const name = typeof value === 'string' ? value : ''
+  return ((TABS as readonly string[]).includes(name) ? name : 'version') as InstanceTab
+}
+
+const route = useRoute()
+const router = useRouter()
+const tab = ref<InstanceTab>(tabFromQuery(route.query.tab))
+
+watch(
+  () => route.query.tab,
+  (value) => {
+    const next = tabFromQuery(value)
+    if (next !== tab.value) tab.value = next
+  }
+)
+
+watch(tab, (value) => {
+  const wanted = value === 'version' ? undefined : value
+  if (route.query.tab === wanted) return
+  void router.replace(wanted ? { query: { tab: wanted } } : { query: {} })
+})
 const note = ref<string | null>(null)
 const noteType = ref<'info' | 'success' | 'warning'>('info')
 
@@ -148,11 +181,71 @@ const entryWarnings = computed(() =>
 /** The instance's own options.txt, and its JVM arguments. */
 const options = ref<InstanceGameOptions | null>(null)
 const optionForm = reactive<Record<string, string>>({})
-const jvmText = ref('')
+/** One argument per entry, so each one can be read and removed on its own. */
+const jvmArgs = ref<string[]>([])
+const newJvmArg = ref('')
 const savingOptions = ref(false)
 const extraKey = ref('')
 const extraValue = ref('')
 const showEveryOption = ref(false)
+const optionSearch = ref('')
+
+/**
+ * Java and memory, which belong to the instance rather than to the launcher.
+ *
+ * One setting for everything cannot serve both a 1.12.2 instance that only
+ * starts on Java 8 and a 1.21 one that wants 21, and the memory a heavy modpack
+ * needs is not the memory a vanilla instance should reserve.
+ */
+const javaInfo = ref<JavaStatus | null>(null)
+const detectedJava = ref<DetectedJava[]>([])
+const instanceJava = ref('')
+/** A string, so "empty" can mean the launcher's default rather than 0. */
+const instanceMemory = ref('')
+const savingRuntime = ref(false)
+
+/** Automatic, the runtimes this machine has, and one set by hand. */
+const javaItems = computed(() => {
+  const items = [
+    { value: '', title: 'Automatic', subtitle: 'the runtime this version asks for' },
+    ...detectedJava.value.map((java) => ({
+      value: java.path,
+      title: `Java ${java.major ?? 'unknown'}`,
+      subtitle: `${java.source} · ${java.path}`
+    }))
+  ]
+  if (instanceJava.value !== '' && !items.some((item) => item.value === instanceJava.value)) {
+    items.push({ value: instanceJava.value, title: 'Set by hand', subtitle: instanceJava.value })
+  }
+  return items
+})
+
+/** The file can hold hundreds of keys, so the raw list is searchable. */
+const filteredEntries = computed(() => {
+  const needle = optionSearch.value.trim().toLowerCase()
+  const entries = options.value?.entries ?? []
+  if (needle === '') return entries
+  return entries.filter(
+    (entry) =>
+      entry.key.toLowerCase().includes(needle) || entry.value.toLowerCase().includes(needle)
+  )
+})
+
+/**
+ * The icon a setting leads with, by what kind of thing it is.
+ *
+ * Not a taxonomy of Minecraft settings, just enough that a list of nine rows
+ * does not read as nine identical ones.
+ */
+function optionIcon(key: string): string {
+  if (key === 'fullscreen') return 'mdi-monitor'
+  if (key.startsWith('graphics')) return 'mdi-auto-fix'
+  if (key.toLowerCase().includes('fps')) return 'mdi-speedometer'
+  if (key.startsWith('render') || key.startsWith('simulation')) return 'mdi-image-size-select-large'
+  if (key.toLowerCase().includes('vsync')) return 'mdi-sync'
+  if (key.toLowerCase().includes('gui')) return 'mdi-grid-large'
+  return 'mdi-tune-variant'
+}
 
 const tabKindLabel = computed(
   () => tabKinds.find((kind) => kind.value === resourceTab.value)?.title ?? 'mods'
@@ -243,6 +336,33 @@ async function backupWorldsNow(): Promise<void> {
     const backup = await backupWorlds('manual', instance.id)
     await loadSaves()
     report(`Backed the worlds up to ${backup.name} (${(backup.bytes / 1048576).toFixed(1)} MB).`, 'success')
+  } catch {
+    // Reported in the snackbar.
+  } finally {
+    worldsBusy.value = false
+  }
+}
+
+/**
+ * Puts a backup back into `saves/`.
+ *
+ * Nothing is overwritten: the worlds it holds come back beside whatever is in
+ * the folder now, under their own names or with a number on the end.
+ */
+async function restoreBackupNow(backup: SaveBackup): Promise<void> {
+  const instance = selectedInstance.value
+  if (!instance) return
+  worldsBusy.value = true
+  try {
+    const result = await restoreWorldBackup({ instanceId: instance.id, path: backup.path })
+    await loadSaves()
+    const folders = result.worlds.map((world) => world.folder).join(', ')
+    report(
+      result.worlds.length === 1
+        ? `Restored ${folders} from ${backup.name}. The world that was already there is untouched.`
+        : `Restored ${result.worlds.length} worlds from ${backup.name}: ${folders}.`,
+      'success'
+    )
   } catch {
     // Reported in the snackbar.
   } finally {
@@ -428,9 +548,60 @@ async function loadOptions(): Promise<void> {
     options.value = loaded
     for (const key of Object.keys(optionForm)) delete optionForm[key]
     for (const field of loaded.fields) optionForm[field.key] = loaded.quick[field.key] ?? ''
-    jvmText.value = loaded.jvmArgs.join('\n')
+    jvmArgs.value = [...loaded.jvmArgs]
   } catch {
     // Reported in the snackbar.
+  }
+}
+
+/** What this instance runs now, and which runtimes are available to choose. */
+async function loadRuntime(): Promise<void> {
+  const instance = selectedInstance.value
+  if (!instance) {
+    javaInfo.value = null
+    detectedJava.value = []
+    instanceJava.value = ''
+    instanceMemory.value = ''
+    return
+  }
+  instanceJava.value = instance.javaPath ?? ''
+  instanceMemory.value = instance.maxMemoryMb === null ? '' : String(instance.maxMemoryMb)
+  try {
+    javaInfo.value = await javaStatus(instance.id)
+    detectedJava.value = javaInfo.value.detected
+  } catch {
+    // Reported in the snackbar.
+  }
+}
+
+/**
+ * Saves this instance's own Java and memory.
+ *
+ * An empty control is not a zero: it is "whatever the launcher is set to",
+ * which is why both are sent as null rather than as an empty string or a 0.
+ */
+async function saveRuntime(): Promise<void> {
+  const instance = selectedInstance.value
+  if (!instance) return
+  savingRuntime.value = true
+  try {
+    const memory = instanceMemory.value.trim()
+    const java = instanceJava.value.trim()
+    await updateInstance(instance.id, {
+      javaPath: java === '' ? null : java,
+      maxMemoryMb: memory === '' ? null : Number(memory)
+    })
+    report(
+      memory === ''
+        ? `Saved Java for ${instance.name}; its memory follows the launcher's default.`
+        : `Saved Java and a ${memory} MB limit for ${instance.name}.`,
+      'success'
+    )
+    await loadRuntime()
+  } catch {
+    // Reported in the snackbar.
+  } finally {
+    savingRuntime.value = false
   }
 }
 
@@ -452,10 +623,10 @@ async function saveOptions(): Promise<void> {
     const saved = await saveGameOptions({
       instanceId: instance.id,
       changes,
-      jvmArgs: parseJvmArgs(jvmText.value)
+      jvmArgs: jvmArgs.value
     })
     options.value = saved
-    jvmText.value = saved.jvmArgs.join('\n')
+    jvmArgs.value = [...saved.jvmArgs]
     report(
       Object.keys(changes).length > 0
         ? `Saved ${Object.keys(changes).length} option(s) and the JVM arguments for ${instance.name}.`
@@ -486,6 +657,18 @@ async function setExtraOption(): Promise<void> {
   } catch {
     // Reported in the snackbar.
   }
+}
+
+/** Accepts one or several, quoted the way a shell would read them. */
+function addJvmArg(): void {
+  const parsed = parseJvmArgs(newJvmArg.value)
+  if (parsed.length === 0) return
+  jvmArgs.value = [...jvmArgs.value, ...parsed]
+  newJvmArg.value = ''
+}
+
+function removeJvmArg(index: number): void {
+  jvmArgs.value = jvmArgs.value.filter((_arg, position) => position !== index)
 }
 
 async function removeOption(key: string): Promise<void> {
@@ -728,6 +911,7 @@ watch(
   () => {
     void loadResources()
     void loadOptions()
+    void loadRuntime()
     void loadSaves()
   }
 )
@@ -735,6 +919,7 @@ watch(
 onMounted(async () => {
   await loadResources()
   await loadOptions()
+  await loadRuntime()
   await loadSaves()
   await loadVersions()
 })
@@ -1078,7 +1263,8 @@ onMounted(async () => {
             <v-divider v-if="savesInfo && savesInfo.backups.length > 0" class="my-3" />
             <p v-if="savesInfo && savesInfo.backups.length > 0" class="text-medium-emphasis mb-2">
               Backups, newest first. <strong>before-</strong> ones were taken automatically because the
-              game underneath the worlds was about to change.
+              game underneath the worlds was about to change. Restoring one puts its worlds back
+              beside whatever is in <code>saves/</code> now, never over it.
             </p>
             <v-list v-if="savesInfo && savesInfo.backups.length > 0" density="comfortable">
               <v-list-item
@@ -1099,7 +1285,24 @@ onMounted(async () => {
                   </div>
                 </template>
                 <template #append>
-                  <v-btn size="small" variant="text" @click="openPath(backup.path)">Show</v-btn>
+                  <v-btn
+                    size="small"
+                    variant="text"
+                    prepend-icon="mdi-folder-open-outline"
+                    :aria-label="`Show ${backup.name}`"
+                    @click="openPath(backup.path)"
+                  >
+                    Show
+                  </v-btn>
+                  <v-btn
+                    size="small"
+                    variant="tonal"
+                    prepend-icon="mdi-upload-outline"
+                    :disabled="worldsBusy"
+                    @click="restoreBackupNow(backup)"
+                  >
+                    Restore
+                  </v-btn>
                 </template>
               </v-list-item>
             </v-list>
@@ -1153,6 +1356,61 @@ onMounted(async () => {
             Select an instance first.
           </p>
           <template v-else>
+            <!-- How it runs comes first: Java and memory are what the process
+                 is started with, and the file below is what the game writes. -->
+            <div class="d-flex flex-wrap align-center ga-2 mb-1">
+              <div class="row-icon row-icon--primary">
+                <v-icon icon="mdi-coffee-outline" size="20" />
+              </div>
+              <h3 class="text-subtitle-1 mb-0">How {{ selectedInstance.name }} runs</h3>
+            </div>
+            <p class="text-medium-emphasis text-body-2">
+              <template v-if="javaInfo?.requiredMajor !== null && javaInfo?.requiredMajor !== undefined">
+                <strong>{{ selectedInstance.versionId ?? 'This version' }}</strong> needs Java
+                {{ javaInfo.requiredMajor }}.
+              </template>
+              <template v-else>This version does not name the Java it needs.</template>
+              Automatic uses the runtime inside the instance, then one this machine has, and downloads
+              Mojang's own when there is none.
+            </p>
+            <div class="d-flex flex-wrap ga-3 align-center">
+              <v-select
+                v-model="instanceJava"
+                :items="javaItems"
+                item-title="title"
+                item-value="value"
+                label="Java runtime"
+                prepend-inner-icon="mdi-coffee-outline"
+                density="comfortable"
+                hide-details
+                class="runtime-field"
+              />
+              <v-text-field
+                v-model="instanceMemory"
+                label="Maximum memory (MB)"
+                type="number"
+                density="comfortable"
+                hide-details
+                class="memory-field"
+                :placeholder="String(settings?.maxMemoryMb ?? 4096)"
+              />
+              <v-btn
+                color="primary"
+                variant="tonal"
+                prepend-icon="mdi-content-save-outline"
+                :loading="savingRuntime"
+                @click="saveRuntime"
+              >
+                Save
+              </v-btn>
+            </div>
+            <p class="text-medium-emphasis text-body-2 mt-2">
+              Left empty, memory is the launcher's default ({{ settings?.maxMemoryMb ?? 4096 }} MB).
+              The JVM arguments below are added on top of the runtime this one starts.
+            </p>
+
+            <v-divider class="my-5" />
+
             <p class="text-medium-emphasis">
               These are this instance's own <code>options.txt</code>, the file the game writes in
               {{ selectedInstance.dir }}. Only what you change is written, and every other line is
@@ -1163,39 +1421,88 @@ onMounted(async () => {
               play.
             </v-alert>
 
-            <v-row v-for="field in options?.fields ?? []" :key="field.key" dense>
-              <v-col cols="12" sm="7">
-                <v-select
-                  v-if="field.choices"
-                  v-model="optionForm[field.key]"
-                  :items="['', ...field.choices]"
-                  :label="field.label"
-                  density="compact"
-                  hide-details
-                />
-                <v-text-field
-                  v-else
-                  v-model="optionForm[field.key]"
-                  :label="field.label"
-                  type="number"
-                  density="compact"
-                  hide-details
-                />
-              </v-col>
-              <v-col cols="12" sm="5" class="text-medium-emphasis text-body-2 align-self-center">
-                {{ field.key }}
-                <span v-if="optionForm[field.key] === ''"> · game default</span>
-              </v-col>
-            </v-row>
+            <!-- One setting per row, read left to right: what it is, its own key
+                 underneath, and the control where the value goes. -->
+            <v-list density="comfortable" class="options-list py-0">
+              <v-list-item v-for="field in options?.fields ?? []" :key="field.key">
+                <template #prepend>
+                  <div
+                    class="row-icon"
+                    :class="optionForm[field.key] === '' ? '' : 'row-icon--primary'"
+                  >
+                    <v-icon :icon="optionIcon(field.key)" size="20" />
+                  </div>
+                </template>
+                <v-list-item-title>{{ field.label }}</v-list-item-title>
+                <v-list-item-subtitle>
+                  <code>{{ field.key }}</code>
+                  <span v-if="optionForm[field.key] === ''">, the game's own default</span>
+                </v-list-item-subtitle>
+                <template #append>
+                  <v-select
+                    v-if="field.choices"
+                    v-model="optionForm[field.key]"
+                    :items="['', ...field.choices]"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    class="option-control"
+                    :aria-label="field.label"
+                  />
+                  <v-text-field
+                    v-else
+                    v-model="optionForm[field.key]"
+                    type="number"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    class="option-control option-control--number"
+                    :aria-label="field.label"
+                  />
+                </template>
+              </v-list-item>
+            </v-list>
 
-            <v-textarea
-              v-model="jvmText"
-              label="Extra JVM arguments"
-              rows="3"
-              class="mt-4"
-              hint="One per line, e.g. -XX:+UseG1GC. Memory is set in Settings."
-              persistent-hint
-            />
+            <div class="d-flex align-center ga-2 mt-6 mb-2">
+              <v-icon icon="mdi-console-line" size="small" />
+              <span class="text-subtitle-2">Extra JVM arguments</span>
+            </div>
+            <p class="text-medium-emphasis text-body-2 mb-2">
+              Added to the command as they are. Memory is set in Settings.
+            </p>
+            <div class="d-flex flex-wrap ga-2 align-center mb-2">
+              <v-chip
+                v-for="(arg, index) in jvmArgs"
+                :key="`${arg}-${index}`"
+                closable
+                variant="tonal"
+                @click:close="removeJvmArg(index)"
+              >
+                {{ arg }}
+              </v-chip>
+              <span v-if="jvmArgs.length === 0" class="text-medium-emphasis text-body-2">
+                None yet.
+              </span>
+            </div>
+            <div class="d-flex ga-2 align-center">
+              <v-text-field
+                v-model="newJvmArg"
+                label="Add an argument"
+                placeholder="-XX:+UseG1GC"
+                prepend-inner-icon="mdi-plus"
+                density="compact"
+                hide-details
+                @keyup.enter="addJvmArg"
+              />
+              <v-btn
+                variant="tonal"
+                prepend-icon="mdi-plus"
+                :disabled="newJvmArg.trim() === ''"
+                @click="addJvmArg"
+              >
+                Add
+              </v-btn>
+            </div>
 
             <v-divider class="my-4" />
             <p class="text-medium-emphasis mb-2">
@@ -1208,20 +1515,39 @@ onMounted(async () => {
               <v-btn :disabled="extraKey.trim() === ''" @click="setExtraOption">Set</v-btn>
             </div>
 
-            <v-btn variant="text" class="mt-4" @click="showEveryOption = !showEveryOption">
+            <v-btn variant="text" class="mt-4" :prepend-icon="showEveryOption ? 'mdi-chevron-up' : 'mdi-chevron-down'" @click="showEveryOption = !showEveryOption">
               {{ showEveryOption ? 'Hide' : 'Show' }} every option in the file
+              ({{ options?.entries.length ?? 0 }})
             </v-btn>
-            <v-list v-if="showEveryOption" density="compact" class="mt-2 options-list">
-              <v-list-item
-                v-for="entry in options?.entries ?? []"
-                :key="entry.key"
-                :title="`${entry.key}: ${entry.value}`"
-              >
-                <template #append>
-                  <v-btn size="small" variant="text" @click="removeOption(entry.key)">Remove</v-btn>
-                </template>
-              </v-list-item>
-            </v-list>
+            <template v-if="showEveryOption">
+              <v-text-field
+                v-model="optionSearch"
+                label="Find an option"
+                prepend-inner-icon="mdi-magnify"
+                density="compact"
+                hide-details
+                clearable
+                class="mt-2 mb-2"
+              />
+              <p v-if="filteredEntries.length === 0" class="text-medium-emphasis mb-0">
+                No option in the file matches that.
+              </p>
+              <v-list v-else density="compact" class="options-list">
+                <v-list-item v-for="entry in filteredEntries" :key="entry.key">
+                  <v-list-item-title>{{ entry.key }}</v-list-item-title>
+                  <v-list-item-subtitle>{{ entry.value }}</v-list-item-subtitle>
+                  <template #append>
+                    <v-btn
+                      size="small"
+                      variant="text"
+                      icon="mdi-trash-can-outline"
+                      :aria-label="`Remove ${entry.key}`"
+                      @click="removeOption(entry.key)"
+                    />
+                  </template>
+                </v-list-item>
+              </v-list>
+            </template>
           </template>
         </v-card-text>
         <v-card-actions>
@@ -1454,3 +1780,34 @@ onMounted(async () => {
     </v-card>
   </v-dialog>
 </template>
+
+<style scoped>
+/*
+ * The controls that sit inside a list row or a toolbar need a width: without
+ * one Vuetify leaves them as wide as their content, which makes a column of
+ * rows look ragged rather than aligned.
+ */
+.runtime-field {
+  flex: 1 1 320px;
+  max-width: 420px;
+  min-width: 240px;
+}
+
+.memory-field {
+  flex: 0 1 200px;
+}
+
+.option-control {
+  width: 200px;
+}
+
+.option-control--number {
+  width: 160px;
+}
+
+/* One row per setting, so the list reads as a table rather than a column of
+   floating fields. */
+.options-list {
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+</style>

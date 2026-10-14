@@ -19,7 +19,8 @@ const baseState: LauncherState = {
     javaPath: null,
     maxMemoryMb: 4096,
     width: 1280,
-    height: 720
+    height: 720,
+    theme: 'system'
   },
   tasks: [],
   installations: [],
@@ -49,7 +50,9 @@ const steveState: LauncherState = {
       loaderVersion: null,
       createdAt: '2026-10-13T00:00:00.000Z',
       lastPlayedAt: null,
-      jvmArgs: []
+      jvmArgs: [],
+      javaPath: null,
+      maxMemoryMb: null
     }
   ],
   selectedInstanceId: 'i1',
@@ -173,6 +176,30 @@ function stubBridge(): void {
             kind: 'before-change'
           }
         ]
+      }
+    }
+    if (service === 'modrinth' && method === 'installed') {
+      return {
+        instanceId: 'i1',
+        dir: '/games/instances/steves-world',
+        items: [
+          {
+            projectId: 'AANobbMI',
+            title: 'Sodium',
+            versionNumber: 'mc1.21.4-0.6.13',
+            filename: 'sodium.jar',
+            kind: 'mod',
+            at: '2026-10-14T12:00:00.000Z'
+          }
+        ]
+      }
+    }
+    if (service === 'save' && method === 'restoreBackup') {
+      return {
+        instanceId: 'i1',
+        path: '/games/instances/steves-world/backups/before-20261014-101500.zip',
+        worlds: [{ name: 'My World', folder: 'My World 2', files: 2, bytes: 1048576 }],
+        skipped: 0
       }
     }
     if (service === 'save' && method === 'backup') {
@@ -394,10 +421,12 @@ describe('renderer shell', () => {
 
     // The store opens on the catalogue with no search word, so it asks for the
     // most downloaded rather than for a relevance ranking with nothing to rank.
+    // `anyVersion: false` is the store obeying the selected instance; the switch
+    // above the list turns it off to browse everything.
     expect(calls).toContainEqual({
       service: 'modrinth',
       method: 'search',
-      params: { query: '', kind: 'mod', sort: 'downloads', limit: 20, offset: 0 }
+      params: { query: '', kind: 'mod', sort: 'downloads', limit: 20, offset: 0, anyVersion: false }
     })
     expect(wrapper.text()).toContain('Sodium')
     expect(wrapper.text()).toContain('12.3M downloads')
@@ -429,12 +458,70 @@ describe('renderer shell', () => {
     expect(calls).toContainEqual({
       service: 'modrinth',
       method: 'search',
-      params: { query: '', kind: 'mod', sort: 'downloads', limit: 20, offset: 0 }
+      params: { query: '', kind: 'mod', sort: 'downloads', limit: 20, offset: 0, anyVersion: false }
     })
     expect(wrapper.text()).toContain('Sodium')
     // And an install says where things go instead of looking inert.
-    expect(wrapper.text()).toContain('no instance selected')
+    expect(wrapper.text()).toContain('No instance selected')
     expect(wrapper.text()).toContain('Choose an instance')
+  })
+
+  it('restores a backup beside the world that is already there', async () => {
+    const { wrapper, router } = await mountApp()
+    pushSnapshot(steveState)
+    await router.push('/instances')
+    await flushPromises()
+    await buttonByText(wrapper, 'Worlds').trigger('click')
+    await flushPromises()
+
+    await buttonByText(wrapper, 'Restore').trigger('click')
+    await flushPromises()
+    expect(calls).toContainEqual({
+      service: 'save',
+      method: 'restoreBackup',
+      params: {
+        instanceId: 'i1',
+        path: '/games/instances/steves-world/backups/before-20261014-101500.zip'
+      }
+    })
+    // What came back, and that nothing was taken away to make room for it.
+    expect(wrapper.text()).toContain('Restored My World 2')
+    expect(wrapper.text()).toContain('untouched')
+  })
+
+  it('marks a project the selected instance already has', async () => {
+    const { wrapper, router } = await mountApp()
+    pushSnapshot(steveState)
+    await router.push('/store')
+    await flushPromises()
+
+    expect(calls).toContainEqual({
+      service: 'modrinth',
+      method: 'installed',
+      params: { instanceId: 'i1' }
+    })
+    expect(wrapper.text()).toContain('In Steve’s world')
+  })
+
+  it('takes a keyboard shortcut to another page', async () => {
+    const { router } = await mountApp()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '2', ctrlKey: true }))
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/store')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '5', ctrlKey: true }))
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/settings')
+  })
+
+  it('opens the instances page on the tab it was linked to', async () => {
+    const { wrapper, router } = await mountApp()
+    pushSnapshot(steveState)
+    await router.push('/instances?tab=worlds')
+    await flushPromises()
+    // The tab is in the URL, so the worlds are on screen on arrival.
+    expect(wrapper.text()).toContain('My World')
+    expect(wrapper.text()).toContain('Back up now')
   })
 
   it('navigates between the views', async () => {

@@ -486,7 +486,7 @@ if (launch) {
         lastPlayedAt: null
       },
       versionId: installed.targetId,
-      settings: { instancesDir: launchRoot, javaPath: null, maxMemoryMb: 2048, width: 854, height: 480 },
+      settings: { instancesDir: launchRoot, javaPath: null, maxMemoryMb: 2048, width: 854, height: 480, theme: 'system' },
       connect: null,
       ctx,
       launcherName: 'mc-launcher',

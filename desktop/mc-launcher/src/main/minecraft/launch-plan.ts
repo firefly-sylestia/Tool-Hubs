@@ -35,6 +35,11 @@ export interface LaunchPlanInput {
    * explicit memory setting still wins.
    */
   extraJvmArgs?: string[]
+  /**
+   * The instance's own `-Xmx`, when it has one. Falling back to
+   * `settings.maxMemoryMb` is what "use the launcher's default" means.
+   */
+  maxMemoryMb?: number | null
 }
 
 /**
@@ -147,8 +152,10 @@ export function buildLaunchPlan(input: LaunchPlanInput): LaunchPlan {
     if (extra.trim() !== '') resolvedJvmArgs.push(extra.trim())
   }
   // Appended last so an explicit setting wins over a value baked into the
-  // version json, and over this instance's own arguments.
-  resolvedJvmArgs.push(`-Xmx${settings.maxMemoryMb}m`)
+  // version json, and over this instance's own arguments. The instance's own
+  // limit wins over the launcher's default, which is the point of having one.
+  const maxMemoryMb = input.maxMemoryMb ?? settings.maxMemoryMb
+  resolvedJvmArgs.push(`-Xmx${maxMemoryMb}m`)
   if (!hasClasspathFlag) {
     resolvedJvmArgs.push('-cp', values.classpath)
   }

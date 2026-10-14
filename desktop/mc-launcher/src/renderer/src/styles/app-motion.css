@@ -171,6 +171,53 @@
   }
 }
 
+/* ── Glass ─────────────────────────────────────────────────────────────── */
+
+/*
+ * The blur is real rather than a flat grey: the shell's background is behind
+ * everything, so a surface that is translucent and blurs what is behind it
+ * reads as a pane over that background instead of as a rectangle on top of it.
+ *
+ * It is one property on the surfaces that float — the bar, the drawer, a dialog,
+ * a menu and a card — so nothing is drawn per frame and nothing is an asset.
+ * The tint is a colour, so it lives here beside the blur rather than in the
+ * theme: a theme decides what colour a surface is, and this decides how much of
+ * what is behind it comes through.
+ */
+:root {
+  --glass-blur: 18px;
+  --glass-tint: 0.72;
+}
+
+.app-bar,
+.app-drawer,
+.v-card,
+.v-overlay__content > .v-list {
+  background-color: rgba(var(--v-theme-surface), var(--glass-tint));
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.12);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.12);
+}
+
+/* A card that is the thing a page is about lets a little more through, which is
+   what separates it from the cards around it. */
+.hero-card {
+  --glass-tint: 0.62;
+}
+
+/* The bar and the drawer sit over the page rather than beside it, so they are
+   the two surfaces whose blur is only visible while the page scrolls under
+   them — tinted a little more heavily so the text on them always reads. */
+.app-bar,
+.app-drawer {
+  --glass-tint: 0.82;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+
+.app-drawer {
+  border-bottom: none;
+  border-inline-end: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+
 /* ── The launch pill ───────────────────────────────────────────────────── */
 
 /*
@@ -277,18 +324,6 @@
   gap: 8px;
 }
 
-/* A quiet label in front of a card's own kind of state, so two cards in a
-   column do not read as one long paragraph. */
-.state-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.78rem;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  opacity: 0.72;
-}
-
 /* ── Cards that lead somewhere ─────────────────────────────────────────── */
 
 /* The one card a page is about: a little more room, a little more presence. */
@@ -346,6 +381,18 @@
 
 .page-pad {
   padding-block: 20px 32px;
+}
+
+/* ── The keyboard ──────────────────────────────────────────────────────── */
+
+/*
+ * A ring only when the browser says the last input was a keyboard, so a mouse
+ * user never sees it and a keyboard user always does. This pairs with the
+ * shortcuts: nobody uses Ctrl+3 if they cannot see where they landed.
+ */
+:focus-visible {
+  outline: 2px solid rgba(var(--v-theme-primary), 0.8);
+  outline-offset: 2px;
 }
 
 /* ── Reduced motion ────────────────────────────────────────────────────── */

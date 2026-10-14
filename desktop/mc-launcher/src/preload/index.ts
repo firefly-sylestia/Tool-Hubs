@@ -21,12 +21,18 @@ const serviceChannels = {
 }
 
 const windowController = {
-  minimize: () => serviceChannels.call('window', 'minimize'),
-  maximize: () => serviceChannels.call('window', 'maximize'),
-  close: () => serviceChannels.call('window', 'close'),
-  focus: () => serviceChannels.call('window', 'focus'),
-  isMaximized: () => serviceChannels.call('window', 'isMaximized'),
-  toggleDevTools: () => serviceChannels.call('window', 'toggleDevTools')
+  minimize: (): Promise<{ ok: boolean }> =>
+    serviceChannels.call('window', 'minimize') as Promise<{ ok: boolean }>,
+  maximize: (): Promise<{ ok: boolean; maximized: boolean }> =>
+    serviceChannels.call('window', 'maximize') as Promise<{ ok: boolean; maximized: boolean }>,
+  close: (): Promise<{ ok: boolean }> =>
+    serviceChannels.call('window', 'close') as Promise<{ ok: boolean }>,
+  focus: (): Promise<{ ok: boolean }> =>
+    serviceChannels.call('window', 'focus') as Promise<{ ok: boolean }>,
+  isMaximized: (): Promise<{ maximized: boolean }> =>
+    serviceChannels.call('window', 'isMaximized') as Promise<{ maximized: boolean }>,
+  toggleDevTools: (): Promise<{ ok: boolean }> =>
+    serviceChannels.call('window', 'toggleDevTools') as Promise<{ ok: boolean }>
 }
 
 const bootstrap = {

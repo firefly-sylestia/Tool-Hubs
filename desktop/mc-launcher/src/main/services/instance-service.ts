@@ -40,7 +40,7 @@ import {
 } from '../minecraft/resources'
 import type { AppEnvironment } from './env'
 import type { InstallationService } from './installation-service'
-import type { SettingsService } from './settings-service'
+import { assertMemory, type SettingsService } from './settings-service'
 import type { StateStore } from './state-store'
 
 export interface CreateInstanceInput {
@@ -153,7 +153,11 @@ export class InstanceService {
       loaderVersion: input.loaderVersion ?? null,
       createdAt: new Date().toISOString(),
       lastPlayedAt: null,
-      jvmArgs: []
+      jvmArgs: [],
+      // Both are inherited from the launcher's settings until this instance is
+      // given its own, which is the only sensible answer for a new instance.
+      javaPath: null,
+      maxMemoryMb: null
     }
 
     mkdirSync(instance.dir, { recursive: true })
@@ -169,9 +173,22 @@ export class InstanceService {
 
   update(
     id: string,
-    patch: Partial<Pick<GameInstance, 'name' | 'versionId' | 'loader' | 'loaderVersion' | 'jvmArgs'>>
+    patch: Partial<
+      Pick<
+        GameInstance,
+        'name' | 'versionId' | 'loader' | 'loaderVersion' | 'jvmArgs' | 'javaPath' | 'maxMemoryMb'
+      >
+    >
   ): GameInstance {
     const name = patch.name === undefined ? undefined : assertName(patch.name)
+    // Checked before the update runs, so a bad value leaves the state alone.
+    const javaPath = patch.javaPath === undefined ? undefined : assertJavaPath(patch.javaPath)
+    const maxMemoryMb =
+      patch.maxMemoryMb === undefined
+        ? undefined
+        : patch.maxMemoryMb === null
+          ? null
+          : assertMemory(patch.maxMemoryMb)
     const updated = this.state.update((state) => {
       const instance = state.instances.find((candidate) => candidate.id === id)
       if (!instance) throw new Error(`Unknown instance ${id}.`)
@@ -186,6 +203,8 @@ export class InstanceService {
       if (patch.loader !== undefined) instance.loader = patch.loader
       if (patch.loaderVersion !== undefined) instance.loaderVersion = patch.loaderVersion
       if (patch.jvmArgs !== undefined) instance.jvmArgs = patch.jvmArgs.filter((arg) => arg.trim() !== '')
+      if (javaPath !== undefined) instance.javaPath = javaPath
+      if (maxMemoryMb !== undefined) instance.maxMemoryMb = maxMemoryMb
     })
     return updated.instances.find((instance) => instance.id === id)!
   }
@@ -197,6 +216,19 @@ export class InstanceService {
     })
     this.installations.rescan(instance.dir)
     return instance
+  }
+
+  /**
+   * Nothing selected, which is a real state rather than an error.
+   *
+   * The store browses the whole catalogue that way, and so does anything else
+   * that is not about one instance. The instances themselves are untouched.
+   */
+  clearSelection(): { selectedInstanceId: null } {
+    this.state.update((state) => {
+      state.selectedInstanceId = null
+    })
+    return { selectedInstanceId: null }
   }
 
   /**
@@ -530,6 +562,21 @@ function readResourceFolder(folder: string, kind: ResourceKind): ResourceEntry[]
     if (a.enabled !== b.enabled) return a.enabled ? -1 : 1
     return a.title.localeCompare(b.title)
   })
+}
+
+/**
+ * A Java binary this instance runs, which has to be a path rather than a name.
+ *
+ * An instance that names a runtime is naming a file; `java` on PATH is what
+ * leaving it empty means, and that is resolved when the game is launched.
+ */
+function assertJavaPath(value: unknown): string | null {
+  const path = String(value ?? '').trim()
+  if (path === '') return null
+  if (!isAbsolute(path)) {
+    throw new Error('A Java path must be an absolute path, or empty to find one for the version.')
+  }
+  return path
 }
 
 /** The version an imported directory should start on: its newest release, else anything. */

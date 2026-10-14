@@ -212,11 +212,10 @@ watch(lines, async () => {
   font-family: monospace;
   font-size: 12px;
 }
-.log .out {
-  color: #9ad29a;
-}
+/* The log reads on either theme: ordinary output is the page's own text, and
+   only the stderr lines are coloured, in the theme's error colour. */
 .log .err {
-  color: #f0a0a0;
+  color: rgb(var(--v-theme-error));
 }
 .evidence {
   white-space: pre-wrap;

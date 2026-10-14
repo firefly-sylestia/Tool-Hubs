@@ -70,7 +70,8 @@ import {
   describeWorld,
   detectWorldRoot,
   sanitizeWorldFolder,
-  uniqueWorldFolder
+  uniqueWorldFolder,
+  worldsInBackup
 } from '../src/main/minecraft/saves'
 import { SaveService } from '../src/main/services/save-service'
 import { DiagnosticService } from '../src/main/services/diagnostic-service'
@@ -137,12 +138,14 @@ import { InstallService } from '../src/main/services/install-service'
 import { ServiceRegistry } from '../src/main/services/registry'
 import { StateStore, defaultState, migrateState } from '../src/main/services/state-store'
 import { ProfileService } from '../src/main/services/profile-service'
-import { ModpackService, baseGameVersion } from '../src/main/services/modpack-service'
+import { ModpackService } from '../src/main/services/modpack-service'
+import { baseGameVersion } from '../src/main/minecraft/version-id'
+import { presentInstalls, readStoreInstalls, writeStoreInstalls } from '../src/main/services/modrinth-service'
 import { ServerService } from '../src/main/services/server-service'
 import { SettingsService } from '../src/main/services/settings-service'
 import { TaskService } from '../src/main/services/task-service'
 import { pipeLines } from '../src/main/services/launch-service'
-import type { Profile } from '../src/shared/types'
+import type { Profile, StoreInstall } from '../src/shared/types'
 
 let passed = 0
 const failures: string[] = []
@@ -441,7 +444,7 @@ check('builds a complete offline command', () => {
     gameDir,
     profile,
     versionId: '1.21.4',
-    settings: { instancesDir: gameDir, javaPath: null, maxMemoryMb: 2048, width: 1024, height: 768 },
+    settings: { instancesDir: gameDir, javaPath: null, maxMemoryMb: 2048, width: 1024, height: 768, theme: 'system' },
     connect: null,
     ctx
   })
@@ -468,7 +471,7 @@ check('appends the loader arguments after the inherited ones', () => {
     gameDir,
     profile,
     versionId: '1.21.4-forge',
-    settings: { instancesDir: gameDir, javaPath: '/usr/bin/java', maxMemoryMb: 4096, width: 1280, height: 720 },
+    settings: { instancesDir: gameDir, javaPath: '/usr/bin/java', maxMemoryMb: 4096, width: 1280, height: 720, theme: 'system' },
     connect: null,
     ctx
   })
@@ -484,7 +487,7 @@ check('uses quick play for 1.20 and newer, and the legacy flags below', () => {
     gameDir,
     profile,
     versionId: '1.21.4',
-    settings: { instancesDir: gameDir, javaPath: null, maxMemoryMb: 2048, width: 1280, height: 720 },
+    settings: { instancesDir: gameDir, javaPath: null, maxMemoryMb: 2048, width: 1280, height: 720, theme: 'system' },
     connect: { host: '127.0.0.1', port: 25566 },
     ctx
   })
@@ -493,11 +496,43 @@ check('uses quick play for 1.20 and newer, and the legacy flags below', () => {
     gameDir,
     profile,
     versionId: '1.19.4',
-    settings: { instancesDir: gameDir, javaPath: null, maxMemoryMb: 2048, width: 1280, height: 720 },
+    settings: { instancesDir: gameDir, javaPath: null, maxMemoryMb: 2048, width: 1280, height: 720, theme: 'system' },
     connect: { host: '127.0.0.1', port: 25566 },
     ctx
   })
   expectEqual(legacy.args.slice(-4), ['--server', '127.0.0.1', '--port', '25566'], 'legacy join args')
+})
+check('lets one instance have its own memory without touching the default', () => {
+  const settings = {
+    instancesDir: gameDir,
+    javaPath: null,
+    maxMemoryMb: 2048,
+    width: 1280,
+    height: 720,
+    theme: 'system' as const
+  }
+  const own = buildLaunchPlan({
+    gameDir,
+    profile,
+    versionId: '1.21.4',
+    settings,
+    connect: null,
+    ctx,
+    maxMemoryMb: 8192
+  })
+  expect(own.args.includes('-Xmx8192m'), 'the instance limit is used')
+  expect(!own.args.includes('-Xmx2048m'), 'and the launcher default is not also passed')
+
+  const inherited = buildLaunchPlan({
+    gameDir,
+    profile,
+    versionId: '1.21.4',
+    settings,
+    connect: null,
+    ctx,
+    maxMemoryMb: null
+  })
+  expect(inherited.args.includes('-Xmx2048m'), 'null falls back to the launcher default')
 })
 check('fails with an actionable message when natives are missing', () => {
   const broken = { ...vanillaJson, id: '1.21.4-nolibs' }
@@ -508,7 +543,7 @@ check('fails with an actionable message when natives are missing', () => {
         gameDir,
         profile,
         versionId: '1.21.4-nolibs',
-        settings: { instancesDir: gameDir, javaPath: null, maxMemoryMb: 2048, width: 1280, height: 720 },
+        settings: { instancesDir: gameDir, javaPath: null, maxMemoryMb: 2048, width: 1280, height: 720, theme: 'system' },
         connect: null,
         ctx
       }),
@@ -626,6 +661,26 @@ check('refuses duplicate and unusable instance names', () => {
   expectThrows(() => instances.create({ name: 'Imported' }), 'already exists')
   expectThrows(() => instances.create({ name: 'bad/name' }), 'cannot contain')
   expectThrows(() => instances.create({ name: '' }), '1-48 characters')
+})
+check('lets one instance keep its own Java and memory, and no other', () => {
+  expectEqual(instance.javaPath, null, 'a new instance starts on the launcher default java')
+  expectEqual(instance.maxMemoryMb, null, 'and on its default memory')
+
+  const updated = instances.update(instance.id, {
+    javaPath: '/usr/lib/jvm/java-8/bin/java',
+    maxMemoryMb: 6144
+  })
+  expectEqual(updated.javaPath, '/usr/lib/jvm/java-8/bin/java', 'the runtime it was given')
+  expectEqual(updated.maxMemoryMb, 6144, 'and the limit it was given')
+
+  // A name is not a path: `java` on PATH is what leaving it empty means, and a
+  // relative one would resolve against whatever the working directory happened
+  // to be at launch.
+  expectThrows(() => instances.update(instance.id, { javaPath: 'java' }), 'absolute path')
+  expectThrows(() => instances.update(instance.id, { maxMemoryMb: 12 }), 'between 512 and 65536')
+  expectEqual(instances.require(instance.id).maxMemoryMb, 6144, 'a refused value changes nothing')
+
+  expectEqual(instances.update(instance.id, { javaPath: null }).javaPath, null, 'and back to automatic')
 })
 
 console.log('\nresources')
@@ -1423,6 +1478,32 @@ console.log('\nworlds')
     expectEqual(detectWorldRoot([]), null, 'nothing')
   })
 
+  check('finds the worlds inside a backup, and nothing else', () => {
+    expectEqual(
+      worldsInBackup([
+        'saves/My World/level.dat',
+        'saves/My World/region/r.0.0.mca',
+        'saves/Second/level.dat'
+      ]),
+      [
+        { name: 'My World', prefix: 'saves/My World/' },
+        { name: 'Second', prefix: 'saves/Second/' }
+      ],
+      'every folder with a level.dat of its own is a world'
+    )
+    expectEqual(
+      worldsInBackup(['saves/notes.txt', 'saves/Other/region/r.0.0.mca']),
+      [],
+      'a folder with no level.dat of its own is not one'
+    )
+    expectEqual(
+      worldsInBackup(['My World/level.dat', 'My World/region/r.0.0.mca']),
+      [{ name: 'My World', prefix: 'My World/' }],
+      'an export of a single world reads too, without the saves/ prefix'
+    )
+    expectEqual(worldsInBackup([]), [], 'nothing')
+  })
+
   const zipDir = join(root, 'zip-write')
 
   await acheck('writes a zip that the reader reads back, streaming a file in', async () => {
@@ -1517,6 +1598,33 @@ console.log('\nworlds')
     // Creating an instance selects it; the checks after this one import into the
     // selected instance, so put the first one back.
     instances.select(instance.id)
+  })
+
+  await acheck('restores a backup beside the worlds that are there, never over them', async () => {
+    const backup = await saves.backup({ instanceId: worldInstance.id })
+    const before = saves.list(worldInstance.id).worlds.map((world) => world.folder)
+    const restored = await saves.restoreBackup({ instanceId: worldInstance.id, path: backup.path })
+    const after = saves.list(worldInstance.id).worlds
+
+    expectEqual(restored.worlds.length, before.length, 'every world in the archive comes back')
+    expectEqual(restored.skipped, 0, 'and nothing in the archive is left out')
+    expect(
+      restored.worlds.every((world) => !before.includes(world.folder)),
+      'each one lands in a folder of its own rather than over an existing world'
+    )
+    expectEqual(after.length, before.length * 2, 'the worlds that were already there are still there')
+    expect(after.every((world) => world.problem === null), 'and every copy of them is readable')
+    expectEqual(
+      [...restored.worlds.map((world) => world.name)].sort(),
+      [...before].sort(),
+      'the archive is read as exactly the worlds it holds'
+    )
+
+    // A file that is not a backup is refused by name, not half-restored.
+    await expectRejects(
+      () => saves.restoreBackup({ instanceId: worldInstance.id, path: join(root, 'not-a-world.txt') }),
+      'does not exist'
+    )
   })
 
   await acheck('backs the worlds up before an install that changes the game', async () => {
@@ -2002,6 +2110,36 @@ await acheck('reports byte progress across a batch and counts what it reused', a
   expectEqual(seen[seen.length - 1], 10, 'progress finished at the total')
   expect(await isFileValid(join(batchDir, 'one.bin'), hashOf(first)), 'the fetched file verifies')
 })
+
+console.log('\nwhat the store has installed')
+{
+  const storeRoot = join(root, 'store-record')
+  const install = (filename: string, projectId = 'AANobbMI'): StoreInstall => ({
+    projectId,
+    title: 'Sodium',
+    versionNumber: 'mc1.21.4-0.6.13',
+    filename,
+    kind: 'mod',
+    at: '2026-10-14T12:00:00.000Z'
+  })
+
+  check('remembers an install, and forgets one whose file is gone', () => {
+    mkdirSync(join(storeRoot, 'mods'), { recursive: true })
+    expectEqual(readStoreInstalls(storeRoot), [], 'nothing recorded yet')
+
+    writeFileSync(join(storeRoot, 'mods', 'sodium.jar'), 'jar')
+    writeStoreInstalls(storeRoot, [install('sodium.jar'), install('gone.jar', 'other')])
+    expectEqual(readStoreInstalls(storeRoot).length, 2, 'both are in the record')
+
+    const present = presentInstalls(storeRoot, readStoreInstalls(storeRoot))
+    expectEqual(present.map((entry) => entry.filename), ['sodium.jar'], 'only the one on disk counts')
+    expectEqual(present[0].projectId, 'AANobbMI', 'and it still names its project')
+
+    // A record nobody can read is a record with nothing in it, not a crash.
+    writeFileSync(join(storeRoot, '.toolhubs', 'store.json'), '{ not json')
+    expectEqual(readStoreInstalls(storeRoot), [], 'a corrupt record reads as empty')
+  })
+}
 
 console.log('\nimporting what is already on disk')
 {
@@ -2717,6 +2855,34 @@ console.log('\nstate migration')
       { exists: () => false }
     )
     expectEqual(deleted.instances, [], 'a directory that is gone is not resurrected')
+  })
+
+  check('gives an instance from before Java and memory per instance the defaults', () => {
+    const legacy = defaultState('/instances')
+    const migrated = migrateState(
+      {
+        ...legacy,
+        instances: [
+          {
+            id: 'i',
+            name: 'Old',
+            dir: '/instances/old',
+            source: 'created',
+            versionId: '1.21.4',
+            loader: null,
+            loaderVersion: null,
+            createdAt: 'now',
+            lastPlayedAt: null,
+            jvmArgs: []
+          } as never
+        ],
+        settings: { ...legacy.settings, theme: undefined } as never
+      },
+      { exists: () => true }
+    )
+    expectEqual(migrated.instances[0].javaPath, null, 'no runtime of its own')
+    expectEqual(migrated.instances[0].maxMemoryMb, null, 'no memory limit of its own')
+    expectEqual(migrated.settings.theme, 'system', 'and the theme follows the desktop, as it did')
   })
 }
 

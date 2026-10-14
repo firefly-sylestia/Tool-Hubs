@@ -2,10 +2,16 @@ import { isAbsolute } from 'node:path'
 import type { LauncherSettings } from '@shared/types'
 import type { StateStore } from './state-store'
 
-const MIN_MEMORY_MB = 512
-const MAX_MEMORY_MB = 65536
+export const MIN_MEMORY_MB = 512
+export const MAX_MEMORY_MB = 65536
 
-function assertMemory(value: unknown): number {
+/**
+ * A memory limit, checked in one place.
+ *
+ * The default in Settings and an instance's own override both end up as
+ * `-Xmx`, so they are held to the same bounds rather than each inventing one.
+ */
+export function assertMemory(value: unknown): number {
   const memory = Number(value)
   if (!Number.isFinite(memory) || memory < MIN_MEMORY_MB || memory > MAX_MEMORY_MB) {
     throw new Error(`Memory must be between ${MIN_MEMORY_MB} and ${MAX_MEMORY_MB} MB.`)
@@ -50,6 +56,12 @@ export class SettingsService {
       }
       if (patch.width !== undefined) state.settings.width = assertDimension(patch.width, 'Width')
       if (patch.height !== undefined) state.settings.height = assertDimension(patch.height, 'Height')
+      if (patch.theme !== undefined) {
+        if (patch.theme !== 'system' && patch.theme !== 'light' && patch.theme !== 'dark') {
+          throw new Error('The theme must be system, light or dark.')
+        }
+        state.settings.theme = patch.theme
+      }
     }).settings
   }
 }

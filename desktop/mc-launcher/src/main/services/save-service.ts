@@ -2,10 +2,12 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { isAbsolute, join, relative, sep } from 'node:path'
 import type {
   InstanceSaves,
+  RestoredWorld,
   SaveBackup,
   WorldExportResult,
   WorldImportResult,
-  WorldInfo
+  WorldInfo,
+  WorldRestoreResult
 } from '@shared/types'
 import { readNbt, type NbtCompound } from '../minecraft/nbt'
 import {
@@ -14,7 +16,8 @@ import {
   detectWorldRoot,
   looksLikeWorldZip,
   sanitizeWorldFolder,
-  uniqueWorldFolder
+  uniqueWorldFolder,
+  worldsInBackup
 } from '../minecraft/saves'
 import { extractZip, listZipEntries } from '../minecraft/zip'
 import { writeZip, type ZipEntrySource } from '../minecraft/zip-writer'
@@ -157,6 +160,64 @@ export class SaveService {
     const written = await writeZip(path, entries, { at })
     this.warn(`Exported ${input.folder} to ${path} (${formatMegabytes(written.bytes)}).`)
     return { path, files: written.files, bytes: statSync(path).size }
+  }
+
+  /**
+   * Puts a backup back into `saves/`.
+   *
+   * A backup is a copy of the whole folder, so one can bring several worlds home
+   * at once. Nothing is overwritten: a world whose folder name is taken comes
+   * back beside the current one with a number on the end, because the archive
+   * being restored is exactly the copy somebody might still want. The archive is
+   * read into memory, so it has the same size limit an import does.
+   */
+  async restoreBackup(input: { instanceId?: string | null; path: string }): Promise<WorldRestoreResult> {
+    const instance = this.instances.require(input.instanceId)
+    if (!existsSync(input.path)) throw new Error(`${input.path} does not exist.`)
+    const size = statSync(input.path).size
+    if (size > MAX_ARCHIVE_BYTES) {
+      throw new Error(
+        `${input.path} is ${formatMegabytes(size)}, and archives are unpacked from memory. ` +
+          `Unzip it into the instance's saves folder by hand instead.`
+      )
+    }
+
+    const buffer = readFileSync(input.path)
+    const entries = listZipEntries(buffer)
+    const roots = worldsInBackup(entries.map((entry) => entry.name))
+    if (roots.length === 0) {
+      throw new Error(
+        `${input.path} holds no world: a backup of saves/ has a level.dat inside each world folder.`
+      )
+    }
+
+    const destination = savesDir(instance.dir)
+    mkdirSync(destination, { recursive: true })
+    const existing = readdirSync(destination, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+
+    const worlds: RestoredWorld[] = []
+    for (const root of roots) {
+      const folder = uniqueWorldFolder(root.name, existing)
+      existing.push(folder)
+      let bytes = 0
+      const files = extractZip(buffer, destination, {
+        rename: (name) =>
+          name.startsWith(root.prefix) ? `${folder}/${name.slice(root.prefix.length)}` : null,
+        onEntry: (_name, entrySize) => {
+          bytes += entrySize
+        }
+      })
+      if (files > 0) worlds.push({ name: root.name, folder, files, bytes })
+    }
+    if (worlds.length === 0) throw new Error(`${input.path} holds no world files to restore.`)
+
+    const restoredFiles = worlds.reduce((total, world) => total + world.files, 0)
+    const skipped = entries.filter((entry) => !entry.name.endsWith('/')).length - restoredFiles
+    const summary = worlds.map((world) => `${world.folder} (${world.files} file(s))`).join(', ')
+    this.warn(`Restored ${summary} from ${input.path} into ${instance.name}.`)
+    return { instanceId: instance.id, path: input.path, worlds, skipped: Math.max(0, skipped) }
   }
 
   /**

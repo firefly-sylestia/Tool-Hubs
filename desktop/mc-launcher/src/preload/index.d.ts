@@ -14,12 +14,13 @@ export interface ServiceChannelsApi {
 }
 
 export interface WindowControllerApi {
-  minimize: () => Promise<unknown>
-  maximize: () => Promise<unknown>
-  close: () => Promise<unknown>
-  focus: () => Promise<unknown>
-  isMaximized: () => Promise<unknown>
-  toggleDevTools: () => Promise<unknown>
+  minimize: () => Promise<{ ok: boolean }>
+  /** Toggles, so one control both maximizes and restores the window. */
+  maximize: () => Promise<{ ok: boolean; maximized: boolean }>
+  close: () => Promise<{ ok: boolean }>
+  focus: () => Promise<{ ok: boolean }>
+  isMaximized: () => Promise<{ maximized: boolean }>
+  toggleDevTools: () => Promise<{ ok: boolean }>
 }
 
 export interface BootstrapApi {

@@ -1,10 +1,46 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useTheme } from 'vuetify'
+import type { ThemeChoice } from '@shared/types'
 import { useLauncher } from '@renderer/composables/useLauncher'
 import { routes } from '@renderer/router'
 
-const { validating, error, tasks, profiles, runningProfileId, dismissError, stopLaunch } = useLauncher()
+const route = useRoute()
+const router = useRouter()
+const {
+  settings,
+  validating,
+  error,
+  tasks,
+  profiles,
+  runningProfileId,
+  dismissError,
+  stopLaunch,
+  launchSelected
+} = useLauncher()
+
+/**
+ * The theme the window paints, which the launcher's settings own.
+ *
+ * `system` is not a theme name but a decision to follow the desktop, and it has
+ * to keep following it: a launcher that only read the preference at start-up
+ * would sit in the wrong theme half the day.
+ */
+const theme = useTheme()
+const prefersDark = window.matchMedia('(prefers-color-scheme: dark)')
+
+function applyTheme(choice: ThemeChoice): void {
+  theme.global.name.value = choice === 'system' ? (prefersDark.matches ? 'dark' : 'light') : choice
+}
+
+watch(() => settings.value?.theme ?? 'system', applyTheme, { immediate: true })
+prefersDark.addEventListener('change', () => applyTheme(settings.value?.theme ?? 'system'))
 const windowApi = window.windowController
+
+/** The key that goes with the number, which is not the same on every desktop. */
+const modifier = navigator.userAgent.includes('Mac') ? 'Cmd' : 'Ctrl'
+const maximized = ref(false)
 
 /** The icon each page's row carries, so the navigation reads at a glance. */
 const NAV_ICONS: Record<string, string> = {
@@ -17,11 +53,17 @@ const NAV_ICONS: Record<string, string> = {
 }
 
 const navItems = computed(() =>
-  routes.map((route) => ({
-    title: String(route.meta?.title ?? route.name),
-    to: route.path,
-    icon: NAV_ICONS[route.path] ?? 'mdi-chevron-right'
+  routes.map((page, index) => ({
+    title: String(page.meta?.title ?? page.name),
+    to: page.path,
+    icon: NAV_ICONS[page.path] ?? 'mdi-chevron-right',
+    shortcut: `${modifier} ${index + 1}`
   }))
+)
+
+/** The page that is open, so the title bar says where you are. */
+const pageTitle = computed(
+  () => String(routes.find((page) => page.path === route.path)?.meta?.title ?? 'MC Launcher')
 )
 
 /** The game itself, when a process is alive. */
@@ -43,6 +85,71 @@ async function stop(): Promise<void> {
     // The composable already put the message in the snackbar.
   }
 }
+
+/** Asks the window whether it is maximized, which is what the icon shows. */
+async function refreshMaximized(): Promise<void> {
+  try {
+    maximized.value = (await windowApi.isMaximized()).maximized
+  } catch {
+    // A window that cannot answer leaves the icon as it is.
+  }
+}
+
+async function toggleMaximize(): Promise<void> {
+  try {
+    const result = await windowApi.maximize()
+    maximized.value = result.maximized
+  } catch {
+    await refreshMaximized()
+  }
+}
+
+/** Typing a shortcut into a field is text, not a command. */
+function isTyping(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null
+  if (!element) return false
+  return (
+    element.tagName === 'INPUT' ||
+    element.tagName === 'TEXTAREA' ||
+    element.tagName === 'SELECT' ||
+    element.isContentEditable
+  )
+}
+
+/**
+ * The keyboard, which the shell had none of: Ctrl/Cmd and a number for a page,
+ * Ctrl/Cmd and Enter to launch what is selected.
+ */
+function onKeydown(event: KeyboardEvent): void {
+  if (!event.ctrlKey && !event.metaKey) return
+  if (isTyping(event.target)) return
+
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    void launchSelected().catch(() => {
+      // The composable put the reason in the snackbar.
+    })
+    return
+  }
+
+  const index = Number(event.key)
+  if (!Number.isInteger(index) || index < 1 || index > routes.length) return
+  event.preventDefault()
+  void router.push(routes[index - 1].path)
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  // The window can also be maximized by its own title bar or the OS, so the icon
+  // is re-read whenever the window changes shape.
+  window.addEventListener('resize', refreshMaximized)
+  void refreshMaximized()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('resize', refreshMaximized)
+})
 </script>
 
 <template>
@@ -53,8 +160,8 @@ async function stop(): Promise<void> {
           <v-icon icon="mdi-cube-scan" />
         </v-avatar>
         <div class="app-bar__name">
-          <span>MC Launcher</span>
-          <small>Local profiles only</small>
+          <span>{{ pageTitle }}</span>
+          <small>MC Launcher, local profiles only</small>
         </div>
       </div>
 
@@ -91,7 +198,12 @@ async function stop(): Promise<void> {
 
       <div class="window-controls">
         <v-btn icon="mdi-window-minimize" variant="text" aria-label="Minimize" @click="windowApi.minimize()" />
-        <v-btn icon="mdi-window-maximize" variant="text" aria-label="Maximize" @click="windowApi.maximize()" />
+        <v-btn
+          :icon="maximized ? 'mdi-window-restore' : 'mdi-window-maximize'"
+          variant="text"
+          :aria-label="maximized ? 'Restore the window' : 'Maximize the window'"
+          @click="toggleMaximize()"
+        />
         <v-btn
           icon="mdi-close"
           variant="text"
@@ -111,7 +223,11 @@ async function stop(): Promise<void> {
           :title="item.title"
           :prepend-icon="item.icon"
           rounded="lg"
-        />
+        >
+          <template #append>
+            <span class="shortcut-hint">{{ item.shortcut }}</span>
+          </template>
+        </v-list-item>
       </v-list>
 
       <template #append>
@@ -186,5 +302,15 @@ async function stop(): Promise<void> {
 
 .window-controls__close:hover {
   color: rgb(var(--v-theme-error));
+}
+
+/* A shortcut nobody is told about is a shortcut nobody uses. */
+.shortcut-hint {
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  opacity: 0.5;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  padding: 1px 5px;
 }
 </style>

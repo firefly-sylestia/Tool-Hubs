@@ -125,6 +125,34 @@ export function detectWorldRoot(entryNames: string[]): string | null {
   return root
 }
 
+/**
+ * The worlds inside a backup of `saves/`.
+ *
+ * A backup taken here holds the whole folder, so its entries read
+ * `saves/<world>/level.dat` and one archive can carry several worlds. Only a
+ * folder with a `level.dat` of its own is a world: anything else in the archive
+ * is somebody else's file, and it is counted rather than unpacked. An archive
+ * that starts at the world itself, which is what an export makes, is read too.
+ */
+export function worldsInBackup(entryNames: string[]): { name: string; prefix: string }[] {
+  const files = entryNames
+    .map((name) => name.replace(/\\/g, '/'))
+    .filter((name) => name !== '' && !name.endsWith('/'))
+  // A backup writes `saves/`; an export does not. Everything in one archive is
+  // one or the other, so the common prefix is decided once.
+  const base = files.every((name) => name.startsWith('saves/')) ? 'saves/' : ''
+  const names = new Set<string>()
+  for (const file of files) {
+    const parts = file.slice(base.length).split('/')
+    if (parts.length !== 2) continue
+    const [name, level] = parts
+    if (name !== '' && level === 'level.dat') names.add(name)
+  }
+  return [...names]
+    .sort((left, right) => left.localeCompare(right))
+    .map((name) => ({ name, prefix: `${base}${name}/` }))
+}
+
 /** True when a file name is one the game would load as a world archive. */
 export function looksLikeWorldZip(name: string): boolean {
   return /\.(zip|mcworld)$/i.test(name)

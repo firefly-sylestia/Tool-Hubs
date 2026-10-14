@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { ModrinthHit, ModrinthProjectDetail, ModrinthVersion, ResourceKind } from '@shared/types'
-import { useLauncher } from '@renderer/composables/useLauncher'
+import type {
+  ModrinthHit,
+  ModrinthProjectDetail,
+  ModrinthStatus,
+  ModrinthVersion,
+  ResourceKind,
+  StoreInstall
+} from '@shared/types'
+import { describeError, useLauncher } from '@renderer/composables/useLauncher'
 
 /**
  * The store: Modrinth's catalogue, browsable without searching and searchable
@@ -20,9 +27,12 @@ const router = useRouter()
 const {
   instances,
   selectedInstance,
+  selectInstance,
+  modrinthStatus,
   modrinthSearch,
   modrinthVersions,
   modrinthProject,
+  storeInstalls,
   installFromModrinth,
   installModpackFromStore
 } = useLauncher()
@@ -60,6 +70,11 @@ const sorts = [
 const PAGE_SIZE = 20
 
 const kind = ref<StoreKind>('mod')
+/**
+ * Browsing the catalogue does not need an instance, and it does not need to obey
+ * the one that happens to be selected either, so both are switchable here.
+ */
+const anyVersion = ref(false)
 const query = ref('')
 const sort = ref('downloads')
 const hits = ref<ModrinthHit[]>([])
@@ -69,6 +84,42 @@ const loading = ref(false)
 const busy = ref(false)
 const note = ref<string | null>(null)
 const noteType = ref<'info' | 'success' | 'warning'>('info')
+/**
+ * Whether the last search failed rather than found nothing.
+ *
+ * "Nothing matched" and "Modrinth could not be reached" are different answers
+ * and only one of them is about the search, so the empty state has to know
+ * which one it is looking at.
+ */
+const failed = ref(false)
+const checking = ref(false)
+const status = ref<ModrinthStatus | null>(null)
+
+/** What the store has already put in the selected instance, keyed by project. */
+const installed = ref<StoreInstall[]>([])
+const installedFor = computed(() => {
+  const byProject = new Map<string, StoreInstall>()
+  for (const item of installed.value) byProject.set(item.projectId, item)
+  return byProject
+})
+
+/**
+ * Results are kept briefly, keyed by what was asked for, so switching tabs and
+ * coming back does not mean asking Modrinth the same question again.
+ */
+const CACHE_MS = 60_000
+const searchCache = new Map<string, { at: number; hits: ModrinthHit[]; totalHits: number }>()
+
+function cacheKey(): string {
+  return JSON.stringify({
+    query: query.value.trim(),
+    kind: kind.value,
+    sort: sort.value,
+    offset: offset.value,
+    instance: anyVersion.value ? null : (selectedInstance.value?.id ?? null),
+    anyVersion: anyVersion.value
+  })
+}
 
 const detail = reactive({
   open: false,
@@ -79,14 +130,50 @@ const detail = reactive({
 })
 
 const activeTab = computed(() => tabs.find((tab) => tab.value === kind.value) ?? tabs[0])
+
+/** Instances to filter by, and a way to have none selected at all. */
+const instanceOptions = computed(() => [
+  { value: '', title: 'No instance', subtitle: 'browse the whole catalogue' },
+  ...instances.value.map((instance) => ({
+    value: instance.id,
+    title: instance.name,
+    subtitle: instance.versionId ?? 'no version yet'
+  }))
+])
+
+function chooseInstance(value: string | null): void {
+  void selectInstance(value === null || value === '' ? null : value)
+}
+/** The detail dialog's own project, when it is one this instance already has. */
+const detailInstall = computed(() =>
+  detail.project ? (installedFor.value.get(detail.project.projectId) ?? null) : null
+)
 const kindLabel = computed(() => activeTab.value.title)
 /** A modpack is installed as an instance, so it needs no instance of its own. */
 const requiresInstance = computed(() => kind.value !== 'modpack')
 const readyToInstall = computed(() => !requiresInstance.value || selectedInstance.value !== null)
+/** True when the list is narrowed to the selected instance's version and loader. */
+const filtering = computed(
+  () => kind.value !== 'modpack' && selectedInstance.value !== null && !anyVersion.value
+)
 
 function report(message: string, type: 'info' | 'success' | 'warning' = 'info'): void {
   noteType.value = type
   note.value = message
+}
+
+/** What this instance already has from the store, so its cards can say so. */
+async function loadInstalled(): Promise<void> {
+  const instance = selectedInstance.value
+  if (!instance) {
+    installed.value = []
+    return
+  }
+  try {
+    installed.value = (await storeInstalls(instance.id)).items
+  } catch {
+    // Reported in the snackbar; the cards simply do not claim anything.
+  }
 }
 
 /**
@@ -95,23 +182,67 @@ function report(message: string, type: 'info' | 'success' | 'warning' = 'info'):
  * makes opening the store anything other than an empty box.
  */
 async function search(reset = true): Promise<void> {
-  loading.value = true
   if (reset) offset.value = 0
+  if (reset) note.value = null
+  failed.value = false
+  const key = cacheKey()
+  const cached = reset ? searchCache.get(key) : undefined
+  if (cached && Date.now() - cached.at < CACHE_MS) {
+    hits.value = cached.hits
+    totalHits.value = cached.totalHits
+    return
+  }
+
+  loading.value = true
   try {
     const result = await modrinthSearch({
       query: query.value.trim(),
       kind: kind.value,
       sort: sort.value,
       limit: PAGE_SIZE,
-      offset: offset.value
+      offset: offset.value,
+      anyVersion: anyVersion.value
     })
     hits.value = reset ? result.hits : [...hits.value, ...result.hits]
     totalHits.value = result.totalHits
-  } catch {
-    // Reported in the snackbar, and kept as a note here so the page says so.
-    report('Modrinth could not be reached. Check the connection and try again.', 'warning')
+    if (reset) searchCache.set(key, { at: Date.now(), hits: result.hits, totalHits: result.totalHits })
+  } catch (reason) {
+    // The reason, not a guess at it: a rate limit, a refused connection and a
+    // bad response all read the same otherwise, and only one of them is fixed by
+    // trying again.
+    failed.value = true
+    if (reset) hits.value = []
+    report(`Modrinth could not be reached: ${describeError(reason)}`, 'warning')
   } finally {
     loading.value = false
+  }
+}
+
+/**
+ * Asks Modrinth whether it answers, and reports what it said either way.
+ *
+ * This exists because "the store is empty" and "the store cannot reach the
+ * internet" look identical in the list, and a launcher that does not say which
+ * one it is leaves someone to guess.
+ */
+async function checkConnection(): Promise<void> {
+  checking.value = true
+  try {
+    status.value = await modrinthStatus()
+    if (status.value.reachable) {
+      report(
+        `Modrinth is answering: ${status.value.totalHits.toLocaleString()} projects, ` +
+          `replied in ${status.value.elapsedMs} ms.`,
+        'success'
+      )
+      await search()
+    } else {
+      report(`Modrinth could not be reached: ${status.value.error ?? 'no answer'}.`, 'warning')
+    }
+  } catch {
+    // Reported in the snackbar.
+  } finally {
+    checking.value = false
   }
 }
 
@@ -191,6 +322,7 @@ async function installResource(hit: ModrinthHit | null, versionId?: string): Pro
         (result.warnings.length > 0 ? ` ${result.warnings.join(' ')}` : ''),
       result.warnings.length > 0 ? 'warning' : 'success'
     )
+    await loadInstalled()
     detail.open = false
   } catch {
     // Reported in the snackbar.
@@ -222,12 +354,14 @@ function downloads(value: number): string {
 watch(
   () => selectedInstance.value?.id ?? null,
   () => {
-    // What fits the instance changes with it, so the list is looked up again.
+    // What fits the instance changes with it, and so does what it already has.
+    void loadInstalled()
     void search()
   }
 )
 
 onMounted(() => {
+  void loadInstalled()
   void search()
 })
 </script>
@@ -244,17 +378,26 @@ onMounted(() => {
           </p>
         </div>
         <v-chip
-          v-if="requiresInstance && selectedInstance"
+          v-if="filtering"
           class="state-chip"
           color="primary"
           variant="tonal"
           prepend-icon="mdi-cube-outline"
         >
-          fits {{ selectedInstance.name }}
+          fits {{ selectedInstance?.name }}
         </v-chip>
-        <v-chip v-else-if="requiresInstance" class="state-chip" color="warning" variant="tonal" prepend-icon="mdi-cube-off-outline">
-          no instance selected
+        <v-chip v-else class="state-chip" color="info" variant="tonal" prepend-icon="mdi-earth">
+          every version
         </v-chip>
+        <v-btn
+          variant="tonal"
+          size="small"
+          prepend-icon="mdi-lan-connect"
+          :loading="checking"
+          @click="checkConnection"
+        >
+          Check connection
+        </v-btn>
       </div>
 
       <v-tabs :model-value="kind" class="mt-4" density="comfortable" @update:model-value="switchTab">
@@ -262,6 +405,32 @@ onMounted(() => {
           {{ tab.title }}
         </v-tab>
       </v-tabs>
+
+      <!-- Browsing needs no instance, and does not have to obey the one that is
+           selected, so both are choices here rather than somewhere else. -->
+      <div class="d-flex ga-3 align-center flex-wrap mt-4">
+        <v-select
+          :items="instanceOptions"
+          item-title="title"
+          item-value="value"
+          label="Install into"
+          prepend-inner-icon="mdi-cube-outline"
+          :model-value="selectedInstance?.id ?? ''"
+          density="comfortable"
+          hide-details
+          class="instance-field"
+          @update:model-value="chooseInstance"
+        />
+        <v-switch
+          v-model="anyVersion"
+          color="primary"
+          density="compact"
+          hide-details
+          label="Ignore its version"
+          :disabled="!selectedInstance || kind === 'modpack'"
+          @update:model-value="search()"
+        />
+      </div>
 
       <div class="d-flex ga-2 align-center flex-wrap mt-4">
         <v-text-field
@@ -287,28 +456,48 @@ onMounted(() => {
         <v-btn color="primary" prepend-icon="mdi-magnify" :loading="loading" @click="search()">Search</v-btn>
       </div>
 
-      <v-alert
-        v-if="requiresInstance && !selectedInstance"
-        type="warning"
-        variant="tonal"
-        class="mt-4"
-        prepend-icon="mdi-cube-off-outline"
-      >
-        Nothing is selected, so what you install has nowhere to go. Pick an instance, or install a
-        modpack, which arrives as its own instance.
+      <v-alert v-if="note" :type="noteType" variant="tonal" class="mt-4">
+        {{ note }}
         <template #append>
-          <v-btn size="small" variant="text" @click="router.push('/instances')">Choose an instance</v-btn>
+          <v-btn size="small" variant="text" prepend-icon="mdi-refresh" @click="search()">Try again</v-btn>
         </template>
       </v-alert>
-      <v-alert v-else-if="selectedInstance && requiresInstance" type="info" variant="tonal" class="mt-4">
-        Listing what fits <strong>{{ selectedInstance.name }}</strong>
-        ({{ selectedInstance.versionId ?? 'no version' }}<template
-          v-if="selectedInstance.loader && selectedInstance.loader !== 'vanilla'"
+
+      <p v-if="filtering" class="text-medium-emphasis text-body-2 mt-4 mb-0">
+        Listing what fits <strong>{{ selectedInstance?.name }}</strong>
+        ({{ selectedInstance?.versionId ?? 'no version' }}<template
+          v-if="selectedInstance?.loader && selectedInstance.loader !== 'vanilla'"
         >, {{ selectedInstance.loader }}</template
         >). Files are installed into that instance.
-      </v-alert>
+      </p>
+      <p v-else class="text-medium-emphasis text-body-2 mt-4 mb-0">
+        Listing every version of every {{ kind === 'modpack' ? 'pack' : kindLabel.toLowerCase() }}. Turn
+        <strong>Ignore its version</strong> off to see only what fits an instance.
+      </p>
 
-      <v-alert v-if="note" :type="noteType" variant="tonal" class="mt-4">{{ note }}</v-alert>
+      <v-alert
+        v-if="requiresInstance && !selectedInstance"
+        type="info"
+        variant="tonal"
+        class="mt-4"
+        prepend-icon="mdi-information-outline"
+      >
+        <p class="mb-2">
+          <strong>No instance selected</strong>, so this is the whole catalogue: nothing is filtered.
+          Installing needs an instance to put the files in.
+        </p>
+        <p class="mb-2">
+          Pick one above, or use the Modpacks tab, which arrives as its own instance.
+        </p>
+        <v-btn
+          size="small"
+          variant="tonal"
+          prepend-icon="mdi-cube-outline"
+          @click="router.push('/instances')"
+        >
+          Choose an instance
+        </v-btn>
+      </v-alert>
     </v-card-text>
   </v-card>
 
@@ -343,6 +532,15 @@ onMounted(() => {
           </div>
           <p class="mt-3 mb-2 result-card__description">{{ hit.description }}</p>
           <div class="d-flex flex-wrap ga-1">
+            <v-chip
+              v-if="installedFor.get(hit.projectId)"
+              size="small"
+              color="success"
+              variant="tonal"
+              prepend-icon="mdi-check-circle"
+            >
+              In {{ selectedInstance?.name ?? 'this instance' }}
+            </v-chip>
             <v-chip v-for="loader in hit.loaders" :key="loader" size="small" variant="tonal">
               {{ loader }}
             </v-chip>
@@ -375,6 +573,19 @@ onMounted(() => {
     </v-col>
   </v-row>
 
+  <!-- A failed request and an empty result are different answers, so the page
+       does not report one as the other. -->
+  <div v-else-if="failed" class="text-center py-10">
+    <v-icon icon="mdi-lan-disconnect" size="40" class="text-medium-emphasis" />
+    <p class="text-medium-emphasis mt-3 mb-0">
+      Modrinth did not answer, so there is nothing to list. The message above says what it said when
+      it did not.
+    </p>
+    <v-btn class="mt-3" variant="tonal" prepend-icon="mdi-refresh" :loading="loading" @click="search()">
+      Try again
+    </v-btn>
+  </div>
+
   <div v-else class="text-center py-10">
     <v-icon icon="mdi-magnify-close" size="40" class="text-medium-emphasis" />
     <p class="text-medium-emphasis mt-3 mb-0">
@@ -400,6 +611,9 @@ onMounted(() => {
         </v-avatar>
         <span>{{ detail.project?.title ?? 'Project' }}</span>
         <v-spacer />
+        <v-chip v-if="detailInstall" size="small" color="success" variant="tonal" prepend-icon="mdi-check-circle">
+          {{ detailInstall.versionNumber }}
+        </v-chip>
         <v-chip size="small" variant="tonal">{{ detail.project?.projectType }}</v-chip>
       </v-card-title>
       <v-card-text>
@@ -549,6 +763,11 @@ onMounted(() => {
 
 .sort-field {
   flex: 0 1 190px;
+}
+
+.instance-field {
+  flex: 0 1 320px;
+  min-width: 240px;
 }
 
 .result-card__description {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import type { JavaStatus } from '@shared/types'
+import type { JavaStatus, ThemeChoice } from '@shared/types'
 import { useLauncher, type DetectedJava } from '@renderer/composables/useLauncher'
 
 const {
@@ -11,6 +11,7 @@ const {
   detectJava,
   javaStatus,
   installJava,
+  pickFolder,
   pickFiles
 } = useLauncher()
 
@@ -19,8 +20,32 @@ const form = reactive({
   javaPath: '',
   maxMemoryMb: 4096,
   width: 1280,
-  height: 720
+  height: 720,
+  theme: 'system' as ThemeChoice
 })
+
+/**
+ * The themes on offer, and the one the window is painting.
+ *
+ * A theme is a choice and not a saved value, so it is applied as it is picked
+ * rather than waiting for Save: nothing is worse than a theme you cannot see
+ * until you have committed to it.
+ */
+const themeOptions = [
+  { value: 'system', title: 'Follow the desktop', icon: 'mdi-theme-light-dark' },
+  { value: 'light', title: 'Light', icon: 'mdi-white-balance-sunny' },
+  { value: 'dark', title: 'Dark', icon: 'mdi-weather-night' }
+]
+
+async function chooseTheme(value: unknown): Promise<void> {
+  const choice: ThemeChoice = value === 'light' || value === 'dark' ? value : 'system'
+  form.theme = choice
+  try {
+    await saveSettings({ theme: choice })
+  } catch {
+    // Surfaced by the composable.
+  }
+}
 const saved = ref(false)
 const found = ref<DetectedJava[]>([])
 const status = ref<JavaStatus | null>(null)
@@ -39,6 +64,27 @@ const hasTheRuntime = computed(() =>
   (status.value?.installed ?? []).some((runtime) => runtime.component === status.value?.component)
 )
 
+/**
+ * Automatic, the runtimes this machine has, and anything set by hand.
+ *
+ * A text field for a path was the wrong shape for this: the launcher can find
+ * Java itself, so the choice is which of the ones it found, or none.
+ */
+const javaItems = computed(() => {
+  const items = [
+    { value: '', title: 'Automatic', subtitle: 'the runtime this version asks for' },
+    ...found.value.map((java) => ({
+      value: java.path,
+      title: `Java ${java.major ?? 'unknown'}`,
+      subtitle: `${java.source} · ${java.path}`
+    }))
+  ]
+  if (form.javaPath !== '' && !items.some((item) => item.value === form.javaPath)) {
+    items.push({ value: form.javaPath, title: 'Set by hand', subtitle: form.javaPath })
+  }
+  return items
+})
+
 watch(
   settings,
   (value) => {
@@ -48,6 +94,7 @@ watch(
     form.maxMemoryMb = value.maxMemoryMb
     form.width = value.width
     form.height = value.height
+    form.theme = value.theme
   },
   { immediate: true }
 )
@@ -131,12 +178,15 @@ async function downloadJava(): Promise<void> {
 }
 
 async function browseJava(): Promise<void> {
-  const picked = await pickFiles()
+  // A Java binary is not a mod: the picker has to offer everything.
+  const picked = await pickFiles(true)
   if (picked.paths[0]) form.javaPath = picked.paths[0]
 }
 
-function useDetected(java: DetectedJava): void {
-  form.javaPath = java.path
+/** The folder picker, which is what choosing a path should be. */
+async function chooseInstancesDir(): Promise<void> {
+  const picked = await pickFolder()
+  if (picked.path) form.instancesDir = picked.path
 }
 
 onMounted(() => {
@@ -151,12 +201,47 @@ onMounted(() => {
       Settings
     </v-card-title>
     <v-card-text>
-      <v-text-field
-        v-model="form.instancesDir"
-        label="Instances folder"
-        hint="Where new instances are created. An imported one keeps the path you picked for it."
-        persistent-hint
-      />
+      <h3 class="text-h6 mb-2">Appearance</h3>
+      <div class="d-flex flex-wrap ga-3 align-center">
+        <v-btn-toggle
+          :model-value="form.theme"
+          mandatory
+          divided
+          variant="tonal"
+          @update:model-value="chooseTheme"
+        >
+          <v-btn
+            v-for="option in themeOptions"
+            :key="option.value"
+            :value="option.value"
+            :prepend-icon="option.icon"
+          >
+            {{ option.title }}
+          </v-btn>
+        </v-btn-toggle>
+      </div>
+      <p class="text-medium-emphasis text-body-2 mt-2 mb-0">
+        <strong>Follow the desktop</strong> changes with the system while the launcher is open, which
+        is why it is the default. Surfaces are translucent and rounded, so what is behind the window
+        still shows through it a little.
+      </p>
+
+      <v-divider class="my-6" />
+
+      <h3 class="text-h6 mb-2">Instances</h3>
+      <div class="d-flex ga-2 align-center">
+        <v-text-field
+          v-model="form.instancesDir"
+          label="Instances folder"
+          prepend-inner-icon="mdi-folder-outline"
+          hint="Where new instances are created. An imported one keeps the path you picked for it."
+          persistent-hint
+          readonly
+        />
+        <v-btn variant="tonal" prepend-icon="mdi-folder-search-outline" @click="chooseInstancesDir">
+          Choose
+        </v-btn>
+      </div>
 
       <v-divider class="my-6" />
 
@@ -211,60 +296,49 @@ onMounted(() => {
       <v-divider class="my-6" />
 
       <p class="text-medium-emphasis">
-        Or point the launcher at a Java you already have. Only needed if you want a specific one:
-        what is found below is used automatically.
+        Which Java this instance runs. Automatic uses the runtime inside the instance, then one of the
+        ones this machine has, and downloads Mojang's for the version if none of them is new enough.
       </p>
-      <v-text-field
-        v-model="form.javaPath"
-        label="Java binary (optional)"
-        hint="Absolute path to java. Empty means the launcher finds one, or downloads Mojang's."
-        persistent-hint
-        class="mt-2"
-      >
-        <template #append>
-          <v-btn size="small" variant="text" @click="browseJava">Browse</v-btn>
-        </template>
-      </v-text-field>
-
-      <v-btn
-        class="mt-4"
-        :loading="findingJava"
-        variant="tonal"
-        prepend-icon="mdi-magnify"
-        @click="findJava"
-      >
-        Find Java on this machine
-      </v-btn>
-      <v-list v-if="found.length > 0" density="comfortable" class="mt-2 app-stagger">
-        <v-list-item
-          v-for="java in found"
-          :key="java.path"
-          :title="`Java ${java.major ?? 'unknown'}`"
-          :subtitle="`${java.path} · ${java.source}`"
+      <div class="d-flex ga-2 align-center mt-2">
+        <v-select
+          v-model="form.javaPath"
+          :items="javaItems"
+          item-title="title"
+          item-value="value"
+          label="Java runtime"
+          prepend-inner-icon="mdi-coffee-outline"
+          density="comfortable"
+          hide-details
+          class="flex-grow-1"
+        />
+        <v-btn variant="tonal" prepend-icon="mdi-folder-open-outline" @click="browseJava">Browse</v-btn>
+        <v-btn
+          variant="tonal"
+          prepend-icon="mdi-magnify"
+          :loading="findingJava"
+          @click="findJava"
         >
-          <template #prepend>
-            <div class="row-icon row-icon--primary"><v-icon icon="mdi-coffee" size="20" /></div>
-          </template>
-          <template #append>
-            <v-btn
-              size="small"
-              variant="tonal"
-              :prepend-icon="form.javaPath === java.path ? 'mdi-check' : 'mdi-arrow-right'"
-              :disabled="form.javaPath === java.path"
-              @click="useDetected(java)"
-            >
-              {{ form.javaPath === java.path ? 'Selected' : 'Use' }}
-            </v-btn>
-          </template>
-        </v-list-item>
-      </v-list>
+          Find
+        </v-btn>
+      </div>
 
       <v-alert v-if="javaNote" type="info" variant="tonal" class="mt-4">{{ javaNote }}</v-alert>
 
       <v-divider class="my-6" />
 
-      <v-text-field v-model.number="form.maxMemoryMb" label="Maximum memory (MB)" type="number" />
-      <v-row class="mt-2">
+      <h3 class="text-h6 mb-2">Defaults</h3>
+      <p class="text-medium-emphasis mb-4">
+        What a new instance starts with. An instance can be given its own memory on the Instances page,
+        under <strong>Options</strong>, and its own Java under <strong>Java</strong> above.
+      </p>
+      <v-text-field
+        v-model.number="form.maxMemoryMb"
+        label="Maximum memory (MB)"
+        type="number"
+        hint="The -Xmx every instance gets unless it has been given its own."
+        persistent-hint
+      />
+      <v-row class="mt-4">
         <v-col cols="6">
           <v-text-field v-model.number="form.width" label="Window width" type="number" />
         </v-col>

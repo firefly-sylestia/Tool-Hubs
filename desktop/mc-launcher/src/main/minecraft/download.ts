@@ -35,6 +35,25 @@ export interface DownloadRequest {
 
 export type FetchLike = (url: string, init?: { headers?: Record<string, string> }) => Promise<Response>
 
+/**
+ * The fetch every request falls back to, which the app overrides at start-up.
+ *
+ * Node's own `fetch` neither reads the desktop's proxy settings nor trusts the
+ * certificates it does, so behind a corporate proxy every request fails with a
+ * connection error and no hint why. Electron's `net.fetch` does read both, and
+ * the main process installs it here before any service runs. Tests keep the
+ * Node default, which is why this is a setter rather than an import.
+ */
+let systemFetchImpl: FetchLike = (url, init) => fetch(url, init)
+
+export function setSystemFetch(impl: FetchLike): void {
+  systemFetchImpl = impl
+}
+
+export function systemFetch(): FetchLike {
+  return systemFetchImpl
+}
+
 export interface DownloadProgress {
   /** Files finished, including ones that were already present and verified. */
   completed: number
@@ -180,7 +199,7 @@ export async function downloadFile(
   request: DownloadRequest,
   options: { fetchImpl?: FetchLike; onBytes?: (delta: number) => void; retries?: number } = {}
 ): Promise<SingleResult> {
-  const fetchImpl = options.fetchImpl ?? ((url, init) => fetch(url, init))
+  const fetchImpl = options.fetchImpl ?? systemFetch()
   const retries = options.retries ?? DEFAULT_RETRIES
 
   if (await isFileValid(request.dest, request.sha1, request.sha512)) return { bytes: 0, reused: true }
@@ -260,7 +279,7 @@ export async function fetchJson<T>(
   url: string,
   options: { fetchImpl?: FetchLike; retries?: number; headers?: Record<string, string> } = {}
 ): Promise<T> {
-  const fetchImpl = options.fetchImpl ?? ((target, init) => fetch(target, init))
+  const fetchImpl = options.fetchImpl ?? systemFetch()
   const retries = options.retries ?? DEFAULT_RETRIES
   const init = options.headers ? { headers: options.headers } : undefined
   let lastError: Error | null = null

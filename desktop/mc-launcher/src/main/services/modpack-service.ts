@@ -18,6 +18,7 @@ import {
   parseModrinthIndex,
   type ModpackPlan
 } from '../minecraft/modpack'
+import { baseGameVersion } from '../minecraft/version-id'
 import { extractZip, listZipEntries, readZipEntry } from '../minecraft/zip'
 import { writeZip, type ZipEntrySource } from '../minecraft/zip-writer'
 import type { InstanceService } from './instance-service'
@@ -277,24 +278,6 @@ function walkIncluded(root: string): string[] {
   }
   visit(root)
   return found
-}
-
-/**
- * The game version a pack's index should name.
- *
- * The instance's version id may be a loader profile, such as
- * `fabric-loader-0.16.9-1.21.4`, and an importer needs the game underneath it
- * rather than the loader that sits on top. Both ends of that id are version
- * numbers, so the game is taken as the last run of segments that starts one; a
- * plain `1.21.4-pre1` therefore keeps its pre-release suffix.
- */
-export function baseGameVersion(versionId: string): string | null {
-  if (versionId === '') return null
-  const segments = versionId.split('-')
-  for (let index = segments.length - 1; index >= 0; index -= 1) {
-    if (/^\d+(\.\d+)+/.test(segments[index])) return segments.slice(index).join('-')
-  }
-  return null
 }
 
 /** A file name from a pack name, so an export lands next to its own kind. */

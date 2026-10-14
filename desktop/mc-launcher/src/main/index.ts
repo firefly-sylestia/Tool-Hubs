@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { BrowserWindow, app, ipcMain, shell } from 'electron'
+import { BrowserWindow, app, ipcMain, net, shell } from 'electron'
 import { IPC, type ServiceCallMessage } from '@shared/ipc'
 import type {
   GameInstance,
@@ -30,6 +30,7 @@ import { ServerService } from './services/server-service'
 import { SettingsService } from './services/settings-service'
 import { STATE_FILE, StateStore, defaultState } from './services/state-store'
 import { TaskService } from './services/task-service'
+import { setSystemFetch } from './minecraft/download'
 import { resolveVersionChain } from './minecraft/version-json'
 import { WindowController } from './window-controller'
 
@@ -142,7 +143,11 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
       const input = instanceInput(params)
       return instances.update(input.id, input.patch)
     },
-    select: (params) => instances.select(as<{ id: string }>(params).id),
+    select: (params) => {
+      const input = as<{ id: string | null }>(params)
+      // Nothing selected is a state the store uses to browse the whole catalogue.
+      return input.id === null ? instances.clearSelection() : instances.select(input.id)
+    },
     remove: (params) => instances.remove(as<{ id: string }>(params).id, as<{ deleteFiles?: boolean }>(params)),
     resources: (params) => instances.resources(as<{ instanceId?: string | null } | undefined>(params)?.instanceId),
     setResourceEnabled: (params) => {
@@ -186,11 +191,19 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
       )
   })
   registry.register('modrinth', {
+    /** Whether Modrinth answers at all, and what it said when it did not. */
+    status: () => modrinth.status(),
     search: (params) => modrinth.search(as<SearchInput>(params)),
-    versions: (params) => modrinth.versions(as<{ projectIdOrSlug: string; gameVersion?: string | null }>(params)),
+    versions: (params) =>
+      modrinth.versions(
+        as<{ projectIdOrSlug: string; gameVersion?: string | null; free?: boolean }>(params)
+      ),
     project: (params) => modrinth.project(as<{ projectIdOrSlug: string }>(params).projectIdOrSlug),
     install: (params) => modrinth.install(as<ModrinthInstallInput>(params)),
-    installModpack: (params) => modrinth.installModpack(as<{ projectId?: string | null }>(params))
+    installModpack: (params) => modrinth.installModpack(as<{ projectId?: string | null }>(params)),
+    /** What the store has already put in this instance, so the store can say so. */
+    installed: (params) =>
+      modrinth.installed(as<{ instanceId?: string | null } | undefined>(params) ?? {})
   })
   registry.register('java', {
     detect: () => java.detect(),
@@ -249,6 +262,10 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
         saves.backup({ instanceId: input?.instanceId, kind: input?.kind })
       )
     },
+    restoreBackup: (params) => {
+      const input = as<{ instanceId?: string | null; path: string }>(params)
+      return tasks.run('Restore a backup', () => saves.restoreBackup(input))
+    },
     exportWorld: (params) => {
       const input = as<{ instanceId?: string | null; folder: string; destDir: string }>(params)
       return tasks.run(`Export ${input.folder}`, () => saves.exportWorld(input))
@@ -306,7 +323,8 @@ function bootstrapServices(): { registry: ServiceRegistry; state: StateStore } {
     isMaximized: () => windows.isMaximized(),
     toggleDevTools: () => windows.toggleDevTools(),
     pickFolder: () => windows.pickFolder(),
-    pickFiles: () => windows.pickFiles(),
+    pickFiles: (params) =>
+      windows.pickFiles(undefined, as<{ any?: boolean } | undefined>(params) ?? {}),
     openPath: (params) => windows.openPath(as<{ path: string }>(params))
   })
 
@@ -360,6 +378,12 @@ function registerIpc(registry: ServiceRegistry, state: StateStore): void {
 }
 
 app.whenReady().then(() => {
+  // Everything that reaches the network goes through Electron's stack rather
+  // than Node's: it follows the desktop's proxy settings and trusts its
+  // certificate store, which is the difference between Modrinth answering and
+  // every request failing behind a proxy.
+  setSystemFetch((url, init) => net.fetch(url, init) as Promise<Response>)
+
   const { registry, state } = bootstrapServices()
   registerIpc(registry, state)
   createWindow()

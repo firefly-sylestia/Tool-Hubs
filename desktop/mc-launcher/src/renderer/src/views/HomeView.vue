@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import type { LaunchPlan, TaskRecord } from '@shared/types'
+import type { LaunchPlan, Profile, TaskRecord } from '@shared/types'
 import { useLauncher } from '@renderer/composables/useLauncher'
 
 const router = useRouter()
@@ -14,16 +14,25 @@ const {
   runningProfileId,
   tasks,
   createProfile,
+  updateProfile,
+  removeProfile,
   selectProfile,
   selectInstance,
   openPath,
-  startLaunch,
+  launchSelected,
   stopLaunch,
   planLaunch
 } = useLauncher()
 
 const newName = ref('')
 const busy = ref(false)
+const note = ref<string | null>(null)
+const noteType = ref<'info' | 'success' | 'warning'>('info')
+
+/** Renaming and removing a profile, which the page used to only be able to add to. */
+const renameOpen = ref(false)
+const renameName = ref('')
+const removeOpen = ref(false)
 const plan = ref<LaunchPlan | null>(null)
 const showPlan = ref(false)
 const copied = ref(false)
@@ -81,7 +90,8 @@ const instanceLine = computed(() => {
   if (!instance) return 'Create an instance to give the game a folder of its own.'
   const version = instance.versionId ?? 'no version installed yet'
   const loader = instance.loader && instance.loader !== 'vanilla' ? ` · ${instance.loader}` : ''
-  return `${version}${loader} · ${instance.dir}`
+  const played = instance.lastPlayedAt ? ` · ${playedLine(instance.lastPlayedAt)}` : ''
+  return `${version}${loader}${played} · ${instance.dir}`
 })
 
 const launchLabel = computed(() => {
@@ -91,6 +101,62 @@ const launchLabel = computed(() => {
   if (!selectedProfile.value) return 'No profile'
   return 'Launch'
 })
+
+/** When a profile was last used, which is what tells two of them apart. */
+function playedLine(value: string | null): string {
+  return value ? `last played ${value.slice(0, 10)}` : 'never played'
+}
+
+function profileProps(profile: Profile): { subtitle: string } {
+  return { subtitle: playedLine(profile.lastPlayedAt) }
+}
+
+function openRename(): void {
+  const profile = selectedProfile.value
+  if (!profile) return
+  renameName.value = profile.name
+  renameOpen.value = true
+}
+
+function report(message: string, type: 'info' | 'success' | 'warning' = 'info'): void {
+  noteType.value = type
+  note.value = message
+}
+
+async function renameProfile(): Promise<void> {
+  const profile = selectedProfile.value
+  const name = renameName.value.trim()
+  if (!profile || name === '') return
+  busy.value = true
+  try {
+    const updated = await updateProfile(profile.id, { name })
+    renameOpen.value = false
+    report(
+      `Renamed to ${updated.name}. The offline UUID is derived from the name, so it changed with it: ` +
+        `a server that already knows the old one will see a new player.`,
+      'success'
+    )
+  } catch {
+    // Reported in the snackbar, which keeps the dialog open to be corrected.
+  } finally {
+    busy.value = false
+  }
+}
+
+async function deleteProfile(): Promise<void> {
+  const profile = selectedProfile.value
+  if (!profile) return
+  busy.value = true
+  try {
+    await removeProfile(profile.id)
+    removeOpen.value = false
+    report(`Removed ${profile.name}. Instances, worlds and files are untouched.`, 'success')
+  } catch {
+    // Reported in the snackbar.
+  } finally {
+    busy.value = false
+  }
+}
 
 function selectProfileById(id: string | null): void {
   void selectProfile(id)
@@ -135,14 +201,12 @@ async function copyUuid(): Promise<void> {
 }
 
 async function launch(): Promise<void> {
-  const profile = selectedProfile.value
-  const instance = selectedInstance.value
-  if (!profile || !instance || !canLaunch.value) return
+  if (!canLaunch.value) return
   spinning.value = true
   busy.value = true
   if (ticker === null) ticker = setInterval(() => (now.value = Date.now()), 1000)
   try {
-    await startLaunch(profile.id, pendingServer.value?.id ?? null, instance.id)
+    await launchSelected()
   } catch {
     // Reported in the snackbar; the log holds the details.
   } finally {
@@ -231,10 +295,39 @@ onBeforeUnmount(() => {
                 item-value="id"
                 label="Profile"
                 prepend-inner-icon="mdi-account-outline"
+                :item-props="profileProps"
                 :model-value="selectedProfile?.id ?? null"
                 hide-details
                 @update:model-value="selectProfileById"
-              />
+              >
+                <template #append>
+                  <v-menu location="bottom end">
+                    <template #activator="{ props: activatorProps }">
+                      <v-btn
+                        icon="mdi-dots-vertical"
+                        variant="text"
+                        size="small"
+                        aria-label="Profile actions"
+                        :disabled="!selectedProfile"
+                        v-bind="activatorProps"
+                      />
+                    </template>
+                    <v-list density="compact">
+                      <v-list-item
+                        title="Rename this profile"
+                        prepend-icon="mdi-rename-outline"
+                        @click="openRename()"
+                      />
+                      <v-list-item
+                        title="Remove this profile"
+                        prepend-icon="mdi-trash-can-outline"
+                        :disabled="isRunning"
+                        @click="removeOpen = true"
+                      />
+                    </v-list>
+                  </v-menu>
+                </template>
+              </v-select>
             </v-col>
           </v-row>
 
@@ -265,6 +358,8 @@ onBeforeUnmount(() => {
               @click="copyUuid"
             />
           </div>
+
+          <v-alert v-if="note" :type="noteType" variant="tonal" class="mt-4">{{ note }}</v-alert>
 
           <div class="d-flex ga-2 align-center mt-4">
             <v-text-field
@@ -437,6 +532,67 @@ onBeforeUnmount(() => {
       <v-card-actions>
         <v-spacer />
         <v-btn @click="showPlan = false">Close</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-dialog v-model="renameOpen" max-width="440">
+    <v-card>
+      <v-card-title class="d-flex align-center ga-2">
+        <v-icon icon="mdi-rename-outline" size="small" />
+        Rename {{ selectedProfile?.name }}
+      </v-card-title>
+      <v-card-text>
+        <v-text-field
+          v-model="renameName"
+          label="Profile name"
+          hint="3-16 characters: letters, numbers and underscores."
+          persistent-hint
+          autofocus
+          @keyup.enter="renameProfile"
+        />
+        <p class="text-medium-emphasis mt-4 mb-0">
+          The offline UUID is derived from this name, so renaming changes the identity the game
+          reports: a server that already knows the old one sees a new player with none of the old
+          one's progress.
+        </p>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="renameOpen = false">Cancel</v-btn>
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-check"
+          :disabled="busy || renameName.trim() === '' || renameName.trim() === selectedProfile?.name"
+          @click="renameProfile"
+        >
+          Rename
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-dialog v-model="removeOpen" max-width="440">
+    <v-card>
+      <v-card-title class="d-flex align-center ga-2">
+        <v-icon icon="mdi-trash-can-outline" size="small" color="error" />
+        Remove {{ selectedProfile?.name }}
+      </v-card-title>
+      <v-card-text>
+        <p class="mb-2">
+          The profile is only an identity, so this removes the name and stops anything playing as it.
+          The instance it was playing, its worlds and its files are untouched.
+        </p>
+        <p v-if="isRunning" class="text-warning mb-0">
+          The game is running as this profile. Stop it first.
+        </p>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="removeOpen = false">Cancel</v-btn>
+        <v-btn color="error" prepend-icon="mdi-trash-can-outline" :disabled="busy || isRunning" @click="deleteProfile">
+          Remove
+        </v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>

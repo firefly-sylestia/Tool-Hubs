@@ -1,7 +1,9 @@
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type {
+  GameInstance,
   InstallLoader,
+  ModrinthStatus,
   ModpackImportResult,
   ModrinthInstallResult,
   ModrinthInstalledItem,
@@ -9,7 +11,9 @@ import type {
   ModrinthProjectDetail,
   ModrinthSearch,
   ModrinthVersion,
-  ResourceKind
+  ResourceKind,
+  StoreInstall,
+  StoreInstalls
 } from '@shared/types'
 import { downloadAll, fetchJson, type FetchLike } from '../minecraft/download'
 import {
@@ -30,10 +34,47 @@ import {
   type SearchSort
 } from '../minecraft/modrinth'
 import { folderForKind } from '../minecraft/resources'
+import { baseGameVersion } from '../minecraft/version-id'
 import type { AppEnvironment } from './env'
 import type { InstanceService } from './instance-service'
 import type { ModpackService } from './modpack-service'
 import type { TaskService } from './task-service'
+
+/** Where an instance remembers what the store put in it, relative to its own root. */
+const INSTALL_RECORD = '.toolhubs/store.json'
+
+/**
+ * Reads that record, and treats one it cannot read as empty: the files are the
+ * source of truth, and the launcher does not get to claim what it cannot show.
+ */
+export function readStoreInstalls(instanceDir: string): StoreInstall[] {
+  const path = join(instanceDir, INSTALL_RECORD)
+  if (!existsSync(path)) return []
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as { installs?: StoreInstall[] }
+    return Array.isArray(parsed.installs) ? parsed.installs : []
+  } catch {
+    return []
+  }
+}
+
+export function writeStoreInstalls(instanceDir: string, installs: StoreInstall[]): void {
+  const dir = join(instanceDir, '.toolhubs')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'store.json'), `${JSON.stringify({ version: 1, installs }, null, 2)}\n`)
+}
+
+/**
+ * The installs that are still on disk.
+ *
+ * A file deleted by hand is not installed, whatever the record says: the store's
+ * markers are read against the folder they describe rather than believed.
+ */
+export function presentInstalls(instanceDir: string, installs: StoreInstall[]): StoreInstall[] {
+  return installs.filter((entry) =>
+    existsSync(join(instanceDir, folderForKind(entry.kind), entry.filename))
+  )
+}
 
 /** How deep a dependency chain is followed, so one project cannot fan out forever. */
 const DEPENDENCY_DEPTH = 3
@@ -47,6 +88,8 @@ export interface SearchInput {
   /** When omitted, the selected instance's version and loader are used. */
   gameVersion?: string | null
   loader?: InstallLoader | null
+  /** True to ignore the instance entirely and search the whole catalogue. */
+  anyVersion?: boolean
   sort?: SearchSort | null
   limit?: number
   offset?: number
@@ -90,17 +133,57 @@ export class ModrinthService {
     return await fetchJson<T>(url, { fetchImpl: this.options.fetchImpl, headers: this.headers })
   }
 
-  /** The instance supplies the game version and loader the search is filtered by. */
-  private target(input: { gameVersion?: string | null; loader?: InstallLoader | null }): {
+  /**
+   * The instance supplies the game version and loader the search is filtered by,
+   * unless the caller asked for everything: browsing a catalogue should not need
+   * an instance, and should be able to ignore the one that happens to be
+   * selected.
+   */
+  private target(input: {
+    gameVersion?: string | null
+    loader?: InstallLoader | null
+    anyVersion?: boolean
+  }): {
     instance: ReturnType<InstanceService['selected']>
     gameVersion: string | null
     loader: InstallLoader | null
   } {
-    const instance = this.instances.selected()
+    const instance = input.anyVersion ? null : this.instances.selected()
     return {
       instance,
-      gameVersion: input.gameVersion ?? instance?.versionId ?? null,
-      loader: input.loader ?? instance?.loader ?? null
+      gameVersion: input.anyVersion ? null : (input.gameVersion ?? gameVersionOf(instance)),
+      loader: input.anyVersion ? null : (input.loader ?? instance?.loader ?? null)
+    }
+  }
+
+  /**
+   * Whether Modrinth answers at all, and what it said when it did not.
+   *
+   * "Modrinth could not be reached" is not an answer anyone can act on: a
+   * refused connection, a proxy that will not pass the request and a rate limit
+   * all look the same from the outside, and only one of them is fixed by trying
+   * again. So this reports what came back instead of guessing, and the store
+   * shows it beside the button that caused it.
+   */
+  async status(): Promise<ModrinthStatus> {
+    const started = Date.now()
+    try {
+      const parsed = parseSearchResponse(
+        await this.json<unknown>(searchUrl({ query: '', kind: 'mod', limit: 1 }))
+      )
+      return {
+        reachable: true,
+        elapsedMs: Date.now() - started,
+        totalHits: parsed.totalHits,
+        error: null
+      }
+    } catch (reason) {
+      return {
+        reachable: false,
+        elapsedMs: Date.now() - started,
+        totalHits: 0,
+        error: (reason as Error).message
+      }
     }
   }
 
@@ -119,6 +202,22 @@ export class ModrinthService {
     )
     const folder = input.kind === 'modpack' ? 'a new instance' : folderForKind(input.kind)
     return { ...parseSearchResponse(payload), folder }
+  }
+
+  /**
+   * What the store has installed into an instance.
+   *
+   * The record is read against the disk: a file somebody deleted by hand is not
+   * reported as installed, so the store's markers cannot outlive the files they
+   * describe.
+   */
+  installed(input: { instanceId?: string | null }): StoreInstalls {
+    const instance = this.instances.require(input.instanceId)
+    return {
+      instanceId: instance.id,
+      dir: instance.dir,
+      items: presentInstalls(instance.dir, readStoreInstalls(instance.dir))
+    }
   }
 
   /** A project's own page, for the detail view. */
@@ -235,7 +334,15 @@ export class ModrinthService {
     const folder = join(instance.dir, folderForKind(input.kind))
     mkdirSync(folder, { recursive: true })
 
-    const gameVersion = instance.versionId
+    // The game version, not the id of the version json: a Fabric instance's id
+    // is `fabric-loader-0.16.9-1.21.4`, and no mod publishes a build for that.
+    const gameVersion = gameVersionOf(instance)
+    if (!gameVersion) {
+      throw new Error(
+        `Instance "${instance.name}" names no Minecraft version this can match against ` +
+          `(${instance.versionId}). Install a version in it, then add what you want.`
+      )
+    }
     const loader = instance.loader ?? null
     const installed: ModrinthInstalledItem[] = []
     const skippedDependencies: string[] = []
@@ -340,6 +447,8 @@ export class ModrinthService {
       this.warn(`Dependencies not installed: ${names.join(', ')}`)
     }
 
+    this.record(instance, input.kind, installed)
+
     report(1, 'Done')
     const dependencies = installed.filter((item) => item.dependency).length
     this.warn(
@@ -355,6 +464,37 @@ export class ModrinthService {
       skippedDependencies,
       warnings
     }
+  }
+
+  /**
+   * Remembers what this install put in the instance, keyed by project.
+   *
+   * It lives in a dot-folder inside the instance, which is where tools keep their
+   * own state: the game ignores it, and a pack exported from the instance leaves
+   * it behind because nothing starting with a dot is ever carried.
+   */
+  private record(
+    instance: GameInstance,
+    kind: ResourceKind,
+    items: ModrinthInstalledItem[]
+  ): void {
+    if (items.length === 0) return
+    const at = new Date().toISOString()
+    const written = new Set(items.map((item) => item.filename))
+    const kept = readStoreInstalls(instance.dir).filter(
+      (entry) => entry.kind !== kind || !written.has(entry.filename)
+    )
+    writeStoreInstalls(instance.dir, [
+      ...kept,
+      ...items.map((item) => ({
+        projectId: item.projectId,
+        title: item.title,
+        versionNumber: item.versionNumber,
+        filename: item.filename,
+        kind,
+        at
+      }))
+    ])
   }
 
   private noVersionMessage(
@@ -404,4 +544,16 @@ export class ModrinthService {
       return unique
     }
   }
+}
+
+/**
+ * The Minecraft version an instance plays, read off its version json's id.
+ *
+ * Null when the instance has no version at all, or one whose id names no game
+ * version: the store then browses the whole catalogue rather than filtering on
+ * something that matches nothing.
+ */
+function gameVersionOf(instance: { versionId: string | null } | null): string | null {
+  if (!instance?.versionId) return null
+  return baseGameVersion(instance.versionId)
 }

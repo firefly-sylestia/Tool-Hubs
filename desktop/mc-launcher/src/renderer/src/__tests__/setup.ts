@@ -24,7 +24,9 @@ if (!('visualViewport' in window)) {
   }
 }
 
-if (!('matchMedia' in window)) {
+// Checked as a function rather than as a property: jsdom advertises the name
+// without anything behind it, and the theme watcher calls it at mount.
+if (typeof (window as unknown as { matchMedia?: unknown }).matchMedia !== 'function') {
   ;(window as unknown as { matchMedia: unknown }).matchMedia = (query: string) => ({
     matches: false,
     media: query,

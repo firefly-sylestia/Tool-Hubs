@@ -37,6 +37,30 @@ export interface GameInstance {
   lastPlayedAt: string | null
   /** Extra JVM arguments for this instance, on top of the version json's and the global settings'. */
   jvmArgs: string[]
+  /**
+   * The Java binary this instance runs, or null to let Java be resolved.
+   *
+   * Per instance rather than one setting for everything is what the game
+   * actually needs: 1.12.2 wants Java 8 and 1.21 wants 21, and one machine
+   * often has both.
+   */
+  javaPath: string | null
+  /** This instance's own `-Xmx`, or null to use the launcher's default. */
+  maxMemoryMb: number | null
+}
+
+/**
+ * What the store's connection check found.
+ *
+ * `error` carries what the request itself said, which is the difference between
+ * a rate limit, a refused connection and a proxy that will not pass it.
+ */
+export interface ModrinthStatus {
+  reachable: boolean
+  elapsedMs: number
+  /** Total projects Modrinth reported, which is also proof it really answered. */
+  totalHits: number
+  error: string | null
 }
 
 /** A Java runtime the launcher can see, machine-wide or inside an instance. */
@@ -245,6 +269,25 @@ export interface WorldImportResult {
   files: number
   bytes: number
   source: string
+}
+
+/** One world put back out of a backup. */
+export interface RestoredWorld {
+  /** The folder name the backup held. */
+  name: string
+  /** Where it landed, which differs when that name was already taken. */
+  folder: string
+  files: number
+  bytes: number
+}
+
+export interface WorldRestoreResult {
+  instanceId: string
+  /** The backup that was read. */
+  path: string
+  worlds: RestoredWorld[]
+  /** Entries in the archive that are not part of any world. */
+  skipped: number
 }
 
 /** A game version offered by Mojang's manifest, as the install picker shows it. */
@@ -503,6 +546,32 @@ export interface ModrinthInstallResult {
   warnings: string[]
 }
 
+/**
+ * A file the store put in an instance, remembered by the project it came from.
+ *
+ * The store is a catalogue, and a catalogue that cannot say what you already
+ * have makes you open the folder to find out. This is written beside the
+ * instance rather than in the launcher's own state, because the files it
+ * describes are the instance's: delete the instance's folder and the record goes
+ * with it.
+ */
+export interface StoreInstall {
+  projectId: string
+  title: string
+  versionNumber: string
+  /** File name inside the instance, as written. */
+  filename: string
+  kind: ResourceKind
+  at: string
+}
+
+export interface StoreInstalls {
+  instanceId: string
+  dir: string
+  /** Only what is still on disk: a file deleted by hand is not installed. */
+  items: StoreInstall[]
+}
+
 export type TaskState = 'running' | 'succeeded' | 'failed'
 
 export interface TaskRecord {
@@ -523,7 +592,17 @@ export interface LauncherSettings {
   maxMemoryMb: number
   width: number
   height: number
+  /**
+   * Which theme the window paints, or `system` to follow the desktop.
+   *
+   * A launcher that stays dark on a light desktop reads as broken rather than
+   * deliberate, so following the desktop is the default and the two fixed
+   * themes are there for someone who wants what they asked for.
+   */
+  theme: ThemeChoice
 }
+
+export type ThemeChoice = 'system' | 'light' | 'dark'
 
 export interface LauncherState {
   profiles: Profile[]

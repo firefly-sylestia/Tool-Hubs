@@ -21,15 +21,18 @@ import type {
   ModrinthInstallResult,
   ModrinthProjectDetail,
   ModrinthSearch,
+  ModrinthStatus,
   ModrinthVersion,
   PackExportResult,
   Profile,
   RemoteVersion,
   ResourceKind,
+  WorldRestoreResult,
   SaveBackup,
   ServerEntry,
   ServerStatus,
   ServersDatResult,
+  StoreInstalls,
   TaskRecord,
   WorldExportResult,
   WorldImportResult
@@ -49,7 +52,7 @@ export interface DetectedJava {
 }
 
 /** Electron prefixes rejected invoke calls; keep the original message. */
-function cleanMessage(value: unknown): string {
+export function describeError(value: unknown): string {
   const raw = value instanceof Error ? value.message : String(value)
   const marker = raw.lastIndexOf('Error: ')
   return marker === -1 ? raw : raw.slice(marker + 'Error: '.length)
@@ -59,7 +62,7 @@ async function call<T>(service: string, method: string, params?: unknown): Promi
   try {
     return (await window.serviceChannels.call(service, method, params)) as T
   } catch (reason) {
-    error.value = cleanMessage(reason)
+    error.value = describeError(reason)
     throw reason
   }
 }
@@ -127,6 +130,8 @@ export function useLauncher() {
     updateProfile: (id: string, patch: Partial<Profile>) => call<Profile>('profile', 'update', { id, patch }),
     removeProfile: (id: string) => call<{ removed: string }>('profile', 'remove', { id }),
     selectProfile: (id: string | null) => call('profile', 'select', { id }),
+    /** Null clears the selection, which is how the store browses everything. */
+    selectInstance: (id: string | null) => call('instance', 'select', { id }),
 
     createInstance: (input: {
       name: string
@@ -136,7 +141,6 @@ export function useLauncher() {
     }) => call<GameInstance>('instance', 'create', input),
     updateInstance: (id: string, patch: Partial<GameInstance>) =>
       call<GameInstance>('instance', 'update', { id, patch }),
-    selectInstance: (id: string) => call<GameInstance>('instance', 'select', { id }),
     removeInstance: (id: string, deleteFiles = false) =>
       call<{ removed: string; deleted: boolean; dir: string }>('instance', 'remove', { id, deleteFiles }),
     importInstanceFolder: (path: string) =>
@@ -168,6 +172,9 @@ export function useLauncher() {
       call<InstanceSaves>('save', 'list', instanceId ? { instanceId } : undefined),
     backupWorlds: (kind: SaveBackup['kind'] = 'manual', instanceId?: string | null) =>
       call<SaveBackup>('save', 'backup', { instanceId, kind }),
+    /** A backup put back into `saves/`, beside whatever is already there. */
+    restoreWorldBackup: (input: { instanceId?: string | null; path: string }) =>
+      call<WorldRestoreResult>('save', 'restoreBackup', input),
     exportWorld: (input: { instanceId?: string | null; folder: string; destDir: string }) =>
       call<WorldExportResult>('save', 'exportWorld', input),
     importWorld: (input: { instanceId?: string | null; source: string }) =>
@@ -179,17 +186,24 @@ export function useLauncher() {
       call<PackExportResult>('modpack', 'export', input),
     importModpack: (path: string) => call<ModpackImportResult>('modpack', 'import', { path }),
 
+    /** Modrinth's own answer about whether it can be reached, and how fast. */
+    modrinthStatus: () => call<ModrinthStatus>('modrinth', 'status'),
     modrinthSearch: (input: {
       query: string
       kind: ResourceKind | 'modpack'
       sort?: string
       limit?: number
       offset?: number
+      /** Ignores the selected instance and searches the whole catalogue. */
+      anyVersion?: boolean
     }) => call<ModrinthSearch & { folder: string }>('modrinth', 'search', input),
     modrinthVersions: (projectIdOrSlug: string, free = false) =>
       call<ModrinthVersion[]>('modrinth', 'versions', { projectIdOrSlug, free }),
     modrinthProject: (projectIdOrSlug: string) =>
       call<ModrinthProjectDetail>('modrinth', 'project', { projectIdOrSlug }),
+    /** What the store has already installed into an instance. */
+    storeInstalls: (instanceId?: string | null) =>
+      call<StoreInstalls>('modrinth', 'installed', instanceId ? { instanceId } : undefined),
     installModpackFromStore: (input: { projectId?: string | null; versionId?: string | null }) =>
       call<ModpackImportResult>('modrinth', 'installModpack', input),
     installFromModrinth: (input: {
@@ -216,7 +230,8 @@ export function useLauncher() {
         component
       }),
     pickFolder: () => call<{ path: string | null }>('window', 'pickFolder'),
-    pickFiles: () => call<{ paths: string[] }>('window', 'pickFiles'),
+    /** `any` drops the jar/zip filter, which is what choosing a Java binary needs. */
+    pickFiles: (any = false) => call<{ paths: string[] }>('window', 'pickFiles', { any }),
     openPath: (path: string) => call<{ opened: boolean; error: string | null }>('window', 'openPath', { path }),
 
     addServer: (name: string, host: string, port: number) =>
@@ -240,6 +255,26 @@ export function useLauncher() {
       call<LaunchPlan>('launch', 'plan', { profileId, serverId, instanceId }),
     startLaunch: (profileId: string, serverId?: string | null, instanceId?: string | null) =>
       call<{ plan: LaunchPlan; pid: number }>('launch', 'start', { profileId, serverId, instanceId }),
+    /**
+     * Launches what is selected, guarded in one place.
+     *
+     * The Play page and the keyboard shortcut both come through here, so the two
+     * cannot drift into disagreeing about what a launch needs.
+     */
+    launchSelected: () => {
+      const profile = selectedProfile.value
+      const instance = selectedInstance.value
+      if (!profile) throw new Error('Create a profile first: a launch needs an identity.')
+      if (!instance) throw new Error('Create an instance first: a launch needs a game directory.')
+      if (!instance.versionId) {
+        throw new Error(`Instance "${instance.name}" has no version yet. Install one first.`)
+      }
+      return call<{ plan: LaunchPlan; pid: number }>('launch', 'start', {
+        profileId: profile.id,
+        serverId: pendingServer.value?.id ?? null,
+        instanceId: instance.id
+      })
+    },
     stopLaunch: () => call<{ stopped: boolean }>('launch', 'stop'),
     /** The game's own crash reports and log, read and diagnosed. */
     diagnostics: (instanceId?: string | null, name?: string | null) =>

@@ -67,7 +67,9 @@ export class LaunchService {
       instanceDir: instance.dir,
       component,
       requiredMajor,
-      explicitPath: snapshot.settings.javaPath,
+      // This instance's own choice first: 1.12.2 wants Java 8 on a machine whose
+      // other instances want 21, and the launcher's default cannot serve both.
+      explicitPath: instance.javaPath ?? snapshot.settings.javaPath,
       onProgress: (progress, message) => this.log.append('stdout', `${Math.round(progress * 100)}% ${message}`)
     })
 
@@ -82,7 +84,8 @@ export class LaunchService {
       launcherName: this.env.launcherName,
       launcherVersion: this.env.launcherVersion,
       javaPath: java.path,
-      extraJvmArgs: instance.jvmArgs ?? []
+      extraJvmArgs: instance.jvmArgs ?? [],
+      maxMemoryMb: instance.maxMemoryMb ?? null
     })
   }
 

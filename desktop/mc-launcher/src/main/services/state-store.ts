@@ -19,7 +19,8 @@ export function defaultState(instancesDir: string): LauncherState {
       javaPath: null,
       maxMemoryMb: 4096,
       width: 1280,
-      height: 720
+      height: 720,
+      theme: 'system'
     },
     tasks: [],
     installations: [],
@@ -63,16 +64,26 @@ export function migrateState(
         loaderVersion: null,
         createdAt: new Date().toISOString(),
         lastPlayedAt: null,
-        jvmArgs: []
+        jvmArgs: [],
+        javaPath: null,
+        maxMemoryMb: null
       }
     ]
     next.selectedInstanceId = next.instances[0].id
   }
 
-  // An instance from before per-instance JVM arguments simply has none.
+  // An instance from before per-instance JVM arguments simply has none, and one
+  // from before Java and memory became per-instance uses the launcher's own
+  // choices, which is what `null` means for both.
   for (const instance of next.instances) {
     if (!Array.isArray(instance.jvmArgs)) instance.jvmArgs = []
+    if (instance.javaPath === undefined) instance.javaPath = null
+    if (instance.maxMemoryMb === undefined) instance.maxMemoryMb = null
   }
+
+  // A state file from before the theme was a setting follows the desktop, which
+  // is what the app did then too.
+  if (next.settings.theme === undefined) next.settings.theme = 'system'
 
   // The old fields are gone from the types; drop them so a rewritten state file
   // does not keep carrying values nothing reads.
