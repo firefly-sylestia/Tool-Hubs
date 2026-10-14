@@ -115,7 +115,7 @@ export function resolveVersionChain(gameDir: string, id: string): ResolvedVersio
       if (chain.length === 0) {
         throw new Error(
           `Version ${currentId} is not installed: expected ${jsonPath}. ` +
-            `Install it from the Installed versions page, or with the official launcher, then rescan.`
+            `Install it from the Instances page, or with the official launcher, then rescan.`
         )
       }
       throw new Error(

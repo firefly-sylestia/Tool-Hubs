@@ -170,9 +170,15 @@ export class LaunchService {
 function explainSpawnFailure(error: Error, plan: LaunchPlan): string {
   const code = (error as NodeJS.ErrnoException).code
   if (code === 'ENOENT') {
+    // A resolved runtime that answered a moment ago and is gone now, or a plan
+    // that was built with no java path at all and fell back to the bare name.
+    const searched =
+      plan.javaPath.includes('/') || plan.javaPath.includes('\\')
+        ? 'It was found and then could not be started, so it may have been moved or removed.'
+        : 'It is not on PATH.'
     return (
-      `Java could not be started at "${plan.javaPath}", even though it answered earlier. ` +
-      `Set an explicit java path in Settings, or install a JDK 17 or newer.`
+      `Java could not be started at "${plan.javaPath}". ${searched} ` +
+      `Set the path to java in Settings, or install a JDK 17 or newer.`
     )
   }
   return `Java could not be started: ${error.message}`

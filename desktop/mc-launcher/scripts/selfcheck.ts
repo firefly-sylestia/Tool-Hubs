@@ -433,7 +433,7 @@ check('fails with an actionable message when natives are missing', () => {
         connect: null,
         ctx
       }),
-    'Install this version from the Installed versions page'
+    'Install this version from the Instances page'
   )
 })
 
