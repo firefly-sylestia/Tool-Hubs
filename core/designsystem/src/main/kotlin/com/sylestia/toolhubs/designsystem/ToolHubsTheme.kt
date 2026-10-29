@@ -35,55 +35,55 @@ import androidx.compose.ui.unit.sp
 const val ThemeTransitionMillis = 650
 
 // ── Daylight palette ─────────────────────────────────────────────────────────────────────────────
-private val DayCanvas = Color(0xFFF4F6F9)
+private val DayCanvas = Color(0xFFF8F5FC)
 private val DaySurface = Color(0xFFFFFFFF)
-private val DayInk = Color(0xFF0D1621)
-private val DayPrimary = Color(0xFF0E8F7E)
-private val DaySecondary = Color(0xFF3B54C4)
-private val DayTertiary = Color(0xFFB4661A)
+private val DayInk = Color(0xFF211A2B)
+private val DayPrimary = Color(0xFF6750A4)
+private val DaySecondary = Color(0xFFB3265E)
+private val DayTertiary = Color(0xFF805600)
 
 // ── Night palette ────────────────────────────────────────────────────────────────────────────────
-private val NightCanvas = Color(0xFF080B11)
-private val NightSurface = Color(0xFF10161F)
-private val NightInk = Color(0xFFE9EFF5)
-private val NightPrimary = Color(0xFF52E3C2)
-private val NightSecondary = Color(0xFFA9B8FF)
-private val NightTertiary = Color(0xFFF2B573)
+private val NightCanvas = Color(0xFF14111C)
+private val NightSurface = Color(0xFF1D1927)
+private val NightInk = Color(0xFFF1EAF8)
+private val NightPrimary = Color(0xFFD0BCFF)
+private val NightSecondary = Color(0xFFFFB1C8)
+private val NightTertiary = Color(0xFFE9C46A)
 
 private val LightScheme = lightColorScheme(
     primary = DayPrimary,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFBFF0E6),
-    onPrimaryContainer = Color(0xFF02322B),
-    inversePrimary = Color(0xFF52E3C2),
+    primaryContainer = Color(0xFFEADDFF),
+    onPrimaryContainer = Color(0xFF21005D),
+    inversePrimary = Color(0xFFD0BCFF),
 
     secondary = DaySecondary,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFDCE1FF),
-    onSecondaryContainer = Color(0xFF0B1746),
+    secondaryContainer = Color(0xFFFFD8E4),
+    onSecondaryContainer = Color(0xFF3E001D),
 
     tertiary = DayTertiary,
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFFFDDBB),
-    onTertiaryContainer = Color(0xFF3A1E00),
+    tertiaryContainer = Color(0xFFFFDDB3),
+    onTertiaryContainer = Color(0xFF271900),
 
     background = DayCanvas,
     onBackground = DayInk,
     surface = DaySurface,
     onSurface = DayInk,
-    surfaceVariant = Color(0xFFDCE3EA),
-    onSurfaceVariant = Color(0xFF46525E),
+    surfaceVariant = Color(0xFFE8DEF8),
+    onSurfaceVariant = Color(0xFF494454),
     surfaceTint = DayPrimary,
-    surfaceDim = Color(0xFFE2E7EC),
-    surfaceBright = Color(0xFFFBFCFD),
+    surfaceDim = Color(0xFFE7E0EC),
+    surfaceBright = Color(0xFFFFFBFF),
     surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFF7F9FB),
-    surfaceContainer = Color(0xFFEFF3F7),
-    surfaceContainerHigh = Color(0xFFE8EDF2),
-    surfaceContainerHighest = Color(0xFFE1E7EE),
+    surfaceContainerLow = Color(0xFFF3EDF7),
+    surfaceContainer = Color(0xFFECE6F0),
+    surfaceContainerHigh = Color(0xFFE6DDEC),
+    surfaceContainerHighest = Color(0xFFE1D7E8),
 
-    inverseSurface = Color(0xFF1C2733),
-    inverseOnSurface = Color(0xFFEFF3F7),
+    inverseSurface = Color(0xFF322F3A),
+    inverseOnSurface = Color(0xFFECE6F0),
 
     outline = Color(0xFF8B97A3),
     outlineVariant = Color(0xFFCFD7DF),
@@ -97,40 +97,40 @@ private val LightScheme = lightColorScheme(
 private val DarkScheme = darkColorScheme(
     primary = NightPrimary,
     onPrimary = Color(0xFF00372E),
-    primaryContainer = Color(0xFF0B4A41),
-    onPrimaryContainer = Color(0xFFB5F6E6),
-    inversePrimary = Color(0xFF0E8F7E),
+    primaryContainer = Color(0xFF4F378B),
+    onPrimaryContainer = Color(0xFFEADDFF),
+    inversePrimary = Color(0xFF6750A4),
 
     secondary = NightSecondary,
-    onSecondary = Color(0xFF12205C),
-    secondaryContainer = Color(0xFF2A3A80),
-    onSecondaryContainer = Color(0xFFDDE3FF),
+    onSecondary = Color(0xFF601D36),
+    secondaryContainer = Color(0xFF7D294A),
+    onSecondaryContainer = Color(0xFFFFD8E4),
 
     tertiary = NightTertiary,
-    onTertiary = Color(0xFF452B04),
-    tertiaryContainer = Color(0xFF5E3F13),
-    onTertiaryContainer = Color(0xFFFFE1BE),
+    onTertiary = Color(0xFF3D2E00),
+    tertiaryContainer = Color(0xFF5A4300),
+    onTertiaryContainer = Color(0xFFFFE8B3),
 
     background = NightCanvas,
     onBackground = NightInk,
     surface = NightSurface,
     onSurface = NightInk,
-    surfaceVariant = Color(0xFF27313D),
-    onSurfaceVariant = Color(0xFFACB9C6),
+    surfaceVariant = Color(0xFF342D40),
+    onSurfaceVariant = Color(0xFFCAC2D6),
     surfaceTint = NightPrimary,
-    surfaceDim = Color(0xFF0A0E15),
-    surfaceBright = Color(0xFF232D3A),
-    surfaceContainerLowest = Color(0xFF05080C),
-    surfaceContainerLow = Color(0xFF0D131B),
-    surfaceContainer = Color(0xFF121A24),
-    surfaceContainerHigh = Color(0xFF1A232F),
-    surfaceContainerHighest = Color(0xFF22303E),
+    surfaceDim = Color(0xFF100D17),
+    surfaceBright = Color(0xFF393144),
+    surfaceContainerLowest = Color(0xFF0F0C15),
+    surfaceContainerLow = Color(0xFF17131F),
+    surfaceContainer = Color(0xFF211B2A),
+    surfaceContainerHigh = Color(0xFF2A2335),
+    surfaceContainerHighest = Color(0xFF342B42),
 
-    inverseSurface = Color(0xFFE4EAF0),
-    inverseOnSurface = Color(0xFF10161F),
+    inverseSurface = Color(0xFFF1EAF8),
+    inverseOnSurface = Color(0xFF1D1927),
 
-    outline = Color(0xFF6C7885),
-    outlineVariant = Color(0xFF2C3846),
+    outline = Color(0xFF827A8D),
+    outlineVariant = Color(0xFF443A50),
     error = Color(0xFFFFB4AB),
     onError = Color(0xFF690005),
     errorContainer = Color(0xFF5C1A16),
@@ -160,10 +160,10 @@ data class HubAccents(
 )
 
 private val LightAccents = HubAccents(
-    auroraStart = Color(0xFF0E8F7E),
+    auroraStart = Color(0xFF6750A4),
     auroraMid = Color(0xFF3B54C4),
     auroraEnd = Color(0xFFB4661A),
-    glow = Color(0xFF0E8F7E),
+    glow = Color(0xFF6750A4),
     success = Color(0xFF1B7F5F),
     warning = Color(0xFFB4661A),
     danger = Color(0xFFB3261E),
@@ -176,16 +176,16 @@ private val LightAccents = HubAccents(
 )
 
 private val DarkAccents = HubAccents(
-    auroraStart = Color(0xFF52E3C2),
+    auroraStart = Color(0xFFD0BCFF),
     auroraMid = Color(0xFF8FA4FF),
     auroraEnd = Color(0xFFF2B573),
-    glow = Color(0xFF52E3C2),
+    glow = Color(0xFFD0BCFF),
     success = Color(0xFF63D9A6),
     warning = Color(0xFFF2B573),
     danger = Color(0xFFFF8F80),
     glassTop = Color(0xFF1A2431),
     glassBottom = Color(0xFF0F1720),
-    hairline = Color(0xFF2C3846),
+    hairline = Color(0xFF443A50),
     shadow = Color(0xFF000000),
     glowStrength = 0.22f,
     glassStrength = 1f,
