@@ -1825,7 +1825,7 @@ private fun DataPage(
                     text = "Check battery usage",
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
-                        runCatching { context.startActivity(Intent(AndroidSettings.ACTION_POWER_USAGE_SUMMARY)) }
+                        runCatching { context.startActivity(Intent(Intent.ACTION_POWER_USAGE_SUMMARY)) }
                     },
                 )
             }
