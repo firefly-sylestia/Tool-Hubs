@@ -89,37 +89,56 @@ fun SwitcherBottomNav(
     onSelect: (Int) -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
-    androidx.compose.material3.NavigationBar(
-        modifier = modifier.fillMaxWidth().navigationBarsPadding(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        tonalElevation = 0.dp,
-        windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
+    Row(
+        modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .navigationBarsPadding()
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         items.forEachIndexed { index, item ->
-            androidx.compose.material3.NavigationBarItem(
-                selected = index == selectedIndex,
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onSelect(index)
-                },
-                icon = {
-                    Icon(
-                        item.icon,
-                        contentDescription = item.label,
-                        modifier = Modifier.size(24.dp),
-                    )
-                },
-                label = { Text(item.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                alwaysShowLabel = true,
-                colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    selectedTextColor = MaterialTheme.colorScheme.onSurface,
-                    indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
-                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
+            val selected = index == selectedIndex
+            val tint by animateColorAsState(
+                if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                tween(180),
+                label = "nav_tint",
             )
+            Column(
+                Modifier
+                    .weight(1f)
+                    .height(60.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.secondaryContainer
+                        else Color.Transparent,
+                    )
+                    .clickable {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onSelect(index)
+                    }
+                    .padding(horizontal = 3.dp, vertical = 5.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    item.icon,
+                    contentDescription = item.label,
+                    tint = tint,
+                    modifier = Modifier.size(23.dp),
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    item.label,
+                    color = tint,
+                    fontSize = 11.sp,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
