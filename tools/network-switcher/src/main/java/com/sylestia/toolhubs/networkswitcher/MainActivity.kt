@@ -1820,6 +1820,14 @@ private fun DataPage(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                 )
+                Spacer(Modifier.height(8.dp))
+                HubQuietButton(
+                    text = "Check battery usage",
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        runCatching { context.startActivity(Intent(AndroidSettings.ACTION_POWER_USAGE_SUMMARY)) }
+                    },
+                )
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -1828,7 +1836,7 @@ private fun DataPage(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("DATA BY APP", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Mobile data used today", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                        Text("Mobile + Wi-Fi today", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                     }
                     HubQuietButton("Refresh") { appUsageRefresh++ }
                 }
@@ -1861,7 +1869,7 @@ private fun DataPage(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(item.appName, color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(item.packageName, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(formatBytes(item.mobileBytes) + " mobile · " + formatBytes(item.wifiBytes) + " Wi-Fi", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             Spacer(Modifier.width(8.dp))
                             Text(formatBytes(item.bytes), color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -1870,7 +1878,7 @@ private fun DataPage(
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Android-reported mobile traffic only. Wi-Fi usage and some system traffic may be missing; figures can differ from carrier billing.",
+                    "Android-reported per-app totals. System traffic and shared UIDs may be grouped; figures can differ from carrier billing.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 10.sp,
                 )
