@@ -88,6 +88,7 @@ fun SwitcherBottomNav(
     modifier: Modifier = Modifier,
     onSelect: (Int) -> Unit,
 ) {
+    val haptic = LocalHapticFeedback.current
     androidx.compose.material3.NavigationBar(
         modifier = modifier.fillMaxWidth().navigationBarsPadding(),
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -99,7 +100,7 @@ fun SwitcherBottomNav(
             androidx.compose.material3.NavigationBarItem(
                 selected = index == selectedIndex,
                 onClick = {
-                    LocalHapticFeedback.current.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onSelect(index)
                 },
                 icon = {
