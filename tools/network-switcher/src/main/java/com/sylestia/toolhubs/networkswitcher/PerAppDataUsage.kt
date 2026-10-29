@@ -79,5 +79,6 @@ internal object PerAppDataUsage {
             }
             .sortedByDescending { it.bytes }
             .take(limit)
+            .toList()
     }
 }
