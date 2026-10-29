@@ -1691,8 +1691,8 @@ private fun DataPage(
         HubReveal(0, Modifier.zIndex(1f)) {
             SwitcherHeader(
                 kicker = "Usage",
-                title = "Observed traffic",
-                subtitle = "Day-by-day mobile traffic, sampled by the radio that carried it.",
+                title = "Data usage",
+                subtitle = "Mobile traffic, app activity, and battery temperature.",
                 icon = Icons.Rounded.Analytics,
                 scrollState = scroll,
                 onOpenSettings = onOpenSettings,
@@ -1799,7 +1799,7 @@ private fun DataPage(
             HubGlassCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("DEVICE HEAT", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("BATTERY TEMPERATURE", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         Text(
                             heat.batteryCelsius?.let { String.format(Locale.getDefault(), "Battery %.1f°C", it) } ?: "Battery temperature unavailable",
                             color = MaterialTheme.colorScheme.onSurface,
