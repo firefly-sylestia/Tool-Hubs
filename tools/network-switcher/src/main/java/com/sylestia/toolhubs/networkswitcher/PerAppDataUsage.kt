@@ -50,6 +50,7 @@ internal object PerAppDataUsage {
         return context.packageManager.getInstalledApplications(0)
             .asSequence()
             .filter { it.uid >= 0 }
+            .distinctBy { it.uid }
             .mapNotNull { app ->
                 val bytes = runCatching {
                     manager.queryDetailsForUid(
