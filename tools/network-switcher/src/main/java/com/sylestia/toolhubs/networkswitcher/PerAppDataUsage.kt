@@ -12,8 +12,11 @@ import java.util.Calendar
 internal data class AppNetworkUsage(
     val appName: String,
     val packageName: String,
-    val bytes: Long,
-)
+    val mobileBytes: Long,
+    val wifiBytes: Long,
+) {
+    val bytes: Long get() = mobileBytes + wifiBytes
+}
 
 internal object PerAppDataUsage {
     fun hasUsageAccess(context: Context): Boolean = runCatching {
@@ -34,7 +37,7 @@ internal object PerAppDataUsage {
         }
     }
 
-    /** Today's mobile bytes by UID. Android requires the user to grant Usage Access first. */
+    /** Today's mobile and Wi-Fi bytes by UID. Requires the user to grant Usage Access first. */
     @Suppress("DEPRECATION")
     fun today(context: Context, limit: Int = 8): List<AppNetworkUsage> {
         if (!hasUsageAccess(context)) return emptyList()
@@ -47,40 +50,32 @@ internal object PerAppDataUsage {
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
 
+        fun query(uid: Int, networkType: Int): Long = runCatching {
+            manager.queryDetailsForUid(networkType, null, start, now, uid).use { stats ->
+                var total = 0L
+                val bucket = NetworkStats.Bucket()
+                while (stats.hasNextBucket()) {
+                    if (stats.getNextBucket(bucket)) {
+                        total += bucket.rxBytes.coerceAtLeast(0L)
+                        total += bucket.txBytes.coerceAtLeast(0L)
+                    }
+                }
+                total
+            }
+        }.getOrDefault(0L)
+
         return context.packageManager.getInstalledApplications(0)
             .asSequence()
             .filter { it.uid >= 0 }
             .distinctBy { it.uid }
             .mapNotNull { app ->
-                val bytes = runCatching {
-                    manager.queryDetailsForUid(
-                        ConnectivityManager.TYPE_MOBILE,
-                        null,
-                        start,
-                        now,
-                        app.uid,
-                    ).use { stats ->
-                        var total = 0L
-                        val bucket = NetworkStats.Bucket()
-                        while (stats.hasNextBucket()) {
-                            if (stats.getNextBucket(bucket)) {
-                                total += bucket.rxBytes.coerceAtLeast(0L)
-                                total += bucket.txBytes.coerceAtLeast(0L)
-                            }
-                        }
-                        total
-                    }
-                }.getOrDefault(0L)
-                if (bytes <= 0L) return@mapNotNull null
+                val mobile = query(app.uid, ConnectivityManager.TYPE_MOBILE)
+                val wifi = query(app.uid, ConnectivityManager.TYPE_WIFI)
+                if (mobile + wifi <= 0L) return@mapNotNull null
                 val label = runCatching {
                     context.packageManager.getApplicationLabel(app).toString()
                 }.getOrDefault(app.packageName)
-                AppNetworkUsage(label, app.packageName, bytes)
-            }
-            .groupBy { it.packageName }
-            .map { (_, entries) ->
-                val first = entries.first()
-                first.copy(bytes = entries.sumOf { it.bytes })
+                AppNetworkUsage(label, app.packageName, mobile, wifi)
             }
             .sortedByDescending { it.bytes }
             .take(limit)
