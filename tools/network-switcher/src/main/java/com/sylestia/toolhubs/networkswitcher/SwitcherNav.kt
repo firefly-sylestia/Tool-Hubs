@@ -88,55 +88,37 @@ fun SwitcherBottomNav(
     modifier: Modifier = Modifier,
     onSelect: (Int) -> Unit,
 ) {
-    val accents = MaterialTheme.hubAccents
-    val shape = RoundedCornerShape(26.dp)
-    var barWidth by remember { mutableIntStateOf(0) }
-    val slotWidth = if (items.isEmpty() || barWidth == 0) 0f else barWidth.toFloat() / items.size
-    val position by animateFloatAsState(
-        selectedIndex.toFloat(),
-        spring(dampingRatio = 0.78f, stiffness = 380f),
-        label = "nav_slide",
-    )
-
-    Box(
-        modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center,
+    androidx.compose.material3.NavigationBar(
+        modifier = modifier.fillMaxWidth().navigationBarsPadding(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 0.dp,
+        windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
     ) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(72.dp)
-                .shadow(18.dp, shape, clip = false, ambientColor = accents.shadow, spotColor = accents.shadow)
-                .clip(shape)
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
-                .padding(8.dp),
-        ) {
-            Box(Modifier.fillMaxSize().onSizeChanged { barWidth = it.width }) {
-                if (slotWidth > 0f) {
-                    Box(
-                        Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(1f / items.size)
-                            .graphicsLayer { translationX = position * slotWidth }
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(MaterialTheme.colorScheme.primary),
+        items.forEachIndexed { index, item ->
+            androidx.compose.material3.NavigationBarItem(
+                selected = index == selectedIndex,
+                onClick = {
+                    LocalHapticFeedback.current.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSelect(index)
+                },
+                icon = {
+                    Icon(
+                        item.icon,
+                        contentDescription = item.label,
+                        modifier = Modifier.size(24.dp),
                     )
-                }
-                Row(Modifier.fillMaxSize()) {
-                    items.forEachIndexed { index, item ->
-                        SwitcherNavSlot(
-                            item = item,
-                            selected = index == selectedIndex,
-                            modifier = Modifier.weight(1f),
-                            onClick = { onSelect(index) },
-                        )
-                    }
-                }
-            }
+                },
+                label = { Text(item.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                alwaysShowLabel = true,
+                colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                    indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+            )
         }
     }
 }
@@ -243,21 +225,21 @@ fun SwitcherHeader(
      * the state it stays in. At the very top it paints nothing at all, so a page still opens on its
      * hero header rather than on a stranded bar.
      */
-    val pin = (scrollState?.value?.toFloat() ?: 0f).coerceAtLeast(0f)
+    val pin = 0f
     // Measured in dp, not pixels: a raw pixel threshold would make the rail take three times as
     // long to appear on a low-density screen as it does on a high-density one.
     val barrierAt = with(LocalDensity.current) { 40.dp.toPx() }
-    val barrier = (pin / barrierAt).coerceIn(0f, 1f)
+    val barrier = 0f
     //
     // Pill geometry. At the top of the page the header is part of the content and paints nothing;
     // scrolled, it contracts into a small opaque pill floating above it. Opaque is the point: a
     // translucent panel let the cards show through the title, which reads as a rendering fault
     // rather than as glass.
     val pillRadius = (6f + 20f * barrier).dp
-    val pillFill = if (barrier > 0.02f) scheme.surfaceContainerHigh else Color.Transparent
-    val edgeInset = (8f * barrier).dp
-    val pillPaddingX = (12f * barrier).dp
-    val pillPaddingY = (10f * barrier).dp
+    val pillFill = Color.Transparent
+    val edgeInset = 0.dp
+    val pillPaddingX = 0.dp
+    val pillPaddingY = 0.dp
     val railProgress = scrollState?.let { state ->
         if (state.maxValue > 0) (state.value.toFloat() / state.maxValue).coerceIn(0f, 1f) else 0f
     } ?: 0f
