@@ -184,6 +184,8 @@ class AutoReconnectService : Service() {
         const val COOLDOWN_NOTICE_REFRESH_MS = 15_000L
 
         private const val TICK_MS = 1_000L
+        // Stable 5G needs only occasional checks; return to fast sampling on LTE/cooldown/recovery.
+        private const val IDLE_TICK_MS = 10_000L
         private const val HEALTH_REFRESH_INTERVAL_MS = 2_000L
         private const val LOOP_ERROR_LOG_INTERVAL_MS = 60_000L
         private const val RESULT_TRIGGERED = "5G re-selection triggered"
@@ -451,7 +453,9 @@ class AutoReconnectService : Service() {
         scope.launch {
             while (isActive) {
                 runCatching { tick() }.onFailure { noteLoopError(it) }
-                delay(TICK_MS)
+                val radio = runCatching { radioWatcher?.snapshot() }.getOrNull()
+                val needsFastChecks = radio?.isLteFallback == true || operationRunning || circuitOpen
+                delay(if (needsFastChecks) TICK_MS else IDLE_TICK_MS)
             }
         }
     }
@@ -1297,34 +1301,25 @@ class AutoReconnectService : Service() {
 
     private fun buildNotification(network: String, status: String): Notification {
         val health = ShizukuHealthMonitor.state
-        val cooldownLeft = remainingUntilNextAttemptMs()
-        val coolingDown = circuitOpen && cooldownLeft > 0L
-
-        // The primary tray action follows the state: while parked, "Retry now" is the useful one.
-        val primaryAction = when {
+        val coolingDown = circuitOpen && remainingUntilNextAttemptMs() > 0L
+        val action = when {
             coolingDown -> ACTION_RETRY
             paused -> ACTION_RESUME
             else -> ACTION_PAUSE
         }
-        val primaryLabel = when {
-            coolingDown -> "Retry now"
+        val actionLabel = when {
+            coolingDown -> "Retry"
             paused -> "Resume"
             else -> "Pause"
         }
-        val primaryIcon = when {
+        val actionIcon = when {
             coolingDown -> android.R.drawable.ic_menu_rotate
             paused -> android.R.drawable.ic_media_play
             else -> android.R.drawable.ic_media_pause
         }
-
-        val pauseIntent = PendingIntent.getService(
+        val actionIntent = PendingIntent.getService(
             this, 701,
-            Intent(this, AutoReconnectService::class.java).setAction(primaryAction),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val stopIntent = PendingIntent.getService(
-            this, 702,
-            Intent(this, AutoReconnectService::class.java).setAction(ACTION_STOP),
+            Intent(this, AutoReconnectService::class.java).setAction(action),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val openIntent = PendingIntent.getActivity(
@@ -1333,80 +1328,30 @@ class AutoReconnectService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+        val summary = when {
+            health != ShizukuHealth.READY -> "Shizuku unavailable"
+            paused -> "Paused"
+            coolingDown -> "Cooling down · retry scheduled"
+            operationRunning -> "Recovering network…"
+            network == "5G" -> "5G stable · watching for fallback"
+            network == "4G / LTE" -> "LTE detected · watching for 5G"
+            network == "Unknown" -> "Waiting for network"
+            else -> "Monitoring · $network"
+        }
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_network)
             .setContentIntent(openIntent)
             .setOnlyAlertOnce(true)
+            .setSilent(true)
             .setShowWhen(false)
-            .setContentTitle(notificationTitle(network))
-            .setContentText(status)
-            .setSubText(notificationSubtitle(health))
-            .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText(status)))
+            .setContentTitle("5G Reconnect")
+            .setContentText(summary)
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .addAction(primaryIcon, primaryLabel, pauseIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopIntent)
-
-        if (failoverSummary() != null) {
-            builder.addAction(
-                android.R.drawable.ic_menu_revert,
-                "Move data back",
-                PendingIntent.getService(
-                    this, 704,
-                    Intent(this, AutoReconnectService::class.java).setAction(ACTION_REVERT),
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                ),
-            )
-        }
-
-        if (health == ShizukuHealth.UNAVAILABLE || health == ShizukuHealth.SERVICE_DIED) {
-            packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")?.let { launch ->
-                builder.addAction(
-                    android.R.drawable.ic_menu_manage,
-                    "Open Shizuku",
-                    PendingIntent.getActivity(this, 703, launch, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE),
-                )
-            }
-        }
-        return builder.build()
-    }
-
-    /**
-     * A short, unambiguous headline: what the radio is doing, plus whether the watcher is live.
-     * A cooldown outranks the radio label, because a parked recovery is the thing the user needs to
-     * know about.
-     */
-    private fun notificationTitle(network: String): String {
-        val state = when {
-            paused -> "paused"
-            circuitOpen -> "cooling down"
-            network == "5G" -> "on 5G"
-            network == "4G / LTE" -> "on 4G"
-            network == "Unknown" -> "no service"
-            else -> "on " + network.lowercase(Locale.getDefault())
-        }
-        return "5G Reconnect · $state"
-    }
-
-    private fun notificationSubtitle(health: ShizukuHealth): String = when {
-        health != ShizukuHealth.READY -> health.describe()
-        paused -> "Tap Resume to keep watching"
-        circuitOpen -> "Cooling down · retries automatically"
-        prefs().getBoolean(PREF_AUTO_ENABLED, false) -> "Watching in the background"
-        else -> "Started manually"
-    }
-
-    /** The expanded tray text: the live status plus the facts that explain a stalled recovery. */
-    private fun expandedText(status: String): String {
-        val lines = mutableListOf(status)
-        val health = ShizukuHealthMonitor.state
-        if (health != ShizukuHealth.READY) lines += health.describe()
-        if (consecutiveFailures > 0) lines += "Failed attempts: $consecutiveFailures of $maxAttempts"
-        prefs().getString(PREF_LAST_EVENT_DETAIL, null)
-            ?.takeIf { it.isNotBlank() }
-            ?.let { lines += it }
-        return lines.joinToString("\n")
+            .addAction(actionIcon, actionLabel, actionIntent)
+            .build()
     }
 
     /**
