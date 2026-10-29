@@ -213,6 +213,7 @@ class AutoReconnectService : Service() {
      * to [NOTIFICATION_ID] before that would create a detached notification, so updates wait for it.
      */
     @Volatile private var foregroundStarted = false
+    @Volatile private var lastNotificationFingerprint: String? = null
 
     /**
      * Retry state is only ever mutated on the watcher thread. Explicit lifecycle actions from the
@@ -1361,6 +1362,16 @@ class AutoReconnectService : Service() {
      */
     private fun updateOngoing(network: String, status: String) {
         if (!foregroundStarted) return
+        val fingerprint = listOf(
+            network,
+            paused,
+            circuitOpen,
+            operationRunning,
+            ShizukuHealthMonitor.state,
+            prefs().getBoolean(PREF_AUTO_ENABLED, false),
+        ).joinToString("|")
+        if (fingerprint == lastNotificationFingerprint) return
+        lastNotificationFingerprint = fingerprint
         runCatching {
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(network, status))
         }
