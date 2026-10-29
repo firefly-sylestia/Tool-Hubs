@@ -228,6 +228,7 @@ class MainActivity : ComponentActivity() {
                 else -> androidx.compose.foundation.isSystemInDarkTheme()
             }
             ToolHubsTheme(darkTheme = dark) {
+                NetworkSwitcherExpressiveTheme(darkTheme = dark) {
                 SideEffect {
                     WindowCompat.getInsetsController(window, window.decorView)
                         .isAppearanceLightStatusBars = !dark
@@ -241,6 +242,7 @@ class MainActivity : ComponentActivity() {
                         store(this).edit().putString(AutoReconnectService.PREF_THEME_MODE, mode).apply()
                     },
                 )
+                }
             }
         }
     }
