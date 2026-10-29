@@ -3,10 +3,16 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:fillColor="#6750A4" android:pathData="M54,5c27.1,0 49,21.9 49,49S81.1,103 54,103 5,81.1 5,54 26.9,5 54,5z"/>
-    <path android:fillColor="#EADDFF" android:pathData="M54,20c-18.8,0 -34,15.2 -34,34h8c0,-14.4 11.6,-26 26,-26s26,11.6 26,26h8c0,-18.8 -15.2,-34 -34,-34z"/>
-    <path android:fillColor="#FFD8E4" android:pathData="M54,34c-11,0 -20,9 -20,20h8c0,-6.6 5.4,-12 12,-12s12,5.4 12,12h8c0,-11 -9,-20 -20,-20z"/>
-    <path android:fillColor="#FFFFFF" android:pathData="M48,48h12v14H48z"/>
-    <path android:fillColor="#E9C46A" android:pathData="M31,70h46v9H31z"/>
-    <path android:fillColor="#FFB1C8" android:pathData="M40,84h28v5H40z"/>
+    <!-- Restrained graphite-and-silver launcher mark. -->
+    <path
+        android:fillColor="#ECEDEB"
+        android:pathData="M27,4h54c13,0 23,10 23,23v54c0,13 -10,23 -23,23H27C14,104 4,94 4,81V27C4,14 14,4 27,4z" />
+    <!-- Cellular signal: solid, geometric bars instead of decorative radio waves. -->
+    <path
+        android:fillColor="#252827"
+        android:pathData="M24,53h12v20H24zM42,42h12v31H42zM60,30h12v43H60z" />
+    <!-- Two-way switch mark, kept simple enough to read at launcher size. -->
+    <path
+        android:fillColor="#252827"
+        android:pathData="M24,81h45l-7,-7 4,-4 14,14 -14,14 -4,-4 7,-7H24z" />
 </vector>
