@@ -769,7 +769,7 @@ private fun SceneCard(
         }
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            HubQuietButton("Apply", icon = Icons.Rounded.PlayArrow, modifier = Modifier.weight(1f), enabled = scene.enabled, onClick = onApply)
+            HubQuietButton("Apply", icon = Icons.Rounded.PlayArrow, modifier = Modifier.weight(1f), onClick = onApply)
             HubQuietButton("Edit", icon = Icons.Rounded.Tune, modifier = Modifier.weight(1f), onClick = onEdit)
             IconButton(onClick = onDelete) {
                 Icon(Icons.Rounded.Delete, contentDescription = "Delete scene", tint = MaterialTheme.colorScheme.error)
@@ -967,6 +967,10 @@ private fun ScenarioEditorDialog(
     var target by remember(initial?.id) { mutableStateOf(initial?.target ?: WallpaperTarget.BOTH) }
     var priority by remember(initial?.id) { mutableIntStateOf(initial?.priority ?: 3) }
     var time by remember(initial?.id) { mutableStateOf(initial?.time ?: "21:00") }
+    var fit by remember(initial?.id) { mutableStateOf(initial?.fit ?: WallpaperFit.FILL) }
+    var focusX by remember(initial?.id) { mutableStateOf(initial?.focusX ?: 0.5f) }
+    var focusY by remember(initial?.id) { mutableStateOf(initial?.focusY ?: 0.5f) }
+    var autoApply by remember(initial?.id) { mutableStateOf(initial?.enabled ?: false) }
     var triggerMenu by remember { mutableStateOf(false) }
     LaunchedEffect(images.size) {
         if (imageId.isBlank() && images.isNotEmpty()) imageId = images.first().id
@@ -1043,6 +1047,31 @@ private fun ScenarioEditorDialog(
                     TextButton(onClick = onAddPhotos) { Text("Add more photos") }
                 }
 
+                Text("IMAGE POSITION", color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.3.sp)
+                images.firstOrNull { it.id == imageId }?.let { selectedImage ->
+                    HubGlassCard(contentPadding = 8.dp) {
+                        WallpaperImageView(
+                            selectedImage,
+                            Modifier.fillMaxWidth().height(230.dp),
+                            fit = fit,
+                            focusX = focusX,
+                            focusY = focusY,
+                        )
+                        Text(fit.detail, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                    }
+                }
+                HubSegmented(
+                    options = WallpaperFit.entries.map { it.label },
+                    selectedIndex = WallpaperFit.entries.indexOf(fit),
+                    onSelect = { fit = WallpaperFit.entries[it] },
+                )
+                if (fit == WallpaperFit.FILL || fit == WallpaperFit.CENTER) {
+                    Text("HORIZONTAL POSITION", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Slider(value = focusX, onValueChange = { focusX = it }, valueRange = 0f..1f)
+                    Text("VERTICAL POSITION", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Slider(value = focusY, onValueChange = { focusY = it }, valueRange = 0f..1f)
+                }
+
                 Text("WHEN SHOULD IT CHANGE?", color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.3.sp)
                 Box {
                     HubQuietButton(
@@ -1088,6 +1117,16 @@ private fun ScenarioEditorDialog(
                     onSelect = { target = WallpaperTarget.entries[it] },
                 )
 
+                HubGlassCard(contentPadding = 12.dp) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Automatic switching", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                            Text("Off means this scene only changes wallpaper when you tap Apply.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                        }
+                        Switch(checked = autoApply, onCheckedChange = { autoApply = it })
+                    }
+                }
+
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Scene priority", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
@@ -1114,9 +1153,12 @@ private fun ScenarioEditorDialog(
                             imageId = imageId,
                             trigger = trigger,
                             target = target,
-                            enabled = initial?.enabled ?: true,
+                            enabled = autoApply,
                             priority = priority,
                             time = time,
+                            fit = fit,
+                            focusX = focusX,
+                            focusY = focusY,
                         ),
                     )
                 },
@@ -1127,7 +1169,13 @@ private fun ScenarioEditorDialog(
 }
 
 @Composable
-private fun WallpaperImageView(image: WallpaperImage, modifier: Modifier = Modifier) {
+private fun WallpaperImageView(
+    image: WallpaperImage,
+    modifier: Modifier = Modifier,
+    fit: WallpaperFit = WallpaperFit.FILL,
+    focusX: Float = 0.5f,
+    focusY: Float = 0.5f,
+) {
     val context = LocalContext.current
     val bitmap by produceState<Bitmap?>(initialValue = null, key1 = image.uri) {
         value = withContext(Dispatchers.IO) {
@@ -1160,7 +1208,16 @@ private fun WallpaperImageView(image: WallpaperImage, modifier: Modifier = Modif
             bitmap!!.asImageBitmap(),
             contentDescription = image.name,
             modifier = modifier.clip(RoundedCornerShape(14.dp)),
-            contentScale = ContentScale.Crop,
+            contentScale = when (fit) {
+                WallpaperFit.FILL -> ContentScale.Crop
+                WallpaperFit.FIT -> ContentScale.Fit
+                WallpaperFit.STRETCH -> ContentScale.FillBounds
+                WallpaperFit.CENTER -> ContentScale.Inside
+            },
+            alignment = Alignment(
+                horizontalBias = focusX.coerceIn(0f, 1f) * 2f - 1f,
+                verticalBias = focusY.coerceIn(0f, 1f) * 2f - 1f,
+            ),
         )
     } else {
         Box(
@@ -1204,4 +1261,8 @@ private fun triggerIcon(trigger: WallpaperTrigger) = when (trigger) {
     WallpaperTrigger.WIFI_CONNECTED, WallpaperTrigger.WIFI_DISCONNECTED -> Icons.Rounded.Wifi
     WallpaperTrigger.LOW_BATTERY -> Icons.Rounded.BatteryAlert
     WallpaperTrigger.TIME -> Icons.Rounded.Alarm
+    WallpaperTrigger.SCREEN_ON, WallpaperTrigger.SCREEN_OFF -> Icons.Rounded.Wallpaper
+    WallpaperTrigger.AIRPLANE_ON, WallpaperTrigger.AIRPLANE_OFF -> Icons.Rounded.Tune
+    WallpaperTrigger.BATTERY_SAVER_ON, WallpaperTrigger.BATTERY_SAVER_OFF -> Icons.Rounded.BatteryAlert
+    WallpaperTrigger.HEADPHONES_CONNECTED, WallpaperTrigger.HEADPHONES_DISCONNECTED -> Icons.Rounded.PlayArrow
 }
