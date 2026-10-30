@@ -733,7 +733,7 @@ private fun OverviewScreen(
         }
         if (statusMessage != null) {
             item {
-                HubGlassCard(contentPadding = 13.dp, accent = MaterialTheme.colorScheme.primary) {
+                StudioCard(contentPadding = 13.dp, accent = MaterialTheme.colorScheme.primary) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(9.dp))
@@ -759,7 +759,7 @@ private fun OverviewScreen(
                     modifier = Modifier.weight(1f),
                     onClick = onAddPhotos,
                 )
-                HubQuietButton(
+                StudioActionButton(
                     text = "Manage scenes",
                             modifier = Modifier.weight(1f),
                     onClick = onOpenScenes,
@@ -767,8 +767,8 @@ private fun OverviewScreen(
             }
         }
         item {
-            HubSectionTitle("AUTOMATION")
-            HubGlassCard {
+            StudioSectionTitle("AUTOMATION")
+            StudioCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.Fingerprint, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
                     Spacer(Modifier.width(12.dp))
@@ -792,9 +792,9 @@ private fun OverviewScreen(
             }
         }
         item {
-            HubSectionTitle("UP NEXT")
+            StudioSectionTitle("UP NEXT")
             if (scenarios.isEmpty()) {
-                HubGlassCard {
+                StudioCard {
                     HubEmptyState(
                         title = "Your scenes live here",
                         message = "Create a scene for unlock, charging, Wi-Fi or a time of day.",
@@ -809,7 +809,7 @@ private fun OverviewScreen(
             } else {
                 val next = scenarios.filter { it.enabled }.take(3)
                 if (next.isEmpty()) {
-                    HubGlassCard {
+                    StudioCard {
                         Text("All scenes are paused.", color = MaterialTheme.colorScheme.onSurface)
                         Text("Turn one back on from Scenes when you're ready.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                     }
@@ -823,7 +823,7 @@ private fun OverviewScreen(
             }
         }
         item {
-            HubQuietButton(
+            StudioActionButton(
                 text = "Open wallpaper library",
                     modifier = Modifier.fillMaxWidth(),
                 onClick = onOpenLibrary,
@@ -834,7 +834,7 @@ private fun OverviewScreen(
 
 @Composable
 private fun OverviewMetric(label: String, value: String, modifier: Modifier = Modifier) {
-    HubGlassCard(modifier = modifier, contentPadding = 13.dp) {
+    StudioCard(modifier = modifier, contentPadding = 13.dp) {
         Text(value, color = MaterialTheme.colorScheme.primary, fontSize = 23.sp, fontWeight = FontWeight.ExtraBold)
         Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
     }
@@ -857,7 +857,7 @@ private fun ScenesScreen(
             .padding(horizontal = 18.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(13.dp),
     ) {
-        HubHeroHeader(
+        StudioPageHeader(
             kicker = "AUTOMATIONS",
             title = "Scenes",
             subtitle = "Build the moments that change your wallpaper.",
@@ -868,15 +868,15 @@ private fun ScenesScreen(
             icon = Icons.Rounded.Add,
             onClick = onAdd,
         )
-        HubSectionTitle("YOUR SCENES")
+        StudioSectionTitle("YOUR SCENES")
         if (scenarios.isEmpty()) {
-            HubGlassCard {
+            StudioCard {
                 HubEmptyState(
                     title = "Nothing automated yet",
                     message = "Start with an unlock scene, a charging scene or a nightly wallpaper.",
                     icon = Icons.Rounded.Schedule,
                 )
-                HubQuietButton("Create a scene", icon = Icons.Rounded.Add, onClick = onAdd)
+                StudioActionButton("Create a scene", icon = Icons.Rounded.Add, onClick = onAdd)
             }
         } else {
             scenarios.sortedWith(compareByDescending<WallpaperScenario> { it.enabled }.thenByDescending { it.priority })
@@ -891,7 +891,7 @@ private fun ScenesScreen(
                     )
                 }
         }
-        HubGlassCard {
+        StudioCard {
             Text("SCENE PRIORITY", color = MaterialTheme.colorScheme.primary, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
             Spacer(Modifier.height(5.dp))
             Text(
@@ -913,7 +913,7 @@ private fun SceneCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    HubGlassCard(contentPadding = 14.dp) {
+    StudioCard(contentPadding = 14.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             WallpaperThumbnail(image, Modifier.size(width = 74.dp, height = 92.dp))
             Spacer(Modifier.width(13.dp))
@@ -927,8 +927,8 @@ private fun SceneCard(
         }
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            HubQuietButton("Apply", icon = Icons.Rounded.PlayArrow, modifier = Modifier.weight(1f), onClick = onApply)
-            HubQuietButton("Edit", icon = Icons.Rounded.Tune, modifier = Modifier.weight(1f), onClick = onEdit)
+            StudioActionButton("Apply", icon = Icons.Rounded.PlayArrow, modifier = Modifier.weight(1f), onClick = onApply)
+            StudioActionButton("Edit", icon = Icons.Rounded.Tune, modifier = Modifier.weight(1f), onClick = onEdit)
             IconButton(onClick = onDelete) {
                 Icon(Icons.Rounded.Delete, contentDescription = "Delete scene", tint = MaterialTheme.colorScheme.error)
             }
@@ -938,7 +938,7 @@ private fun SceneCard(
 
 @Composable
 private fun CompactSceneRow(scene: WallpaperScenario, image: WallpaperImage?, onApply: () -> Unit) {
-    HubGlassCard(contentPadding = 12.dp, onClick = onApply) {
+    StudioCard(contentPadding = 12.dp, onClick = onApply) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             WallpaperThumbnail(image, Modifier.size(width = 48.dp, height = 58.dp))
             Spacer(Modifier.width(12.dp))
@@ -965,7 +965,7 @@ private fun LibraryScreen(
             .padding(horizontal = 18.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(13.dp),
     ) {
-        HubHeroHeader(
+        StudioPageHeader(
             kicker = "YOUR COLLECTION",
             title = "Wallpaper library",
             subtitle = "Keep the images you want to rotate through.",
@@ -973,11 +973,11 @@ private fun LibraryScreen(
         )
         StudioPrimaryButton("Import photos", icon = Icons.Rounded.Add, onClick = onAdd)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            HubSectionTitle("${images.size} IMAGES", Modifier.weight(1f))
+            StudioSectionTitle("${images.size} IMAGES", Modifier.weight(1f))
             Text("Stored on this device", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
         }
         if (images.isEmpty()) {
-            HubGlassCard {
+            StudioCard {
                 HubEmptyState(
                     title = "A blank canvas",
                     message = "Import photos from your gallery. Only the images you select are accessible to Studio.",
@@ -989,7 +989,7 @@ private fun LibraryScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     rowImages.forEach { image ->
                         val assigned = scenarios.count { it.imageId == image.id }
-                        HubGlassCard(
+                        StudioCard(
                             modifier = Modifier.weight(1f),
                             contentPadding = 9.dp,
                         ) {
@@ -1032,12 +1032,12 @@ private fun SettingsScreen(
             .padding(horizontal = 18.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(13.dp),
     ) {
-        HubHeroHeader(
+        StudioPageHeader(
             kicker = "PREFERENCES",
             title = "Settings",
             subtitle = "A few details that keep your scenes dependable.",
         )
-        HubGlassCard {
+        StudioCard {
             Text("AUTOMATION STATUS", color = MaterialTheme.colorScheme.primary, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
             Spacer(Modifier.height(12.dp))
             SettingValue("Active scenes", scenarioCount.toString())
@@ -1051,7 +1051,7 @@ private fun SettingsScreen(
             )
         }
         ShizukuSettingsCard()
-        HubGlassCard {
+        StudioCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Fingerprint, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(10.dp))
@@ -1073,7 +1073,7 @@ private fun SettingsScreen(
                 fontWeight = FontWeight.Medium,
             )
         }
-        HubGlassCard {
+        StudioCard {
             Text("SCHEDULES", color = MaterialTheme.colorScheme.primary, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
             Text(
                 "Daily time scenes use Android's battery-aware alarm delivery. They may run a little later while the phone is in deep Doze; exact alarms are deliberately not requested.",
@@ -1082,12 +1082,12 @@ private fun SettingsScreen(
                 lineHeight = 16.sp,
             )
             Spacer(Modifier.height(10.dp))
-            HubQuietButton("Refresh schedules", icon = Icons.Rounded.Schedule, onClick = onRefresh)
+            StudioActionButton("Refresh schedules", icon = Icons.Rounded.Schedule, onClick = onRefresh)
             Spacer(Modifier.height(8.dp))
-            HubQuietButton("Restore previous wallpaper", icon = Icons.Rounded.Wallpaper, onClick = onRestore)
+            StudioActionButton("Restore previous wallpaper", icon = Icons.Rounded.Wallpaper, onClick = onRestore)
         }
         if (!lastError.isNullOrBlank()) {
-            HubGlassCard {
+            StudioCard {
                 Text("LAST ISSUE", color = MaterialTheme.colorScheme.error, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
                 Text(lastError, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
             }
@@ -1168,7 +1168,7 @@ private fun ScenarioEditorDialog(
                 Text("CHOOSE A WALLPAPER", color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.3.sp)
                 if (images.isEmpty()) {
                     HubEmptyState("No photos yet", "Import an image to create this scene.", icon = Icons.Rounded.Image)
-                    HubQuietButton("Import photos", icon = Icons.Rounded.Add, onClick = onAddPhotos)
+                    StudioActionButton("Import photos", icon = Icons.Rounded.Add, onClick = onAddPhotos)
                 } else {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         items(images, key = { it.id }) { image ->
@@ -1210,7 +1210,7 @@ private fun ScenarioEditorDialog(
 
                 Text("IMAGE POSITION", color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.3.sp)
                 images.firstOrNull { it.id == imageId }?.let { selectedImage ->
-                    HubGlassCard(contentPadding = 8.dp) {
+                    StudioCard(contentPadding = 8.dp) {
                         WallpaperImageView(
                             selectedImage,
                             Modifier.fillMaxWidth().height(230.dp),
@@ -1235,7 +1235,7 @@ private fun ScenarioEditorDialog(
 
                 Text("WHEN SHOULD IT CHANGE?", color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.3.sp)
                 Box {
-                    HubQuietButton(
+                    StudioActionButton(
                         text = trigger.label,
                         icon = triggerIcon(trigger),
                         modifier = Modifier.fillMaxWidth(),
@@ -1278,7 +1278,7 @@ private fun ScenarioEditorDialog(
                     onSelect = { target = WallpaperTarget.entries[it] },
                 )
 
-                HubGlassCard(contentPadding = 12.dp) {
+                StudioCard(contentPadding = 12.dp) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Automatic switching", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
