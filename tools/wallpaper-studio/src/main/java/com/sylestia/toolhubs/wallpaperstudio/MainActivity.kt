@@ -93,7 +93,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sylestia.toolhubs.designsystem.ToolHubsTheme
-import com.sylestia.toolhubs.ui.HubBottomNav
 import com.sylestia.toolhubs.ui.HubEmptyState
 import com.sylestia.toolhubs.ui.HubGlassCard
 import com.sylestia.toolhubs.ui.HubHeroHeader
@@ -318,9 +317,9 @@ private fun WallpaperStudioApp() {
                     Text(
                         "Wallpaper Studio",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 25.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = (-0.7).sp,
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-1.1).sp,
                     )
                 }
                 Surface(
@@ -396,11 +395,7 @@ private fun WallpaperStudioApp() {
                 }
             }
 
-            HubBottomNav(
-                items = WallpaperTabs,
-                selectedIndex = tab,
-                onSelect = { tab = it },
-            )
+            StudioBottomBar(selectedIndex = tab, onSelect = { tab = it })
         }
     }
 
@@ -450,6 +445,102 @@ private fun WallpaperStudioApp() {
                 TextButton(onClick = { deletingImage = null }) { Text("Cancel") }
             },
         )
+    }
+}
+
+@Composable
+private fun StudioPageHeader(
+    kicker: String,
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                kicker,
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.2.sp,
+            )
+            Text(
+                title,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 29.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.8).sp,
+                lineHeight = 34.sp,
+            )
+            Text(
+                subtitle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+            )
+        }
+        if (icon != null) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.size(52.dp),
+            ) {
+                Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(14.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun StudioBottomBar(selectedIndex: Int, onSelect: (Int) -> Unit) {
+    val items = listOf(
+        Icons.Rounded.Wallpaper to "Home",
+        Icons.Rounded.Tune to "Scenes",
+        Icons.Rounded.Image to "Library",
+        Icons.Rounded.Settings to "Settings",
+    )
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 25.dp, topEnd = 25.dp),
+        tonalElevation = 4.dp,
+        shadowElevation = 8.dp,
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 9.dp, end = 9.dp, top = 10.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            items.forEachIndexed { index, item ->
+                val selected = selectedIndex == index
+                Column(
+                    Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).clickable { onSelect(index) }.padding(vertical = 5.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Box(
+                        Modifier.clip(CircleShape)
+                            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                            .padding(horizontal = 18.dp, vertical = 5.dp),
+                    ) {
+                        Icon(
+                            item.first,
+                            contentDescription = item.second,
+                            tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(21.dp),
+                        )
+                    }
+                    Text(
+                        item.second,
+                        color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 10.sp,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -510,7 +601,7 @@ private fun OverviewScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            HubHeroHeader(
+            StudioPageHeader(
                 kicker = "YOUR PHONE, YOUR ATMOSPHERE",
                 title = "A different scene for every moment.",
                 subtitle = "Let your wallpaper follow the way you use your phone.",
