@@ -267,13 +267,18 @@ private fun WallpaperStudioApp() {
     }
 
     fun applyNow(scenario: WallpaperScenario) {
-        val applied = WallpaperEngine.applyScenario(context, scenario.id)
-        statusMessage = if (applied) {
-            "Applied ${scenario.name}."
-        } else {
-            store.lastError() ?: "Android could not apply this wallpaper."
+        thread(name = "wallpaper-manual-apply") {
+            val applied = WallpaperEngine.applyScenario(context, scenario.id)
+            val message = if (applied) {
+                "Applied \${scenario.name}."
+            } else {
+                store.lastError() ?: "Android could not apply this wallpaper."
+            }
+            (context as? android.app.Activity)?.runOnUiThread {
+                statusMessage = message
+                refresh()
+            }
         }
-        refresh()
     }
 
     fun saveScene(scene: WallpaperScenario) {
