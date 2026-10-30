@@ -133,6 +133,7 @@ object WallpaperEngine {
         WallpaperEvent.WIFI_CONNECTED -> trigger == WallpaperTrigger.WIFI_CONNECTED
         WallpaperEvent.WIFI_DISCONNECTED -> trigger == WallpaperTrigger.WIFI_DISCONNECTED
         WallpaperEvent.LOW_BATTERY -> trigger == WallpaperTrigger.LOW_BATTERY
+        WallpaperEvent.BATTERY_OKAY -> trigger == WallpaperTrigger.BATTERY_OKAY
         WallpaperEvent.SCREEN_ON -> trigger == WallpaperTrigger.SCREEN_ON
         WallpaperEvent.SCREEN_OFF -> trigger == WallpaperTrigger.SCREEN_OFF
         WallpaperEvent.AIRPLANE_ON -> trigger == WallpaperTrigger.AIRPLANE_ON
@@ -150,6 +151,8 @@ object WallpaperEngine {
         WallpaperTrigger.WIFI_DISCONNECTED -> event == WallpaperEvent.WIFI_CONNECTED
         WallpaperTrigger.AIRPLANE_ON -> event == WallpaperEvent.AIRPLANE_OFF
         WallpaperTrigger.AIRPLANE_OFF -> event == WallpaperEvent.AIRPLANE_ON
+        WallpaperTrigger.LOW_BATTERY -> event == WallpaperEvent.BATTERY_OKAY
+        WallpaperTrigger.BATTERY_OKAY -> event == WallpaperEvent.LOW_BATTERY
         WallpaperTrigger.BATTERY_SAVER_ON -> event == WallpaperEvent.BATTERY_SAVER_OFF
         WallpaperTrigger.BATTERY_SAVER_OFF -> event == WallpaperEvent.BATTERY_SAVER_ON
         WallpaperTrigger.HEADPHONES_CONNECTED -> event == WallpaperEvent.HEADPHONES_DISCONNECTED
