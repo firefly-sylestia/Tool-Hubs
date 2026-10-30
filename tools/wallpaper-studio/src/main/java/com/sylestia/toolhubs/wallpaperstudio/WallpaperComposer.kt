@@ -8,8 +8,6 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Matrix
 import android.media.ExifInterface
-import android.graphics.Matrix
-import android.media.ExifInterface
 import android.graphics.RectF
 import android.net.Uri
 import java.io.File
