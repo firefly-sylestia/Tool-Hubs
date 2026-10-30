@@ -5,9 +5,11 @@ package com.sylestia.toolhubs.networkswitcher
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.BatteryManager
 import android.os.Bundle
 import android.os.PowerManager
 import android.os.SystemClock
@@ -228,6 +230,7 @@ class MainActivity : ComponentActivity() {
                 else -> androidx.compose.foundation.isSystemInDarkTheme()
             }
             ToolHubsTheme(darkTheme = dark) {
+                NetworkSwitcherExpressiveTheme(darkTheme = dark) {
                 SideEffect {
                     WindowCompat.getInsetsController(window, window.decorView)
                         .isAppearanceLightStatusBars = !dark
@@ -241,6 +244,7 @@ class MainActivity : ComponentActivity() {
                         store(this).edit().putString(AutoReconnectService.PREF_THEME_MODE, mode).apply()
                     },
                 )
+                }
             }
         }
     }
@@ -1647,6 +1651,17 @@ private fun DataPage(
     val history = tick.let { readNetworkHistory(context) }
     val totals = tick.let { NetworkUsageTracker.readTotals(context) }
     val daily = tick.let { NetworkUsageTracker.dailySeries(context, 7) }
+    val heat = tick.let { readDeviceHeat(context) }
+    val usageAccess = tick.let { PerAppDataUsage.hasUsageAccess(context) }
+    var appUsage by remember { mutableStateOf<List<AppNetworkUsage>>(emptyList()) }
+    var appUsageRefresh by remember { mutableIntStateOf(0) }
+    LaunchedEffect(appUsageRefresh, usageAccess) {
+        appUsage = if (usageAccess) {
+            withContext(Dispatchers.IO) { PerAppDataUsage.today(context) }
+        } else {
+            emptyList()
+        }
+    }
     var billingDay by rememberSaveable { mutableIntStateOf(store.getInt(AutoReconnectService.PREF_BILLING_DAY, 1)) }
 
     val warningEnabled = store.getBoolean(AutoReconnectService.PREF_LTE_WARNING_ENABLED, false)
@@ -1676,8 +1691,8 @@ private fun DataPage(
         HubReveal(0, Modifier.zIndex(1f)) {
             SwitcherHeader(
                 kicker = "Usage",
-                title = "Observed traffic",
-                subtitle = "Day-by-day mobile traffic, sampled by the radio that carried it.",
+                title = "Data usage",
+                subtitle = "Mobile traffic, app activity, and battery temperature.",
                 icon = Icons.Rounded.Analytics,
                 scrollState = scroll,
                 onOpenSettings = onOpenSettings,
@@ -1780,7 +1795,97 @@ private fun DataPage(
             }
         }
         Spacer(Modifier.height(12.dp))
-        HubReveal(4) { LteWarningCard(warningEnabled, warningLimit, totals.todayLte) }
+        HubReveal(4) {
+            HubGlassCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("BATTERY TEMPERATURE", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(
+                            heat.batteryCelsius?.let { String.format(Locale.getDefault(), "Battery %.1f°C", it) } ?: "Battery temperature unavailable",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "Thermal status · " + heat.thermalStatus,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                        )
+                    }
+                    Icon(Icons.Rounded.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "This is the battery sensor, not CPU temperature. Android does not reliably identify which app is heating the phone; high data activity below is a clue, not proof.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
+                Spacer(Modifier.height(8.dp))
+                HubQuietButton(
+                    text = "Check battery usage",
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_POWER_USAGE_SUMMARY)) }
+                    },
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        HubReveal(5) {
+            HubGlassCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("DATA BY APP", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("Mobile + Wi-Fi today", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                    }
+                    HubQuietButton("Refresh") { appUsageRefresh++ }
+                }
+                Spacer(Modifier.height(8.dp))
+                if (!usageAccess) {
+                    Text(
+                        "Allow Usage Access to see which apps use mobile data.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    HubQuietButton(
+                        text = "Grant Usage Access",
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { PerAppDataUsage.openUsageAccess(context) },
+                    )
+                } else if (appUsage.isEmpty()) {
+                    Text(
+                        "No per-app mobile traffic reported today.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                    )
+                } else {
+                    appUsage.forEachIndexed { index, item ->
+                        if (index > 0) {
+                            Spacer(Modifier.height(8.dp))
+                            HubHairline()
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(item.appName, color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(formatBytes(item.mobileBytes) + " mobile · " + formatBytes(item.wifiBytes) + " Wi-Fi", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Text(formatBytes(item.bytes), color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Android-reported per-app totals. System traffic and shared UIDs may be grouped; figures can differ from carrier billing.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        HubReveal(6) { LteWarningCard(warningEnabled, warningLimit, totals.todayLte) }
         Spacer(Modifier.height(12.dp))
         HubSectionTitle("Last 7 days")
         Spacer(Modifier.height(8.dp))
@@ -3088,6 +3193,35 @@ private fun SimChip(label: String, selected: Boolean, modifier: Modifier = Modif
 }
 
 // ── shared helpers ───────────────────────────────────────────────────────────────────────────────
+
+private data class DeviceHeatSnapshot(
+    val batteryCelsius: Float?,
+    val thermalStatus: String,
+)
+
+private fun readDeviceHeat(context: Context): DeviceHeatSnapshot {
+    val batteryIntent = runCatching {
+        context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+    }.getOrNull()
+    val rawTemperature = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+    val batteryCelsius = if (rawTemperature > 0) rawTemperature / 10f else null
+    val thermalStatus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val power = context.getSystemService(PowerManager::class.java)
+        when (runCatching { power.currentThermalStatus }.getOrNull()) {
+            PowerManager.THERMAL_STATUS_NONE -> "Normal"
+            PowerManager.THERMAL_STATUS_LIGHT -> "Light"
+            PowerManager.THERMAL_STATUS_MODERATE -> "Moderate"
+            PowerManager.THERMAL_STATUS_SEVERE -> "Severe"
+            PowerManager.THERMAL_STATUS_CRITICAL -> "Critical"
+            PowerManager.THERMAL_STATUS_EMERGENCY -> "Emergency"
+            PowerManager.THERMAL_STATUS_SHUTDOWN -> "Shutdown"
+            else -> "Unavailable"
+        }
+    } else {
+        "Unavailable on this Android version"
+    }
+    return DeviceHeatSnapshot(batteryCelsius, thermalStatus)
+}
 
 internal fun readNetworkHistory(context: Context): List<HistoryEntry> {
     val values = MainActivity.store(context)
