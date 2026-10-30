@@ -101,24 +101,34 @@ object WallpaperBaseline {
         return File(folder, if (flag == android.app.WallpaperManager.FLAG_LOCK) "lock.bin" else "home.bin")
     }
 
+    private fun defaultMarker(context: Context, flag: Int): File {
+        val folder = File(context.filesDir, "wallpaper-baseline").apply { mkdirs() }
+        return File(folder, if (flag == android.app.WallpaperManager.FLAG_LOCK) "lock.default" else "home.default")
+    }
+
     fun capture(context: Context, flags: Int): Boolean {
         val manager = android.app.WallpaperManager.getInstance(context)
         val targets = listOf(android.app.WallpaperManager.FLAG_SYSTEM, android.app.WallpaperManager.FLAG_LOCK)
             .filter { flags and it != 0 }
         return targets.all { flag ->
-            val target = file(context, flag)
-            if (target.exists() && target.length() > 0) {
+            val saved = file(context, flag)
+            val marker = defaultMarker(context, flag)
+            if ((saved.exists() && saved.length() > 0) || marker.exists()) {
                 true
             } else {
-                runCatching {
-                    val descriptor = manager.getWallpaperFile(flag) ?: return@runCatching false
-                    descriptor.use { parcel ->
-                        android.os.ParcelFileDescriptor.AutoCloseInputStream(parcel).use { input ->
-                            target.outputStream().use { output -> input.copyTo(output) }
+                // Android 13+ deliberately blocks third-party apps from reading the current
+                // wallpaper. On older releases, try the file API, then fall back to the device
+                // default if the current image is not readable.
+                val copied = if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
+                    runCatching {
+                        val descriptor = manager.getWallpaperFile(flag) ?: return@runCatching false
+                        android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
+                            saved.outputStream().use { output -> input.copyTo(output) }
                         }
-                    }
-                    target.exists() && target.length() > 0
-                }.getOrDefault(false)
+                        saved.exists() && saved.length() > 0
+                    }.getOrDefault(false)
+                } else false
+                if (copied) true else runCatching { marker.createNewFile() }.getOrDefault(false)
             }
         }
     }
@@ -130,19 +140,31 @@ object WallpaperBaseline {
         var allRestored = true
         targets.forEach { flag ->
             val saved = file(context, flag)
-            if (!saved.exists() || saved.length() == 0L) return@forEach
-            val restored = runCatching {
-                saved.inputStream().use { manager.setStream(it, null, true, flag) }
-                true
-            }.getOrDefault(false)
-            restoredAny = restoredAny || restored
-            allRestored = allRestored && restored
-            if (restored) saved.delete()
+            val marker = defaultMarker(context, flag)
+            if (saved.exists() && saved.length() > 0) {
+                val restored = runCatching {
+                    saved.inputStream().use { manager.setStream(it, null, true, flag) }
+                    true
+                }.getOrDefault(false)
+                restoredAny = restoredAny || restored
+                allRestored = allRestored && restored
+                if (restored) saved.delete()
+            } else if (marker.exists()) {
+                val restored = runCatching {
+                    manager.clear(flag)
+                    true
+                }.getOrDefault(false)
+                restoredAny = restoredAny || restored
+                allRestored = allRestored && restored
+                if (restored) marker.delete()
+            }
         }
         return restoredAny && allRestored
     }
 
     fun hasSnapshot(context: Context): Boolean =
         file(context, android.app.WallpaperManager.FLAG_SYSTEM).exists() ||
-            file(context, android.app.WallpaperManager.FLAG_LOCK).exists()
+            file(context, android.app.WallpaperManager.FLAG_LOCK).exists() ||
+            defaultMarker(context, android.app.WallpaperManager.FLAG_SYSTEM).exists() ||
+            defaultMarker(context, android.app.WallpaperManager.FLAG_LOCK).exists()
 }
