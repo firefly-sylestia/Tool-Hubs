@@ -63,7 +63,7 @@ data class WallpaperScenario(
     val enabled: Boolean = true,
     val priority: Int = 3,
     val time: String = "21:00",
-    val fit: WallpaperFit = WallpaperFit.FILL,
+    val fit: WallpaperFit = WallpaperFit.FIT,
     val focusX: Float = 0.5f,
     val focusY: Float = 0.5f,
 )
