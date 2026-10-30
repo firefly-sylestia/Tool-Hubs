@@ -18,6 +18,7 @@ class WallpaperEventReceiver : BroadcastReceiver() {
             Intent.ACTION_POWER_CONNECTED -> WallpaperEvent.CHARGING
             Intent.ACTION_POWER_DISCONNECTED -> WallpaperEvent.UNPLUGGED
             Intent.ACTION_BATTERY_LOW -> WallpaperEvent.LOW_BATTERY
+            Intent.ACTION_BATTERY_OKAY -> WallpaperEvent.BATTERY_OKAY
             Intent.ACTION_SCREEN_ON -> WallpaperEvent.SCREEN_ON
             Intent.ACTION_SCREEN_OFF -> WallpaperEvent.SCREEN_OFF
             Intent.ACTION_AIRPLANE_MODE_CHANGED -> {
