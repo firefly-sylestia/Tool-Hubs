@@ -1246,14 +1246,26 @@ private fun ScenarioEditorDialog(
 
                 Text("IMAGE POSITION", color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.3.sp)
                 images.firstOrNull { it.id == imageId }?.let { selectedImage ->
-                    StudioCard(contentPadding = 8.dp) {
-                        WallpaperImageView(
-                            selectedImage,
-                            Modifier.fillMaxWidth().height(230.dp),
-                            fit = fit,
-                            focusX = focusX,
-                            focusY = focusY,
-                        )
+                    StudioCard(contentPadding = 12.dp) {
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Surface(
+                                modifier = Modifier.width(148.dp).height(300.dp)
+                                    .border(2.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(30.dp)),
+                                shape = RoundedCornerShape(30.dp),
+                                color = Color.Black,
+                            ) {
+                                Box(Modifier.fillMaxSize().padding(5.dp)) {
+                                    WallpaperImageView(
+                                        selectedImage,
+                                        Modifier.fillMaxSize().background(Color.Black),
+                                        fit = fit,
+                                        focusX = focusX,
+                                        focusY = focusY,
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(9.dp))
                         Text(fit.detail, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
                     }
                 }
@@ -1409,7 +1421,7 @@ private fun WallpaperImageView(
                 WallpaperFit.FILL -> ContentScale.Crop
                 WallpaperFit.FIT -> ContentScale.Fit
                 WallpaperFit.STRETCH -> ContentScale.FillBounds
-                WallpaperFit.CENTER -> ContentScale.Inside
+                WallpaperFit.CENTER -> ContentScale.None
             },
             alignment = BiasAlignment(
                 horizontalBias = focusX.coerceIn(0f, 1f) * 2f - 1f,
