@@ -62,7 +62,7 @@ class WallpaperTimeReceiver : BroadcastReceiver() {
             try {
                 val scenario = WallpaperStore(context).scenario(scenarioId)
                 if (scenario?.enabled == true && scenario.trigger == WallpaperTrigger.TIME) {
-                    WallpaperEngine.applyScenario(context, scenarioId)
+                    WallpaperEngine.applyScenario(context, scenarioId, automaticTrigger = WallpaperTrigger.TIME)
                 }
             } finally {
                 runCatching {
