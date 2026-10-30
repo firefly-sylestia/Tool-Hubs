@@ -5,8 +5,11 @@ Wallpaper Studio is a standalone Android app module for local wallpaper collecti
 ## What it does
 
 - Imports selected images through Android Photo Picker and persists URI read grants.
-- Applies a scene to the Home screen, Lock screen or both with Android WallpaperManager.
-- Supports unlock/keyguard-dismissed, charging, unplugged, low-battery and Wi-Fi connection state triggers.
+- Applies a scene to the Home screen, Lock screen or both with a composed, device-sized wallpaper bitmap and explicit crop hint.
+- Lets the user choose Fill, Fit, Stretch or Original size, with horizontal and vertical focal-point controls and a phone-shaped preview. EXIF orientation is respected.
+- New scenes are manual-only by default. Automatic switching is an explicit per-scene opt-in; manual Apply works even when automation is paused.
+- Captures the previous static Home/Lock wallpaper before the first automatic scene and restores it when paired temporary conditions end (charging/unplugged, Wi-Fi connected/disconnected, airplane mode, battery saver, battery low/recovered, wired headset, and screen off/on). A manual restore action is also available in Settings.
+- Supports unlock/keyguard-dismissed, charging, unplugged, low-battery/recovered, Wi-Fi connection state, screen on/off, airplane mode, battery saver and wired headset triggers.
 - Supports daily time scenes with battery-aware, inexact AlarmManager delivery.
 - Resolves overlapping events by scene priority and falls through to the next matching scene if an image cannot be applied.
 - Publishes enabled scenes as dynamic app shortcuts, within the launcher's reported shortcut limit.
@@ -48,4 +51,4 @@ Photo access is scoped to the images selected by the user; no broad media/storag
 gradle :tools:wallpaper-studio:assembleRelease
 ```
 
-Version source of truth: build.gradle.kts (versionCode 2, versionName 0.2.0).
+Version source of truth: build.gradle.kts (versionCode 3, versionName 0.3.0).
