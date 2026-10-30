@@ -16,7 +16,7 @@ import kotlin.math.max
 import kotlin.math.min
 
 object WallpaperComposer {
-    fun render(context: Context, imageUri: String, fit: WallpaperFit, focusX: Float, focusY: Float, encodedBytes: ByteArray? = null): Bitmap {
+    fun render(context: Context, imageUri: String, fit: WallpaperFit, focusX: Float, focusY: Float, zoom: Float, rotation: Float, encodedBytes: ByteArray? = null): Bitmap {
         val uri = Uri.parse(imageUri)
         fun openSource() = encodedBytes?.let { ByteArrayInputStream(it) }
             ?: context.contentResolver.openInputStream(uri)
@@ -74,18 +74,18 @@ object WallpaperComposer {
         val canvas = Canvas(output)
         canvas.drawColor(Color.BLACK)
 
-        val scale = when (fit) {
-            WallpaperFit.FILL -> max(width.toFloat() / source.width, height.toFloat() / source.height)
-            WallpaperFit.FIT -> min(width.toFloat() / source.width, height.toFloat() / source.height)
-            WallpaperFit.STRETCH -> 1f
-            WallpaperFit.CENTER -> 1f
-        }
-        val drawWidth = if (fit == WallpaperFit.STRETCH) width.toFloat() else source.width * scale
-        val drawHeight = if (fit == WallpaperFit.STRETCH) height.toFloat() else source.height * scale
-        val left = (width - drawWidth) * focusX.coerceIn(0f, 1f)
-        val top = (height - drawHeight) * focusY.coerceIn(0f, 1f)
-        val destination = RectF(left, top, left + drawWidth, top + drawHeight)
+        // Match the editor: fit the complete image first, then apply freeform zoom,
+        // rotation and pan around the screen centre.
+        val baseScale = min(width.toFloat() / source.width, height.toFloat() / source.height)
+        val drawWidth = source.width * baseScale
+        val drawHeight = source.height * baseScale
+        canvas.save()
+        canvas.translate(width / 2f + (focusX - 0.5f) * width * 2f, height / 2f + (focusY - 0.5f) * height * 2f)
+        canvas.rotate(rotation)
+        canvas.scale(zoom.coerceIn(0.25f, 5f), zoom.coerceIn(0.25f, 5f))
+        val destination = RectF(-drawWidth / 2f, -drawHeight / 2f, drawWidth / 2f, drawHeight / 2f)
         canvas.drawBitmap(source, null, destination, Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG))
+        canvas.restore()
         source.recycle()
         return output
     }
