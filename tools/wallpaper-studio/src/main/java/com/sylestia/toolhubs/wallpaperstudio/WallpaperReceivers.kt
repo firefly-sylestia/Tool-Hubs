@@ -6,6 +6,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.wifi.WifiManager
+import android.os.PowerManager
+import android.provider.Settings
 import java.time.ZonedDateTime
 import kotlin.concurrent.thread
 
@@ -16,6 +18,21 @@ class WallpaperEventReceiver : BroadcastReceiver() {
             Intent.ACTION_POWER_CONNECTED -> WallpaperEvent.CHARGING
             Intent.ACTION_POWER_DISCONNECTED -> WallpaperEvent.UNPLUGGED
             Intent.ACTION_BATTERY_LOW -> WallpaperEvent.LOW_BATTERY
+            Intent.ACTION_SCREEN_ON -> WallpaperEvent.SCREEN_ON
+            Intent.ACTION_SCREEN_OFF -> WallpaperEvent.SCREEN_OFF
+            Intent.ACTION_AIRPLANE_MODE_CHANGED -> {
+                if (Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 1) {
+                    WallpaperEvent.AIRPLANE_ON
+                } else WallpaperEvent.AIRPLANE_OFF
+            }
+            PowerManager.ACTION_POWER_SAVE_MODE_CHANGED -> {
+                val power = context.getSystemService(PowerManager::class.java)
+                if (power?.isPowerSaveMode == true) WallpaperEvent.BATTERY_SAVER_ON else WallpaperEvent.BATTERY_SAVER_OFF
+            }
+            Intent.ACTION_HEADSET_PLUG -> {
+                if (intent.getIntExtra("state", 0) == 1) WallpaperEvent.HEADPHONES_CONNECTED
+                else WallpaperEvent.HEADPHONES_DISCONNECTED
+            }
             WifiManager.NETWORK_STATE_CHANGED_ACTION -> {
                 if (WallpaperEngine.isWifiConnected(context)) {
                     WallpaperEvent.WIFI_CONNECTED
