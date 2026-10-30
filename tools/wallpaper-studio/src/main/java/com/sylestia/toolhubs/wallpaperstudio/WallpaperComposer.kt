@@ -6,6 +6,8 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.graphics.RectF
 import android.net.Uri
 import java.io.File
@@ -14,9 +16,38 @@ import kotlin.math.min
 
 object WallpaperComposer {
     fun render(context: Context, imageUri: String, fit: WallpaperFit, focusX: Float, focusY: Float): Bitmap {
-        val source = context.contentResolver.openInputStream(Uri.parse(imageUri))?.use {
+        val uri = Uri.parse(imageUri)
+        val orientation = context.contentResolver.openInputStream(uri)?.use { stream ->
+            runCatching {
+                ExifInterface(stream).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL,
+                )
+            }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+        } ?: ExifInterface.ORIENTATION_NORMAL
+        val decoded = context.contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(it)
         } ?: error("The selected image could not be decoded.")
+        val transform = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> transform.setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> transform.setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> transform.setScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                transform.setRotate(90f)
+                transform.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_90 -> transform.setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                transform.setRotate(270f)
+                transform.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_270 -> transform.setRotate(270f)
+        }
+        val source = if (transform.isIdentity) decoded else {
+            Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, transform, true)
+                .also { if (it !== decoded) decoded.recycle() }
+        }
 
         val metrics = context.resources.displayMetrics
         val width = metrics.widthPixels.coerceAtLeast(1)
