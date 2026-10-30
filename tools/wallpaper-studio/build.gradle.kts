@@ -52,6 +52,8 @@ dependencies {
     implementation(project(":core:ui"))
     implementation(project(":core:common"))
     implementation(libs.androidx.core.ktx)
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
