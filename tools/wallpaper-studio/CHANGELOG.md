@@ -5,7 +5,7 @@
 - Added Fill, Fit, Stretch and Original size placement modes with adjustable horizontal/vertical focal position and a device-shaped preview.
 - Composes the final wallpaper at device dimensions and respects EXIF orientation.
 - New scenes default to manual-only; automatic switching is an explicit per-scene option.
-- Captures static Home/Lock wallpaper snapshots before automatic scenes and restores them when paired temporary conditions end.
+- Restores saved static Home/Lock wallpapers when readable; on Android 13+, where the active wallpaper cannot be read by ordinary apps, restores the device's built-in default when paired temporary conditions end.
 - Added screen on/off, airplane mode, battery saver, battery recovered and wired headset triggers.
 - Added a manual Restore previous wallpaper action.
 
