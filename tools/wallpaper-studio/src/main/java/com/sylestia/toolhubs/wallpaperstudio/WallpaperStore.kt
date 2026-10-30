@@ -73,6 +73,8 @@ class WallpaperStore(context: Context) {
                         fit = runCatching { WallpaperFit.valueOf(item.optString("fit")) }.getOrDefault(WallpaperFit.FIT),
                         focusX = item.optDouble("focusX", 0.5).toFloat().coerceIn(0f, 1f),
                         focusY = item.optDouble("focusY", 0.5).toFloat().coerceIn(0f, 1f),
+                        zoom = item.optDouble("zoom", 1.0).toFloat().coerceIn(0.25f, 5f),
+                        rotation = item.optDouble("rotation", 0.0).toFloat().coerceIn(-180f, 180f),
                     ),
                 )
             }
@@ -111,7 +113,9 @@ class WallpaperStore(context: Context) {
                     .put("time", scenario.time)
                     .put("fit", scenario.fit.name)
                     .put("focusX", scenario.focusX.toDouble())
-                    .put("focusY", scenario.focusY.toDouble()),
+                    .put("focusY", scenario.focusY.toDouble())
+                    .put("zoom", scenario.zoom.toDouble())
+                    .put("rotation", scenario.rotation.toDouble()),
             )
         }
         preferences.edit().putString(KEY_SCENARIOS, json.toString()).apply()
