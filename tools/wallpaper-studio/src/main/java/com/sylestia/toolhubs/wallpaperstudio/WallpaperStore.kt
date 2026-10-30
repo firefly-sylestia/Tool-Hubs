@@ -130,7 +130,7 @@ class WallpaperStore(context: Context) {
     }
 
     fun activeTrigger(): WallpaperTrigger? = runCatching {
-        preferences.getString(KEY_ACTIVE_TRIGGER, null)?.let(WallpaperTrigger::valueOf)
+        preferences.getString(KEY_ACTIVE_TRIGGER, null)?.let { WallpaperTrigger.valueOf(it) }
     }.getOrNull()
 
     fun clearActiveScene() {
