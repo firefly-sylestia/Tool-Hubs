@@ -10,8 +10,8 @@ android {
         applicationId = "com.sylestia.toolhubs.wallpaperstudio"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
     }
     buildFeatures { compose = true; buildConfig = true }
 
