@@ -10,6 +10,9 @@ Wallpaper Studio is a standalone Android app module for local wallpaper collecti
 - Supports daily time scenes with battery-aware, inexact AlarmManager delivery.
 - Resolves overlapping events by scene priority and falls through to the next matching scene if an image cannot be applied.
 - Publishes enabled scenes as dynamic app shortcuts, within the launcher's reported shortcut limit.
+- Preloads up to six enabled scene images into a bounded 32 MiB memory cache; large images bypass the cache and are streamed directly. Original encoded bytes are retained so EXIF orientation and Android's own crop behavior remain intact.
+- Skips duplicate writes when the same scene is applied again within 15 seconds, avoiding redundant wallpaper-service work during clustered unlock or system events.
+- Offers optional Shizuku connection detection, permission request and ADB/root identity reporting. Shizuku is not required for ordinary wallpaper changes.
 
 ## Background model
 
@@ -17,9 +20,17 @@ Android 8+ does not deliver several implicit broadcasts to manifest receivers. E
 
 The service is started while the app is visible and is also requested after boot or package replacement. Android and OEM background-start / battery policies can still prevent a restart; opening the app resynchronises it. On Android 13+, the app requests notification permission when the user enables an event scene, but the user can deny it.
 
+## Shizuku integration
+
+Shizuku is an optional system bridge. Wallpaper Studio detects whether the service is installed/running, requests its own permission only after the user taps Grant access, and reports whether the service is running as ADB shell or root. It does not request root, silently execute commands, or depend on Shizuku to set wallpapers. The supported WallpaperManager API remains the primary application path; using Shizuku as a blanket wallpaper-setting shortcut is not reliably faster and can be less compatible across Android/OEM versions. On non-rooted Android 11+ devices, Shizuku is started through Wireless debugging and normally needs to be restarted after reboot.
+
 ## Biometric boundary
 
 ACTION_USER_PRESENT indicates that the keyguard has been dismissed; it does not identify whether the user used Face Unlock, fingerprint, PIN or another method. A distinct fingerprint condition may be available through Samsung Routines+ on some Galaxy / One UI versions. The app publishes a scene shortcut for compatible automation integrations, but does not claim a face-specific trigger or guarantee that Routines+ exposes the shortcut on every version.
+
+## Performance
+
+The app warms a small, bounded cache of the highest-priority enabled scenes in the background after launch and scene edits. Cached data is the original image byte stream rather than a re-encoded bitmap, preserving orientation metadata and Android's crop handling. The cache is memory-only and automatically evicts older images. A 15-second same-scene guard prevents duplicate wallpaper writes during rapid event bursts.
 
 ## Permissions
 
