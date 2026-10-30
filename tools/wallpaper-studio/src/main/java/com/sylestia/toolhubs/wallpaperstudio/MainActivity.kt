@@ -96,7 +96,6 @@ import androidx.compose.ui.unit.sp
 import com.sylestia.toolhubs.designsystem.ToolHubsTheme
 import com.sylestia.toolhubs.ui.HubEmptyState
 import com.sylestia.toolhubs.ui.HubPill
-import com.sylestia.toolhubs.ui.HubSegmented
 import java.text.DateFormat
 import java.util.UUID
 import kotlin.concurrent.thread
@@ -500,6 +499,43 @@ private fun StudioActionButton(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+@Composable
+private fun StudioSegmented(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+) {
+    val shape = RoundedCornerShape(17.dp)
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        options.forEachIndexed { index, option ->
+            val selected = index == selectedIndex
+            Box(
+                Modifier.weight(1f)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                    .clickable { onSelect(index) }
+                    .padding(vertical = 11.dp, horizontal = 5.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    option,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    maxLines = 1,
+                )
+            }
+        }
     }
 }
 
@@ -1221,7 +1257,7 @@ private fun ScenarioEditorDialog(
                         Text(fit.detail, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
                     }
                 }
-                HubSegmented(
+                StudioSegmented(
                     options = WallpaperFit.entries.map { it.label },
                     selectedIndex = WallpaperFit.entries.indexOf(fit),
                     onSelect = { fit = WallpaperFit.entries[it] },
@@ -1272,7 +1308,7 @@ private fun ScenarioEditorDialog(
                 }
 
                 Text("APPLY TO", color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.3.sp)
-                HubSegmented(
+                StudioSegmented(
                     options = WallpaperTarget.entries.map { it.label },
                     selectedIndex = WallpaperTarget.entries.indexOf(target),
                     onSelect = { target = WallpaperTarget.entries[it] },
