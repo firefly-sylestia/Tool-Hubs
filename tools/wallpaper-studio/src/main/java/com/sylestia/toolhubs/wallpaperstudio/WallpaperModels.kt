@@ -68,4 +68,6 @@ data class WallpaperScenario(
     val fit: WallpaperFit = WallpaperFit.FIT,
     val focusX: Float = 0.5f,
     val focusY: Float = 0.5f,
+    val zoom: Float = 1f,
+    val rotation: Float = 0f,
 )
