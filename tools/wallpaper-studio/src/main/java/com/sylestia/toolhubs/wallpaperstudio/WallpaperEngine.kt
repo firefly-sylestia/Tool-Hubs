@@ -63,7 +63,7 @@ object WallpaperEngine {
         }
     }
 
-    fun applyScenario(context: Context, scenarioId: String): Boolean {
+    fun applyScenario(context: Context, scenarioId: String, skipIfRecentlyApplied: Boolean = false): Boolean {
         val appContext = context.applicationContext
         val store = WallpaperStore(appContext)
         val scenario = store.scenario(scenarioId)?.takeIf { it.enabled } ?: return false
@@ -74,6 +74,7 @@ object WallpaperEngine {
 
         // Unlock broadcasts and OEM event delivery can arrive in quick succession.
         if (
+            skipIfRecentlyApplied &&
             store.lastAppliedScenarioId() == scenario.id &&
             System.currentTimeMillis() - store.lastAppliedAt() in 0..15_000
         ) {
@@ -109,7 +110,7 @@ object WallpaperEngine {
         val candidates = store.scenarios()
             .filter { it.enabled && matches(it.trigger, event) }
             .sortedByDescending { it.priority }
-        candidates.firstOrNull { applyScenario(context, it.id) }
+        candidates.firstOrNull { applyScenario(context, it.id, skipIfRecentlyApplied = true) }
     }
 
     private fun matches(trigger: WallpaperTrigger, event: WallpaperEvent): Boolean = when (event) {
