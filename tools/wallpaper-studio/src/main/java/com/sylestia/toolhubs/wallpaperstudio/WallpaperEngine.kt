@@ -75,6 +75,8 @@ object WallpaperEngine {
         // Unlock broadcasts and OEM event delivery can arrive in quick succession.
         if (
             skipIfRecentlyApplied &&
+            automaticTrigger != null &&
+            store.activeTrigger() == automaticTrigger &&
             store.lastAppliedScenarioId() == scenario.id &&
             System.currentTimeMillis() - store.lastAppliedAt() in 0..15_000
         ) {
