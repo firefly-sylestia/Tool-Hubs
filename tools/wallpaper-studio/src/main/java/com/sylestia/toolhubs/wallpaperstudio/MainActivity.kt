@@ -811,7 +811,7 @@ private fun LibraryScreen(
             subtitle = "Keep the images you want to rotate through.",
             icon = Icons.Rounded.Image,
         )
-        HubPrimaryButton("Import photos", icon = Icons.Rounded.Add, onClick = onAdd)
+        StudioPrimaryButton("Import photos", icon = Icons.Rounded.Add, onClick = onAdd)
         Row(verticalAlignment = Alignment.CenterVertically) {
             HubSectionTitle("${images.size} IMAGES", Modifier.weight(1f))
             Text("Stored on this device", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
