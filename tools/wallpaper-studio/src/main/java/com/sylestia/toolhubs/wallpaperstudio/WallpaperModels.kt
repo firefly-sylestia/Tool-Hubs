@@ -8,6 +8,21 @@ enum class WallpaperTrigger(val label: String, val detail: String) {
     WIFI_DISCONNECTED("When Wi-Fi disconnects", "Apply when Wi-Fi is no longer active"),
     LOW_BATTERY("Low battery", "Apply when Android reports low battery"),
     TIME("At a time", "Apply once a day at a chosen time"),
+    SCREEN_ON("When screen turns on", "Apply when the display wakes"),
+    SCREEN_OFF("When screen turns off", "Apply when the display sleeps"),
+    AIRPLANE_ON("Airplane mode on", "Apply when airplane mode is enabled"),
+    AIRPLANE_OFF("Airplane mode off", "Apply when airplane mode is disabled"),
+    BATTERY_SAVER_ON("Battery saver on", "Apply when power saving starts"),
+    BATTERY_SAVER_OFF("Battery saver off", "Apply when power saving ends"),
+    HEADPHONES_CONNECTED("Headphones connected", "Apply when wired headphones connect"),
+    HEADPHONES_DISCONNECTED("Headphones disconnected", "Apply when wired headphones disconnect"),
+}
+
+enum class WallpaperFit(val label: String, val detail: String) {
+    FILL("Fill", "Fill the screen and crop the edges"),
+    FIT("Fit", "Show the whole image with empty space"),
+    STRETCH("Stretch", "Fill the screen without cropping"),
+    CENTER("Original size", "Keep the image at its natural pixel size"),
 }
 
 enum class WallpaperTarget(val label: String) {
@@ -23,6 +38,14 @@ enum class WallpaperEvent {
     WIFI_CONNECTED,
     WIFI_DISCONNECTED,
     LOW_BATTERY,
+    SCREEN_ON,
+    SCREEN_OFF,
+    AIRPLANE_ON,
+    AIRPLANE_OFF,
+    BATTERY_SAVER_ON,
+    BATTERY_SAVER_OFF,
+    HEADPHONES_CONNECTED,
+    HEADPHONES_DISCONNECTED,
 }
 
 data class WallpaperImage(
@@ -40,4 +63,7 @@ data class WallpaperScenario(
     val enabled: Boolean = true,
     val priority: Int = 3,
     val time: String = "21:00",
+    val fit: WallpaperFit = WallpaperFit.FILL,
+    val focusX: Float = 0.5f,
+    val focusY: Float = 0.5f,
 )
