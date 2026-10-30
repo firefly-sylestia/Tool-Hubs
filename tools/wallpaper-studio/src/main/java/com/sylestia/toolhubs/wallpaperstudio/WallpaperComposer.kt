@@ -8,6 +8,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Matrix
 import android.media.ExifInterface
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.graphics.RectF
 import android.net.Uri
 import java.io.File
@@ -25,8 +27,23 @@ object WallpaperComposer {
                 )
             }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
         } ?: ExifInterface.ORIENTATION_NORMAL
+        val metrics = context.resources.displayMetrics
+        val targetWidth = metrics.widthPixels.coerceAtLeast(1)
+        val targetHeight = metrics.heightPixels.coerceAtLeast(1)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        val sourceRatio = min(
+            bounds.outWidth.coerceAtLeast(1).toFloat() / targetWidth,
+            bounds.outHeight.coerceAtLeast(1).toFloat() / targetHeight,
+        ).toInt().coerceAtLeast(1)
+        var sampleSize = 1
+        while (sampleSize * 2 <= sourceRatio) sampleSize *= 2
         val decoded = context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it)
+            BitmapFactory.decodeStream(
+                it,
+                null,
+                BitmapFactory.Options().apply { inSampleSize = sampleSize },
+            )
         } ?: error("The selected image could not be decoded.")
         val transform = Matrix()
         when (orientation) {
@@ -44,14 +61,13 @@ object WallpaperComposer {
             }
             ExifInterface.ORIENTATION_ROTATE_270 -> transform.setRotate(270f)
         }
-        val source = if (transform.isIdentity) decoded else {
+        val source = if (transform.isIdentity()) decoded else {
             Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, transform, true)
                 .also { if (it !== decoded) decoded.recycle() }
         }
 
-        val metrics = context.resources.displayMetrics
-        val width = metrics.widthPixels.coerceAtLeast(1)
-        val height = metrics.heightPixels.coerceAtLeast(1)
+        val width = targetWidth
+        val height = targetHeight
         val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(output)
         canvas.drawColor(Color.BLACK)
