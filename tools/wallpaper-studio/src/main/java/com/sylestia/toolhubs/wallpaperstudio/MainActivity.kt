@@ -1063,7 +1063,7 @@ private fun ScenarioEditorDialog(
     var target by remember(initial?.id) { mutableStateOf(initial?.target ?: WallpaperTarget.BOTH) }
     var priority by remember(initial?.id) { mutableIntStateOf(initial?.priority ?: 3) }
     var time by remember(initial?.id) { mutableStateOf(initial?.time ?: "21:00") }
-    var fit by remember(initial?.id) { mutableStateOf(initial?.fit ?: WallpaperFit.FILL) }
+    var fit by remember(initial?.id) { mutableStateOf(initial?.fit ?: WallpaperFit.FIT) }
     var focusX by remember(initial?.id) { mutableStateOf(initial?.focusX ?: 0.5f) }
     var focusY by remember(initial?.id) { mutableStateOf(initial?.focusY ?: 0.5f) }
     var autoApply by remember(initial?.id) { mutableStateOf(initial?.enabled ?: false) }
