@@ -80,6 +80,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -1309,7 +1310,7 @@ private fun WallpaperImageView(
                 WallpaperFit.STRETCH -> ContentScale.FillBounds
                 WallpaperFit.CENTER -> ContentScale.Inside
             },
-            alignment = Alignment(
+            alignment = BiasAlignment(
                 horizontalBias = focusX.coerceIn(0f, 1f) * 2f - 1f,
                 verticalBias = focusY.coerceIn(0f, 1f) * 2f - 1f,
             ),
