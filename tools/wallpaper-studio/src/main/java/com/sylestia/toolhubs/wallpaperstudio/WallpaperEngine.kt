@@ -93,7 +93,8 @@ object WallpaperEngine {
                     "Android did not allow Wallpaper Studio to save the previous wallpaper. The scene was not applied."
                 }
             }
-            val composed = WallpaperComposer.render(appContext, image.uri, scenario.fit, scenario.focusX, scenario.focusY)
+            val cachedBytes = WallpaperAssetCache.get(appContext, image.uri)
+            val composed = WallpaperComposer.render(appContext, image.uri, scenario.fit, scenario.focusX, scenario.focusY, cachedBytes)
             try {
                 val crop = android.graphics.Rect(0, 0, composed.width, composed.height)
                 val wallpaperId = manager.setBitmap(composed, crop, true, flags)
