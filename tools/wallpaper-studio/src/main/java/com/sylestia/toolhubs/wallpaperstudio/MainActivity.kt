@@ -229,6 +229,7 @@ private fun WallpaperStudioApp() {
     }
 
     LaunchedEffect(Unit) {
+        WallpaperEngine.preload(context)
         scheduler.refresh()
         WallpaperMonitoringService.sync(context, scenarios)
         WallpaperShortcuts.refresh(context, scenarios)
@@ -271,6 +272,7 @@ private fun WallpaperStudioApp() {
     fun refresh() {
         images = store.images()
         scenarios = store.scenarios()
+        WallpaperEngine.preload(context)
         scheduler.refresh()
         WallpaperMonitoringService.sync(context, scenarios)
         WallpaperShortcuts.refresh(context, scenarios)
