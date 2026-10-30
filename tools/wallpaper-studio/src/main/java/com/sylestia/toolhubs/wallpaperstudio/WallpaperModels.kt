@@ -62,7 +62,7 @@ data class WallpaperScenario(
     val imageId: String,
     val trigger: WallpaperTrigger,
     val target: WallpaperTarget = WallpaperTarget.BOTH,
-    val enabled: Boolean = true,
+    val enabled: Boolean = false,
     val priority: Int = 3,
     val time: String = "21:00",
     val fit: WallpaperFit = WallpaperFit.FIT,
