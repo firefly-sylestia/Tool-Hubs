@@ -1277,7 +1277,7 @@ private fun ScenarioEditorDialog(
                                         }
                                     }.padding(6.dp),
                             ) {
-                                WallpaperImageView(selectedImage, Modifier.fillMaxSize().background(Color.Black), fit = WallpaperFit.FIT, focusX = focusX, focusY = focusY, zoom = zoom, rotation = rotation)
+                                WallpaperImageView(selectedImage, Modifier.fillMaxSize(), fit = WallpaperFit.FIT, focusX = focusX, focusY = focusY, zoom = zoom, rotation = rotation)
                             }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1435,7 +1435,6 @@ private fun WallpaperImageView(
         Image(
             bitmap!!.asImageBitmap(),
             contentDescription = image.name,
-            modifier = modifier.clip(RoundedCornerShape(14.dp)),
             contentScale = when (fit) {
                 WallpaperFit.FILL -> ContentScale.Crop
                 WallpaperFit.FIT -> ContentScale.Fit
