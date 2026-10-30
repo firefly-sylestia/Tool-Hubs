@@ -10,14 +10,18 @@ import android.graphics.Matrix
 import android.media.ExifInterface
 import android.graphics.RectF
 import android.net.Uri
+import java.io.ByteArrayInputStream
 import java.io.File
 import kotlin.math.max
 import kotlin.math.min
 
 object WallpaperComposer {
-    fun render(context: Context, imageUri: String, fit: WallpaperFit, focusX: Float, focusY: Float): Bitmap {
+    fun render(context: Context, imageUri: String, fit: WallpaperFit, focusX: Float, focusY: Float, encodedBytes: ByteArray? = null): Bitmap {
         val uri = Uri.parse(imageUri)
-        val orientation = context.contentResolver.openInputStream(uri)?.use { stream ->
+        fun openSource() = encodedBytes?.let { ByteArrayInputStream(it) }
+            ?: context.contentResolver.openInputStream(uri)
+            ?: error("The selected image could not be opened.")
+        val orientation = openSource().use { stream ->
             runCatching {
                 ExifInterface(stream).getAttributeInt(
                     ExifInterface.TAG_ORIENTATION,
@@ -29,14 +33,14 @@ object WallpaperComposer {
         val targetWidth = metrics.widthPixels.coerceAtLeast(1)
         val targetHeight = metrics.heightPixels.coerceAtLeast(1)
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        openSource().use { BitmapFactory.decodeStream(it, null, bounds) }
         val sourceRatio = min(
             bounds.outWidth.coerceAtLeast(1).toFloat() / targetWidth,
             bounds.outHeight.coerceAtLeast(1).toFloat() / targetHeight,
         ).toInt().coerceAtLeast(1)
         var sampleSize = 1
         while (sampleSize * 2 <= sourceRatio) sampleSize *= 2
-        val decoded = context.contentResolver.openInputStream(uri)?.use {
+        val decoded = openSource().use {
             BitmapFactory.decodeStream(
                 it,
                 null,
