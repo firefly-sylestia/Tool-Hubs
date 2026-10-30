@@ -6,7 +6,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Rect
 import android.graphics.RectF
 import android.net.Uri
 import java.io.File
@@ -84,7 +83,7 @@ object WallpaperBaseline {
             val saved = file(context, flag)
             if (!saved.exists() || saved.length() == 0L) return@forEach
             val restored = runCatching {
-                saved.inputStream().use { manager.setStream(it, Rect(0, 0, 1, 1), true, flag) }
+                saved.inputStream().use { manager.setStream(it, null, true, flag) }
                 true
             }.getOrDefault(false)
             restoredAny = restoredAny || restored
