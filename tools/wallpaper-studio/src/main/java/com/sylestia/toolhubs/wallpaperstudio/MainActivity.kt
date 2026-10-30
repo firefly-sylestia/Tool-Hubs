@@ -302,7 +302,7 @@ private fun WallpaperStudioApp() {
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "TOOL HUBS  /  PERSONALISATION",
+                        "TOOL HUBS",
                         color = MaterialTheme.colorScheme.primary,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Black,
@@ -311,9 +311,9 @@ private fun WallpaperStudioApp() {
                     Text(
                         "Wallpaper Studio",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 30.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = (-1.1).sp,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = (-0.2).sp,
                     )
                 }
                 Surface(
