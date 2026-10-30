@@ -889,6 +889,7 @@ private fun SettingsScreen(
                 lineHeight = 16.sp,
             )
         }
+        ShizukuSettingsCard()
         HubGlassCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Fingerprint, null, tint = MaterialTheme.colorScheme.primary)
