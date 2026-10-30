@@ -32,6 +32,7 @@ class WallpaperMonitoringService : Service() {
             stopSelf()
             return
         }
+        WallpaperEngine.preload(this)
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_wallpaper)
