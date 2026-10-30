@@ -6,7 +6,7 @@ Wallpaper Studio is a standalone Android app module for local wallpaper collecti
 
 - Imports selected images through Android Photo Picker and persists URI read grants.
 - Applies a scene to the Home screen, Lock screen or both with a composed, device-sized wallpaper bitmap and explicit crop hint.
-- Lets the user choose Fill, Fit, Stretch or Original size, with horizontal and vertical focal-point controls and a phone-shaped preview. EXIF orientation is respected.
+- Includes a freeform crop editor: drag to pan, pinch to zoom, twist to rotate, and fine-tune zoom/rotation with sliders. The exact transform is saved with each scene and used to compose the final device-sized wallpaper. EXIF orientation is respected.
 - New scenes are manual-only by default. Automatic switching is an explicit per-scene opt-in; manual Apply works even when automation is paused.
 - Saves the previous static Home/Lock wallpaper when Android allows it and restores it when paired temporary conditions end (charging/unplugged, Wi-Fi connected/disconnected, airplane mode, battery saver, battery low/recovered, wired headset, and screen off/on). Android 13+ blocks third-party apps from reading the active wallpaper, so on those versions Studio restores the device's built-in default wallpaper instead. A manual restore action is also available in Settings.
 - Supports unlock/keyguard-dismissed, charging, unplugged, low-battery/recovered, Wi-Fi connection state, screen on/off, airplane mode, battery saver and wired headset triggers.
