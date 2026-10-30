@@ -388,7 +388,7 @@ private fun WallpaperStudioApp() {
                         onRestore = {
                             if (WallpaperBaseline.restore(context)) {
                                 store.clearActiveScene()
-                                statusMessage = "Previous wallpaper restored."
+                                statusMessage = "Wallpaper restored."
                             } else {
                                 statusMessage = "No saved wallpaper snapshot is available to restore."
                             }
@@ -1085,7 +1085,7 @@ private fun SettingsScreen(
             SettingValue("Library images", imageCount.toString())
             SettingValue("Event monitor", "Only for event scenes")
             Text(
-                "Unlock, power and Wi-Fi scenes use a small ongoing notification while any event scene is enabled. Time-only scenes use alarms and do not keep the monitor running.",
+                "Event-based scenes use a small ongoing notification while automation is enabled. Time-only scenes use alarms and do not keep the monitor running.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
@@ -1126,6 +1126,12 @@ private fun SettingsScreen(
             StudioActionButton("Refresh schedules", icon = Icons.Rounded.Schedule, onClick = onRefresh)
             Spacer(Modifier.height(8.dp))
             StudioActionButton("Restore previous wallpaper", icon = Icons.Rounded.Wallpaper, onClick = onRestore)
+            Text(
+                "Android 13 and newer prevent apps from reading the current wallpaper. On those versions, Restore returns to the device default; older versions restore a saved static image when Android allows access.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 10.sp,
+                lineHeight = 15.sp,
+            )
         }
         if (!lastError.isNullOrBlank()) {
             StudioCard {
