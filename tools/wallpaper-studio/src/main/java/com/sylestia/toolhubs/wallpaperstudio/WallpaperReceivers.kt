@@ -39,7 +39,7 @@ class WallpaperEventReceiver : BroadcastReceiver() {
 
 class WallpaperTimeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val scenarioId = intent.getStringExtra(EXTRA_SCENARIO_ID) ?: return
+        val scenarioId = intent.getStringExtra(WallpaperScheduler.EXTRA_SCENARIO_ID) ?: return
         val pending = goAsync()
         thread(name = "wallpaper-time") {
             try {

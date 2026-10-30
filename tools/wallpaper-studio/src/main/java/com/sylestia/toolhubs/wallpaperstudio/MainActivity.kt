@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.widget.Toast
 import android.provider.OpenableColumns
 import android.content.pm.PackageManager
@@ -702,7 +703,7 @@ private fun ScenesScreen(
             subtitle = "Build the moments that change your wallpaper.",
             icon = Icons.Rounded.Tune,
         )
-        HubPrimaryButton(
+        StudioPrimaryButton(
             text = "New scene",
             icon = Icons.Rounded.Add,
             onClick = onAdd,
