@@ -11,6 +11,24 @@ Each entry corresponds to the `versionName` in
 desktop launcher — the `version` in [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json).
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how versions are chosen.
 
+## [Wallpaper Studio 0.1.0]
+
+A new Android tool for building wallpaper scenes that react to unlock, power, Wi-Fi and daily time events.
+
+### Added
+- **Local wallpaper library.** Import selected images with Android's system photo picker and keep persistable access grants without broad storage permissions.
+- **Separate destinations.** Apply a scene to the Home screen, Lock screen or both through Android's WallpaperManager API.
+- **Event-driven scenes.** React to keyguard dismissal, charging, unplugging, low-battery and Wi-Fi state changes through a runtime receiver held by an on-demand foreground monitor, plus daily time schedules restored after reboot or time-zone changes.
+- **Conflict handling.** Set a priority per scene; the highest-priority matching scene is attempted first, with a fallback to the next match if its image cannot be opened.
+- **Quick scene shortcuts.** Publish up to the launcher's supported limit of enabled scenes as dynamic app shortcuts for one-tap application or compatible automation integrations.
+- **On-demand event monitor.** Keep a low-importance foreground notification and runtime event listener only while an event-based scene is enabled; time-only scenes do not start it.
+- **One UI-inspired interface.** A neutral light/dark palette, large content-first headings, restrained Samsung-blue actions, image previews, scene status and a compact bottom navigation.
+
+### Platform boundaries
+- Android reports that the device is user-present after the keyguard is dismissed, but does not tell an ordinary third-party app whether Face Unlock or fingerprint caused it.
+- Samsung Routines+ may provide a fingerprint-specific condition on supported Galaxy / Good Lock versions; that condition must be configured by the user and paired with a scene shortcut where the shortcut is available.
+- Time scenes use battery-aware inexact alarms and can be delayed during deep Doze. Location, app-open and exact biometric-method triggers are not included in this release.
+
 ## [MC Launcher 0.16.0]
 
 One copy of the game is downloaded and every instance plays from it, a modern version no longer

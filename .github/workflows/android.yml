@@ -84,6 +84,9 @@ jobs:
           - name: network-switcher
             task: :tools:network-switcher:assembleRelease
             apk: tools/network-switcher/build/outputs/apk/release/*.apk
+          - name: wallpaper-studio
+            task: :tools:wallpaper-studio:assembleRelease
+            apk: tools/wallpaper-studio/build/outputs/apk/release/*.apk
           - name: data-warden
             task: :tools:data-warden:assembleRelease
             apk: tools/data-warden/build/outputs/apk/release/*.apk
