@@ -1,0 +1,170 @@
+package com.sylestia.toolhubs.wallpaperstudio
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Matrix
+import android.media.ExifInterface
+import android.graphics.RectF
+import android.net.Uri
+import java.io.ByteArrayInputStream
+import java.io.File
+import kotlin.math.max
+import kotlin.math.min
+
+object WallpaperComposer {
+    fun render(context: Context, imageUri: String, fit: WallpaperFit, focusX: Float, focusY: Float, zoom: Float, rotation: Float, encodedBytes: ByteArray? = null): Bitmap {
+        val uri = Uri.parse(imageUri)
+        fun openSource() = encodedBytes?.let { ByteArrayInputStream(it) }
+            ?: context.contentResolver.openInputStream(uri)
+            ?: error("The selected image could not be opened.")
+        val orientation = openSource().use { stream ->
+            runCatching {
+                ExifInterface(stream).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL,
+                )
+            }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+        } ?: ExifInterface.ORIENTATION_NORMAL
+        val metrics = context.resources.displayMetrics
+        val targetWidth = metrics.widthPixels.coerceAtLeast(1)
+        val targetHeight = metrics.heightPixels.coerceAtLeast(1)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        openSource().use { BitmapFactory.decodeStream(it, null, bounds) }
+        val sourceRatio = min(
+            bounds.outWidth.coerceAtLeast(1).toFloat() / targetWidth,
+            bounds.outHeight.coerceAtLeast(1).toFloat() / targetHeight,
+        ).toInt().coerceAtLeast(1)
+        var sampleSize = 1
+        while (sampleSize * 2 <= sourceRatio) sampleSize *= 2
+        val decoded = openSource().use {
+            BitmapFactory.decodeStream(
+                it,
+                null,
+                BitmapFactory.Options().apply { inSampleSize = sampleSize },
+            )
+        } ?: error("The selected image could not be decoded.")
+        val transform = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> transform.setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> transform.setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> transform.setScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                transform.setRotate(90f)
+                transform.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_90 -> transform.setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                transform.setRotate(270f)
+                transform.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_270 -> transform.setRotate(270f)
+        }
+        val source = if (transform.isIdentity()) decoded else {
+            Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, transform, true)
+                .also { if (it !== decoded) decoded.recycle() }
+        }
+
+        val width = targetWidth
+        val height = targetHeight
+        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        canvas.drawColor(Color.BLACK)
+
+        // Match the editor: fit the complete image first, then apply freeform zoom,
+        // rotation and pan around the screen centre.
+        val baseScale = min(width.toFloat() / source.width, height.toFloat() / source.height)
+        val drawWidth = source.width * baseScale
+        val drawHeight = source.height * baseScale
+        canvas.save()
+        canvas.translate(width / 2f + (focusX - 0.5f) * width * 2f, height / 2f + (focusY - 0.5f) * height * 2f)
+        canvas.rotate(rotation)
+        canvas.scale(zoom.coerceIn(0.25f, 5f), zoom.coerceIn(0.25f, 5f))
+        val destination = RectF(-drawWidth / 2f, -drawHeight / 2f, drawWidth / 2f, drawHeight / 2f)
+        canvas.drawBitmap(source, null, destination, Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG))
+        canvas.restore()
+        source.recycle()
+        return output
+    }
+}
+
+/**
+ * Saves the wallpaper that was already on the device before an automatic scene takes over.
+ * Separate snapshots let a Home-only scene leave the Lock screen untouched and vice versa.
+ */
+object WallpaperBaseline {
+    private fun file(context: Context, flag: Int): File {
+        val folder = File(context.filesDir, "wallpaper-baseline").apply { mkdirs() }
+        return File(folder, if (flag == android.app.WallpaperManager.FLAG_LOCK) "lock.bin" else "home.bin")
+    }
+
+    private fun defaultMarker(context: Context, flag: Int): File {
+        val folder = File(context.filesDir, "wallpaper-baseline").apply { mkdirs() }
+        return File(folder, if (flag == android.app.WallpaperManager.FLAG_LOCK) "lock.default" else "home.default")
+    }
+
+    fun capture(context: Context, flags: Int): Boolean {
+        val manager = android.app.WallpaperManager.getInstance(context)
+        val targets = listOf(android.app.WallpaperManager.FLAG_SYSTEM, android.app.WallpaperManager.FLAG_LOCK)
+            .filter { flags and it != 0 }
+        return targets.all { flag ->
+            val saved = file(context, flag)
+            val marker = defaultMarker(context, flag)
+            if ((saved.exists() && saved.length() > 0) || marker.exists()) {
+                true
+            } else {
+                // Android 13+ deliberately blocks third-party apps from reading the current
+                // wallpaper. On older releases, try the file API, then fall back to the device
+                // default if the current image is not readable.
+                val copied = if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
+                    runCatching {
+                        val descriptor = manager.getWallpaperFile(flag) ?: return@runCatching false
+                        android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
+                            saved.outputStream().use { output -> input.copyTo(output) }
+                        }
+                        saved.exists() && saved.length() > 0
+                    }.getOrDefault(false)
+                } else false
+                if (copied) true else runCatching { marker.createNewFile() }.getOrDefault(false)
+            }
+        }
+    }
+
+    fun restore(context: Context): Boolean {
+        val manager = android.app.WallpaperManager.getInstance(context)
+        val targets = listOf(android.app.WallpaperManager.FLAG_SYSTEM, android.app.WallpaperManager.FLAG_LOCK)
+        var restoredAny = false
+        var allRestored = true
+        targets.forEach { flag ->
+            val saved = file(context, flag)
+            val marker = defaultMarker(context, flag)
+            if (saved.exists() && saved.length() > 0) {
+                val restored = runCatching {
+                    saved.inputStream().use { manager.setStream(it, null, true, flag) }
+                    true
+                }.getOrDefault(false)
+                restoredAny = restoredAny || restored
+                allRestored = allRestored && restored
+                if (restored) saved.delete()
+            } else if (marker.exists()) {
+                val restored = runCatching {
+                    manager.clear(flag)
+                    true
+                }.getOrDefault(false)
+                restoredAny = restoredAny || restored
+                allRestored = allRestored && restored
+                if (restored) marker.delete()
+            }
+        }
+        return restoredAny && allRestored
+    }
+
+    fun hasSnapshot(context: Context): Boolean =
+        file(context, android.app.WallpaperManager.FLAG_SYSTEM).exists() ||
+            file(context, android.app.WallpaperManager.FLAG_LOCK).exists() ||
+            defaultMarker(context, android.app.WallpaperManager.FLAG_SYSTEM).exists() ||
+            defaultMarker(context, android.app.WallpaperManager.FLAG_LOCK).exists()
+}

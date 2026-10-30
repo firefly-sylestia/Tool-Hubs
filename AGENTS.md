@@ -6,7 +6,7 @@ silently picking one.
 
 ## 1. Scope
 
-- **The active modules are `:tools:chime` and `:tools:network-switcher`, plus the desktop app at
+- **The active modules are `:tools:chime`, `:tools:network-switcher` and `:tools:wallpaper-studio`, plus the desktop app at
   `desktop/mc-launcher`.** Everything else is out of scope until the user says otherwise.
 - **`desktop/mc-launcher` is not a Gradle module.** It is an Electron + Vue + TypeScript app on its own
   toolchain, so nothing in §2's Gradle list applies to it and it must never be added to
@@ -39,7 +39,8 @@ silently picking one.
 
 Each tool carries its own version, in its own module build file
 ([`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts),
-[`tools/chime/build.gradle.kts`](tools/chime/build.gradle.kts); for the desktop app,
+[`tools/chime/build.gradle.kts`](tools/chime/build.gradle.kts),
+[`tools/wallpaper-studio/build.gradle.kts`](tools/wallpaper-studio/build.gradle.kts); for the desktop app,
 [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json) plays that role):
 
 ```kotlin
@@ -84,7 +85,7 @@ Rules:
   `minSdk 26`. Follow [`gradle/libs.versions.toml`](gradle/libs.versions.toml) for dependencies —
   add a version there rather than hardcoding one in a module.
 - Keep each tool's source under `tools/<tool>/src/main/java/com/sylestia/toolhubs/<tool>/`
-  (`networkswitcher`, `chime`).
+  (`networkswitcher`, `chime`, `wallpaperstudio`).
 - Match the surrounding code: existing naming, coroutine/dispatcher usage, file layout, and the
   shared design system in `:core:designsystem` / `:core:ui` instead of new one-off styles.
 - Prefer editing existing files over adding new ones. Add a new file only when it has a clear,
@@ -94,8 +95,9 @@ Rules:
 
 ## 6. Documentation
 
-- Keep [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md) and the Network Switcher
-  [`README.md`](tools/network-switcher/README.md) accurate when behaviour, permissions, or
+- Keep [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md) the Network Switcher
+  [`README.md`](tools/network-switcher/README.md), and the Wallpaper Studio
+  [`README.md`](tools/wallpaper-studio/README.md) accurate when behaviour, permissions, or
   requirements change.
 - Roadmap items belong in [`docs/NETWORK_SWITCHER_FUTURE_TODO.md`](docs/NETWORK_SWITCHER_FUTURE_TODO.md);
   completed work belongs in [`TODO.md`](TODO.md) and the changelog.

@@ -11,6 +11,7 @@ Electron app on a separate toolchain and does not build through Gradle.
 | --- | --- | --- |
 | `:tools:chime` | Chime — alarms, reminders and a chiming clock | **Active development** |
 | `:tools:network-switcher` | 5G Reconnect — network observability and automatic 5G recovery | **Active development** |
+| `:tools:wallpaper-studio` | Wallpaper Studio — scenario-based wallpaper automation | **New** |
 | `:tools:data-warden` | Data Warden — mobile data protection | Frozen |
 
 Shared code:
@@ -27,7 +28,7 @@ Desktop (not a Gradle module, so it is not part of the Android build):
 | --- | --- | --- |
 | `desktop/mc-launcher` | MC Launcher — a desktop launcher for an existing Minecraft installation | Newly imported |
 
-> **Current focus: `:tools:chime` and `:tools:network-switcher`.** The calculator, Music Analyzer and
+> **Current focus: `:tools:chime`, `:tools:network-switcher` and `:tools:wallpaper-studio`.** The calculator, Music Analyzer and
 > Music Visualizer apps have been removed from the repository, and Data Warden is left untouched —
 > the shared theme tokens, header and metric primitives keep their existing values so it goes on
 > rendering exactly as it did. See [`AGENTS.md`](AGENTS.md) for the working rules.
@@ -62,6 +63,22 @@ bed, and keeping time without becoming a nuisance.
 
 The bell is generated in code (inharmonic partials rendered to PCM) rather than shipped as an audio
 file, and QR scanning runs on-device through CameraX and the bundled ML Kit barcode model.
+
+## Wallpaper Studio (scenario-based wallpaper automation)
+
+Wallpaper Studio keeps a local library of photos and applies a chosen image to the Home screen, Lock screen or both when a scene matches.
+
+- **Unlock:** switch after Android reports that the keyguard has been dismissed.
+- **Power:** switch when the charger is connected or removed, and when Android broadcasts low battery.
+- **Wi-Fi:** switch when the active Wi-Fi network connects or disconnects.
+- **Time:** schedule a daily scene using Android's battery-aware alarm delivery.
+- **Conflict handling:** scenes have priorities; the highest matching scene wins, and a failed image falls through to the next eligible scene.
+- **Quick actions:** up to four enabled scenes are published as Android app shortcuts, which can also be selected in compatible automation tools when they expose app shortcuts.
+- **Privacy:** photos are selected through Android's system photo picker. Their persistable URI grants and scene rules stay on-device; the app does not upload images. Event-based scenes use a low-importance foreground-service notification only while an event scene is enabled; time-only scenes do not keep the monitor running.
+
+Android provides a general user-present event, not the biometric method used for an unlock. Face Unlock therefore cannot be a distinct third-party trigger. On compatible Galaxy devices, Samsung Routines+ may expose an unlock-with-fingerprint condition; users can pair it with a Wallpaper Studio scene shortcut when the installed One UI / Good Lock version offers that action. Daily time alarms are inexact while the device is in deep Doze and may run later.
+
+The app uses the shared Tool-Hubs Compose design system with a restrained, One UI-inspired layout. Build it with `gradle :tools:wallpaper-studio:assembleRelease`.
 
 ## MC Launcher (desktop)
 
@@ -106,6 +123,7 @@ that touches the radio.
 # Release APK for the currently active tool
 gradle :tools:chime:assembleRelease
 gradle :tools:network-switcher:assembleRelease
+gradle :tools:wallpaper-studio:assembleRelease
 
 # Debug APK during development
 gradle :tools:network-switcher:assembleDebug

@@ -1,5 +1,20 @@
 # Tool Hubs delivery checklist
 
+## Wallpaper Studio 0.1.0 — scenario-based wallpaper automation
+
+- [x] Added the standalone `:tools:wallpaper-studio` Android module on the shared Compose foundation.
+- [x] Local image library backed by Android Photo Picker and persisted URI grants; no broad storage permission.
+- [x] Home, Lock screen or Both wallpaper destinations using WallpaperManager.
+- [x] Unlock, charging, unplugged, low-battery and Wi-Fi event triggers.
+- [x] Daily time scenes, rescheduled after boot, app replacement, clock changes and time-zone changes. Delivery is battery-aware/inexact.
+- [x] Per-scene priority and fallback to the next matching scene after an image/apply failure.
+- [x] Dynamic app shortcuts for enabled scenes, up to the launcher-reported limit.
+- [x] Event-driven scenes use an on-demand special-use foreground monitor with a low-importance notification; it stops when no event-trigger scenes remain enabled. Time-only scenes do not keep it running.
+- [x] Samsung-inspired restrained light/dark styling, photo previews, scene editing, status feedback and settings guidance.
+- [x] Release version set to `versionCode 1` / `versionName 0.1.0`; Android CI matrix includes the new module.
+- [ ] CI build and device checks remain pending. Verify event-receiver delivery, Android 14+ special-use foreground-service start policy, notification permission flow, Doze alarm timing and Galaxy Routines+ shortcut discovery. Android does not disclose whether an ordinary unlock used Face Unlock or fingerprint; Samsung Routines+ fingerprint conditions are external, version-dependent integrations.
+
+
 ## Desktop launcher — MC Launcher 0.16.0, one copy of the game, and a launch that says why it died
 
 - [x] **One shared game store.** `versions/`, `libraries/` and `assets/` moved into the launcher's
