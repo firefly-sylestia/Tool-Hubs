@@ -70,7 +70,7 @@ class WallpaperStore(context: Context) {
                         enabled = item.optBoolean("enabled", true),
                         priority = item.optInt("priority", 3).coerceIn(1, 5),
                         time = item.optString("time", "21:00"),
-                        fit = runCatching { WallpaperFit.valueOf(item.optString("fit")) }.getOrDefault(WallpaperFit.FILL),
+                        fit = runCatching { WallpaperFit.valueOf(item.optString("fit")) }.getOrDefault(WallpaperFit.FIT),
                         focusX = item.optDouble("focusX", 0.5).toFloat().coerceIn(0f, 1f),
                         focusY = item.optDouble("focusY", 0.5).toFloat().coerceIn(0f, 1f),
                     ),
