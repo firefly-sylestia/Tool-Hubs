@@ -95,11 +95,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sylestia.toolhubs.designsystem.ToolHubsTheme
 import com.sylestia.toolhubs.ui.HubEmptyState
-import com.sylestia.toolhubs.ui.HubGlassCard
-import com.sylestia.toolhubs.ui.HubHeroHeader
 import com.sylestia.toolhubs.ui.HubPill
-import com.sylestia.toolhubs.ui.HubQuietButton
-import com.sylestia.toolhubs.ui.HubSectionTitle
 import com.sylestia.toolhubs.ui.HubSegmented
 import java.text.DateFormat
 import java.util.UUID
@@ -451,6 +447,75 @@ private fun WallpaperStudioApp() {
 }
 
 @Composable
+private fun StudioCard(
+    modifier: Modifier = Modifier,
+    accent: Color? = null,
+    onClick: (() -> Unit)? = null,
+    contentPadding: androidx.compose.ui.unit.Dp = 18.dp,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    val shape = RoundedCornerShape(25.dp)
+    val interaction = Modifier.then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+    Surface(
+        modifier = modifier.then(interaction).border(
+            1.dp,
+            accent?.copy(alpha = 0.42f) ?: MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f),
+            shape,
+        ),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 1.dp,
+        shadowElevation = 1.dp,
+    ) {
+        Column(Modifier.padding(contentPadding), content = content)
+    }
+}
+
+@Composable
+private fun StudioActionButton(
+    text: String,
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier.clip(RoundedCornerShape(16.dp))
+            .background(if (enabled) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceVariant)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 15.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        if (icon != null) {
+            Icon(icon, null, tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(
+            text,
+            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun StudioSectionTitle(title: String, modifier: Modifier = Modifier) {
+    Text(
+        title,
+        modifier.padding(top = 3.dp, bottom = 2.dp),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 1.25.sp,
+    )
+}
+
+@Composable
 private fun StudioPageHeader(
     kicker: String,
     title: String,
@@ -610,7 +675,7 @@ private fun OverviewScreen(
             )
         }
         item {
-            HubGlassCard(contentPadding = 0.dp) {
+            StudioCard(contentPadding = 0.dp) {
                 Box(
                     Modifier
                         .fillMaxWidth()
@@ -686,9 +751,9 @@ private fun OverviewScreen(
             }
         }
         item {
-            HubSectionTitle("QUICK ACTIONS")
+            StudioSectionTitle("QUICK ACTIONS")
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                HubQuietButton(
+                StudioActionButton(
                     text = "Add photos",
                     icon = Icons.Rounded.Add,
                     modifier = Modifier.weight(1f),
