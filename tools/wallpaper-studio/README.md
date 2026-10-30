@@ -48,4 +48,4 @@ Photo access is scoped to the images selected by the user; no broad media/storag
 gradle :tools:wallpaper-studio:assembleRelease
 ```
 
-Version source of truth: build.gradle.kts (versionCode 1, versionName 0.1.0).
+Version source of truth: build.gradle.kts (versionCode 2, versionName 0.2.0).
