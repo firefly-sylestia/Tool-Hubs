@@ -1420,7 +1420,7 @@ private fun triggerIcon(trigger: WallpaperTrigger) = when (trigger) {
     WallpaperTrigger.UNLOCKED -> Icons.Rounded.Lock
     WallpaperTrigger.CHARGING, WallpaperTrigger.UNPLUGGED -> Icons.Rounded.Power
     WallpaperTrigger.WIFI_CONNECTED, WallpaperTrigger.WIFI_DISCONNECTED -> Icons.Rounded.Wifi
-    WallpaperTrigger.LOW_BATTERY -> Icons.Rounded.BatteryAlert
+    WallpaperTrigger.LOW_BATTERY, WallpaperTrigger.BATTERY_OKAY -> Icons.Rounded.BatteryAlert
     WallpaperTrigger.TIME -> Icons.Rounded.Alarm
     WallpaperTrigger.SCREEN_ON, WallpaperTrigger.SCREEN_OFF -> Icons.Rounded.Wallpaper
     WallpaperTrigger.AIRPLANE_ON, WallpaperTrigger.AIRPLANE_OFF -> Icons.Rounded.Tune
