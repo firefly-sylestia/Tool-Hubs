@@ -63,7 +63,7 @@ object WallpaperEngine {
         }
     }
 
-    fun applyScenario(context: Context, scenarioId: String, skipIfRecentlyApplied: Boolean = false): Boolean {
+    fun applyScenario(context: Context, scenarioId: String, skipIfRecentlyApplied: Boolean = false, automaticTrigger: WallpaperTrigger? = null): Boolean {
         val appContext = context.applicationContext
         val store = WallpaperStore(appContext)
         val scenario = store.scenario(scenarioId)?.takeIf { it.enabled } ?: return false
@@ -88,16 +88,20 @@ object WallpaperEngine {
                 WallpaperTarget.BOTH -> WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK
             }
             val manager = WallpaperManager.getInstance(appContext)
-            val cached = WallpaperAssetCache.get(appContext, image.uri)
-            val wallpaperId = if (cached != null) {
-                manager.setStream(ByteArrayInputStream(cached), null, true, flags)
-            } else {
-                val stream = appContext.contentResolver.openInputStream(Uri.parse(image.uri))
-                    ?: error("The selected image could not be opened.")
-                stream.use { manager.setStream(it, null, true, flags) }
+            if (automaticTrigger != null) {
+                check(WallpaperBaseline.capture(appContext, flags)) {
+                    "Android did not allow Wallpaper Studio to save the previous wallpaper. The scene was not applied."
+                }
             }
-            check(wallpaperId != 0) { "Android did not apply the selected wallpaper." }
-            store.recordApplied(scenario.id)
+            val composed = WallpaperComposer.render(appContext, image.uri, scenario.fit, scenario.focusX, scenario.focusY)
+            try {
+                val crop = android.graphics.Rect(0, 0, composed.width, composed.height)
+                val wallpaperId = manager.setBitmap(composed, crop, true, flags)
+                check(wallpaperId != 0) { "Android did not apply the selected wallpaper." }
+            } finally {
+                composed.recycle()
+            }
+            store.recordApplied(scenario.id, automaticTrigger)
             true
         }.getOrElse { error ->
             store.recordFailure(error.message ?: "Android could not apply this wallpaper.")
@@ -110,7 +114,16 @@ object WallpaperEngine {
         val candidates = store.scenarios()
             .filter { it.enabled && matches(it.trigger, event) }
             .sortedByDescending { it.priority }
-        candidates.firstOrNull { applyScenario(context, it.id, skipIfRecentlyApplied = true) }
+        val applied = candidates.firstOrNull {
+            applyScenario(context, it.id, skipIfRecentlyApplied = true, automaticTrigger = it.trigger)
+        }
+        if (applied == null && store.activeTrigger()?.let { isExitEvent(it, event) } == true) {
+            if (WallpaperBaseline.restore(context)) {
+                store.clearActiveScene()
+            } else {
+                store.recordFailure("The previous wallpaper could not be restored. Open Wallpaper Studio to try again.")
+            }
+        }
     }
 
     private fun matches(trigger: WallpaperTrigger, event: WallpaperEvent): Boolean = when (event) {
@@ -120,6 +133,24 @@ object WallpaperEngine {
         WallpaperEvent.WIFI_CONNECTED -> trigger == WallpaperTrigger.WIFI_CONNECTED
         WallpaperEvent.WIFI_DISCONNECTED -> trigger == WallpaperTrigger.WIFI_DISCONNECTED
         WallpaperEvent.LOW_BATTERY -> trigger == WallpaperTrigger.LOW_BATTERY
+        WallpaperEvent.SCREEN_ON -> trigger == WallpaperTrigger.SCREEN_ON
+        WallpaperEvent.SCREEN_OFF -> trigger == WallpaperTrigger.SCREEN_OFF
+        WallpaperEvent.AIRPLANE_ON -> trigger == WallpaperTrigger.AIRPLANE_ON
+        WallpaperEvent.AIRPLANE_OFF -> trigger == WallpaperTrigger.AIRPLANE_OFF
+        WallpaperEvent.BATTERY_SAVER_ON -> trigger == WallpaperTrigger.BATTERY_SAVER_ON
+        WallpaperEvent.BATTERY_SAVER_OFF -> trigger == WallpaperTrigger.BATTERY_SAVER_OFF
+        WallpaperEvent.HEADPHONES_CONNECTED -> trigger == WallpaperTrigger.HEADPHONES_CONNECTED
+        WallpaperEvent.HEADPHONES_DISCONNECTED -> trigger == WallpaperTrigger.HEADPHONES_DISCONNECTED
+    }
+
+    private fun isExitEvent(active: WallpaperTrigger, event: WallpaperEvent): Boolean = when (active) {
+        WallpaperTrigger.CHARGING -> event == WallpaperEvent.UNPLUGGED
+        WallpaperTrigger.WIFI_CONNECTED -> event == WallpaperEvent.WIFI_DISCONNECTED
+        WallpaperTrigger.AIRPLANE_ON -> event == WallpaperEvent.AIRPLANE_OFF
+        WallpaperTrigger.BATTERY_SAVER_ON -> event == WallpaperEvent.BATTERY_SAVER_OFF
+        WallpaperTrigger.HEADPHONES_CONNECTED -> event == WallpaperEvent.HEADPHONES_DISCONNECTED
+        WallpaperTrigger.SCREEN_OFF -> event == WallpaperEvent.SCREEN_ON
+        else -> false
     }
 
     fun isWifiConnected(context: Context): Boolean {
