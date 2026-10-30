@@ -70,6 +70,9 @@ class WallpaperStore(context: Context) {
                         enabled = item.optBoolean("enabled", true),
                         priority = item.optInt("priority", 3).coerceIn(1, 5),
                         time = item.optString("time", "21:00"),
+                        fit = runCatching { WallpaperFit.valueOf(item.optString("fit")) }.getOrDefault(WallpaperFit.FILL),
+                        focusX = item.optDouble("focusX", 0.5).toFloat().coerceIn(0f, 1f),
+                        focusY = item.optDouble("focusY", 0.5).toFloat().coerceIn(0f, 1f),
                     ),
                 )
             }
@@ -105,7 +108,10 @@ class WallpaperStore(context: Context) {
                     .put("target", scenario.target.name)
                     .put("enabled", scenario.enabled)
                     .put("priority", scenario.priority)
-                    .put("time", scenario.time),
+                    .put("time", scenario.time)
+                    .put("fit", scenario.fit.name)
+                    .put("focusX", scenario.focusX.toDouble())
+                    .put("focusY", scenario.focusY.toDouble()),
             )
         }
         preferences.edit().putString(KEY_SCENARIOS, json.toString()).apply()
@@ -115,11 +121,23 @@ class WallpaperStore(context: Context) {
 
     fun lastAppliedAt(): Long = preferences.getLong(KEY_LAST_APPLIED_AT, 0L)
 
-    fun recordApplied(scenarioId: String) {
-        preferences.edit()
+    fun recordApplied(scenarioId: String, trigger: WallpaperTrigger? = null) {
+        val editor = preferences.edit()
             .putString(KEY_LAST_SCENARIO, scenarioId)
             .putLong(KEY_LAST_APPLIED_AT, System.currentTimeMillis())
-            .remove(KEY_LAST_ERROR)
+        if (trigger != null) editor.putString(KEY_ACTIVE_TRIGGER, trigger.name)
+        editor.remove(KEY_LAST_ERROR).apply()
+    }
+
+    fun activeTrigger(): WallpaperTrigger? = runCatching {
+        preferences.getString(KEY_ACTIVE_TRIGGER, null)?.let(WallpaperTrigger::valueOf)
+    }.getOrNull()
+
+    fun clearActiveScene() {
+        preferences.edit()
+            .remove(KEY_ACTIVE_TRIGGER)
+            .remove(KEY_LAST_SCENARIO)
+            .remove(KEY_LAST_APPLIED_AT)
             .apply()
     }
 
@@ -135,5 +153,6 @@ class WallpaperStore(context: Context) {
         private const val KEY_LAST_SCENARIO = "last_scenario"
         private const val KEY_LAST_APPLIED_AT = "last_applied_at"
         private const val KEY_LAST_ERROR = "last_error"
+        private const val KEY_ACTIVE_TRIGGER = "active_trigger"
     }
 }
