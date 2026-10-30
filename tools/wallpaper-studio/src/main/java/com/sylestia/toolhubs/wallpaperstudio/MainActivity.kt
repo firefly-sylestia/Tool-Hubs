@@ -96,7 +96,6 @@ import com.sylestia.toolhubs.designsystem.ToolHubsTheme
 import com.sylestia.toolhubs.ui.HubEmptyState
 import com.sylestia.toolhubs.ui.HubGlassCard
 import com.sylestia.toolhubs.ui.HubHeroHeader
-import com.sylestia.toolhubs.ui.HubNavItem
 import com.sylestia.toolhubs.ui.HubPill
 import com.sylestia.toolhubs.ui.HubQuietButton
 import com.sylestia.toolhubs.ui.HubSectionTitle
@@ -192,12 +191,6 @@ private fun WallpaperStudioTheme(content: @Composable () -> Unit) {
     }
 }
 
-private val WallpaperTabs = listOf(
-    HubNavItem(Icons.Rounded.Wallpaper, "Home"),
-    HubNavItem(Icons.Rounded.Tune, "Scenes"),
-    HubNavItem(Icons.Rounded.Image, "Library"),
-    HubNavItem(Icons.Rounded.Settings, "Settings"),
-)
 
 @Composable
 private fun WallpaperStudioApp() {
@@ -390,6 +383,14 @@ private fun WallpaperStudioApp() {
                         onRefresh = {
                             refresh()
                             statusMessage = "Schedules refreshed."
+                        },
+                        onRestore = {
+                            if (WallpaperBaseline.restore(context)) {
+                                store.clearActiveScene()
+                                statusMessage = "Previous wallpaper restored."
+                            } else {
+                                statusMessage = "No saved wallpaper snapshot is available to restore."
+                            }
                         },
                     )
                 }
@@ -956,6 +957,7 @@ private fun SettingsScreen(
     imageCount: Int,
     lastError: String?,
     onRefresh: () -> Unit,
+    onRestore: () -> Unit,
 ) {
     Column(
         Modifier
@@ -1015,6 +1017,8 @@ private fun SettingsScreen(
             )
             Spacer(Modifier.height(10.dp))
             HubQuietButton("Refresh schedules", icon = Icons.Rounded.Schedule, onClick = onRefresh)
+            Spacer(Modifier.height(8.dp))
+            HubQuietButton("Restore previous wallpaper", icon = Icons.Rounded.Wallpaper, onClick = onRestore)
         }
         if (!lastError.isNullOrBlank()) {
             HubGlassCard {
