@@ -96,7 +96,7 @@ object WallpaperEngine {
                 }
             }
             val cachedBytes = WallpaperAssetCache.get(appContext, image.uri)
-            val composed = WallpaperComposer.render(appContext, image.uri, scenario.fit, scenario.focusX, scenario.focusY, cachedBytes)
+            val composed = WallpaperComposer.render(appContext, image.uri, scenario.fit, scenario.focusX, scenario.focusY, scenario.zoom, scenario.rotation, cachedBytes)
             try {
                 val crop = android.graphics.Rect(0, 0, composed.width, composed.height)
                 val wallpaperId = manager.setBitmap(composed, crop, true, flags)
