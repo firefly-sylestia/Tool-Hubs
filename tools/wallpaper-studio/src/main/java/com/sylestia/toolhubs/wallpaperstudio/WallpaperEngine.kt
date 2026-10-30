@@ -66,7 +66,7 @@ object WallpaperEngine {
     fun applyScenario(context: Context, scenarioId: String, skipIfRecentlyApplied: Boolean = false, automaticTrigger: WallpaperTrigger? = null): Boolean {
         val appContext = context.applicationContext
         val store = WallpaperStore(appContext)
-        val scenario = store.scenario(scenarioId)?.takeIf { it.enabled } ?: return false
+        val scenario = store.scenario(scenarioId) ?: return false
         val image = store.images().firstOrNull { it.id == scenario.imageId } ?: run {
             store.recordFailure("The image for \${scenario.name} is no longer in your library.")
             return false
