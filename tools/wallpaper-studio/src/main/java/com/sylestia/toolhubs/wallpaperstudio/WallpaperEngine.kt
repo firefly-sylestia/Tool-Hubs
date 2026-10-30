@@ -145,11 +145,17 @@ object WallpaperEngine {
 
     private fun isExitEvent(active: WallpaperTrigger, event: WallpaperEvent): Boolean = when (active) {
         WallpaperTrigger.CHARGING -> event == WallpaperEvent.UNPLUGGED
+        WallpaperTrigger.UNPLUGGED -> event == WallpaperEvent.CHARGING
         WallpaperTrigger.WIFI_CONNECTED -> event == WallpaperEvent.WIFI_DISCONNECTED
+        WallpaperTrigger.WIFI_DISCONNECTED -> event == WallpaperEvent.WIFI_CONNECTED
         WallpaperTrigger.AIRPLANE_ON -> event == WallpaperEvent.AIRPLANE_OFF
+        WallpaperTrigger.AIRPLANE_OFF -> event == WallpaperEvent.AIRPLANE_ON
         WallpaperTrigger.BATTERY_SAVER_ON -> event == WallpaperEvent.BATTERY_SAVER_OFF
+        WallpaperTrigger.BATTERY_SAVER_OFF -> event == WallpaperEvent.BATTERY_SAVER_ON
         WallpaperTrigger.HEADPHONES_CONNECTED -> event == WallpaperEvent.HEADPHONES_DISCONNECTED
+        WallpaperTrigger.HEADPHONES_DISCONNECTED -> event == WallpaperEvent.HEADPHONES_CONNECTED
         WallpaperTrigger.SCREEN_OFF -> event == WallpaperEvent.SCREEN_ON
+        WallpaperTrigger.SCREEN_ON -> event == WallpaperEvent.SCREEN_OFF
         else -> false
     }
 
