@@ -21,6 +21,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -80,9 +81,10 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -1178,6 +1180,8 @@ private fun ScenarioEditorDialog(
     var fit by remember(initial?.id) { mutableStateOf(initial?.fit ?: WallpaperFit.FIT) }
     var focusX by remember(initial?.id) { mutableStateOf(initial?.focusX ?: 0.5f) }
     var focusY by remember(initial?.id) { mutableStateOf(initial?.focusY ?: 0.5f) }
+    var zoom by remember(initial?.id) { mutableStateOf(initial?.zoom ?: 1f) }
+    var rotation by remember(initial?.id) { mutableStateOf(initial?.rotation ?: 0f) }
     var autoApply by remember(initial?.id) { mutableStateOf(initial?.enabled ?: false) }
     var triggerMenu by remember { mutableStateOf(false) }
     LaunchedEffect(images.size) {
@@ -1258,39 +1262,39 @@ private fun ScenarioEditorDialog(
                 Text("IMAGE POSITION", color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.3.sp)
                 images.firstOrNull { it.id == imageId }?.let { selectedImage ->
                     StudioCard(contentPadding = 12.dp) {
-                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            Surface(
-                                modifier = Modifier.width(148.dp).height(300.dp)
-                                    .border(2.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(30.dp)),
-                                shape = RoundedCornerShape(30.dp),
-                                color = Color.Black,
+                        Text("DRAG TO POSITION  ·  PINCH TO ZOOM  ·  TWIST TO ROTATE", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                        Box(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp), contentAlignment = Alignment.Center) {
+                            Box(
+                                Modifier.width(168.dp).height(320.dp).clip(RoundedCornerShape(30.dp))
+                                    .background(Color.Black)
+                                    .border(2.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(30.dp))
+                                    .pointerInput(imageId) {
+                                        detectTransformGestures { _, pan, gestureZoom, gestureRotation ->
+                                            zoom = (zoom * gestureZoom).coerceIn(0.25f, 5f)
+                                            rotation = ((rotation + gestureRotation + 180f) % 360f) - 180f
+                                            focusX = (focusX + pan.x / size.width).coerceIn(0f, 1f)
+                                            focusY = (focusY + pan.y / size.height).coerceIn(0f, 1f)
+                                        }
+                                    }.padding(6.dp),
                             ) {
-                                Box(Modifier.fillMaxSize().padding(5.dp)) {
-                                    WallpaperImageView(
-                                        selectedImage,
-                                        Modifier.fillMaxSize().background(Color.Black),
-                                        fit = fit,
-                                        focusX = focusX,
-                                        focusY = focusY,
-                                    )
-                                }
+                                WallpaperImageView(selectedImage, Modifier.fillMaxSize().background(Color.Black), fit = WallpaperFit.FIT, focusX = focusX, focusY = focusY, zoom = zoom, rotation = rotation)
                             }
                         }
-                        Spacer(Modifier.height(9.dp))
-                        Text(fit.detail, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("ZOOM", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text(String.format("%.2f×", zoom), color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Slider(value = zoom, onValueChange = { zoom = it }, valueRange = 0.25f..5f)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("ROTATION", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text("${rotation.toInt()}°", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Slider(value = rotation, onValueChange = { rotation = it }, valueRange = -180f..180f)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Position", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                            TextButton(onClick = { zoom = 1f; rotation = 0f; focusX = 0.5f; focusY = 0.5f }) { Text("Reset") }
+                        }
                     }
-                }
-                StudioSegmented(
-                    options = WallpaperFit.entries.map { it.label },
-                    selectedIndex = WallpaperFit.entries.indexOf(fit),
-                    onSelect = { fit = WallpaperFit.entries[it] },
-                )
-                if (fit == WallpaperFit.FILL || fit == WallpaperFit.CENTER) {
-                    Text("HORIZONTAL POSITION", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                    Slider(value = focusX, onValueChange = { focusX = it }, valueRange = 0f..1f)
-                    Text("VERTICAL POSITION", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                    Slider(value = focusY, onValueChange = { focusY = it }, valueRange = 0f..1f)
-                }
 
                 Text("WHEN SHOULD IT CHANGE?", color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.3.sp)
                 Box {
@@ -1379,6 +1383,8 @@ private fun ScenarioEditorDialog(
                             fit = fit,
                             focusX = focusX,
                             focusY = focusY,
+                            zoom = zoom,
+                            rotation = rotation,
                         ),
                     )
                 },
@@ -1395,6 +1401,8 @@ private fun WallpaperImageView(
     fit: WallpaperFit = WallpaperFit.FILL,
     focusX: Float = 0.5f,
     focusY: Float = 0.5f,
+    zoom: Float = 1f,
+    rotation: Float = 0f,
 ) {
     val context = LocalContext.current
     val bitmap by produceState<Bitmap?>(initialValue = null, key1 = image.uri) {
@@ -1434,10 +1442,14 @@ private fun WallpaperImageView(
                 WallpaperFit.STRETCH -> ContentScale.FillBounds
                 WallpaperFit.CENTER -> ContentScale.None
             },
-            alignment = BiasAlignment(
-                horizontalBias = focusX.coerceIn(0f, 1f) * 2f - 1f,
-                verticalBias = focusY.coerceIn(0f, 1f) * 2f - 1f,
-            ),
+            alignment = Alignment.Center,
+            modifier = modifier.graphicsLayer {
+                scaleX = zoom
+                scaleY = zoom
+                rotationZ = rotation
+                translationX = (focusX - 0.5f) * size.width * 2f
+                translationY = (focusY - 0.5f) * size.height * 2f
+            }.clip(RoundedCornerShape(14.dp)),
         )
     } else {
         Box(
