@@ -102,9 +102,9 @@ class AutoReconnectService : Service() {
         const val DEFAULT_INTERVAL_MS = 10_000L
         const val MIN_INTERVAL_MS = 5_000L
         const val MAX_INTERVAL_MS = 600_000L
-        const val DEFAULT_MAX_ATTEMPTS = 3
+        const val DEFAULT_MAX_ATTEMPTS = 2
         const val MIN_MAX_ATTEMPTS = 1
-        const val MAX_MAX_ATTEMPTS = 8
+        const val MAX_MAX_ATTEMPTS = 2
         const val DEFAULT_RECOVERY_COOLDOWN_MS = 5 * 60_000L
         const val MIN_RECOVERY_COOLDOWN_MS = 1 * 60_000L
         const val MAX_RECOVERY_COOLDOWN_MS = 30 * 60_000L
