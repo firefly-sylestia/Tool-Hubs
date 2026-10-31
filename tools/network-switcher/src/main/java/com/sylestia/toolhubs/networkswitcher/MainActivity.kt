@@ -1606,8 +1606,8 @@ private fun TunePage(
                     title = "Base retry delay",
                     valueLabel = intervalSeconds.toString() + "s",
                     value = intervalSeconds.toFloat(),
-                    range = 30f..600f,
-                    steps = 18,
+                    range = 5f..600f,
+                    steps = 118,
                     onValueChange = { intervalSeconds = it.toInt() },
                     onValueChangeFinished = {
                         store.edit().putLong(AutoReconnectService.PREF_INTERVAL_MS, intervalSeconds * 1000L).apply()
