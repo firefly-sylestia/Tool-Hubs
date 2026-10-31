@@ -54,11 +54,22 @@ class NetworkModeService(private val context: Context) : INetworkModeService.Stu
             val process = ProcessBuilder(command).redirectErrorStream(true).start()
             val output = process.inputStream.bufferedReader().use { it.readText().trim() }
             val exit = process.waitFor()
-            if (exit == 0) {
-                if (action == "get") output.ifBlank { "-1" }
-                else "Download rate limit updated."
-            } else {
+            if (exit != 0) {
                 "Android rejected the network rate limit: " + output.ifBlank { "exit code $exit" }
+            } else if (action == "get") {
+                if (output.isBlank() || output.equals("null", ignoreCase = true)) "-1" else output
+            } else {
+                // A successful settings write alone does not prove the value stuck. Read it back.
+                val verify = ProcessBuilder(
+                    "settings", "get", "global", "ingress_rate_limit_bytes_per_second"
+                ).redirectErrorStream(true).start()
+                val actual = verify.inputStream.bufferedReader().use { it.readText().trim() }
+                val verifyExit = verify.waitFor()
+                if (verifyExit == 0 && actual.toLongOrNull() == value?.toLongOrNull()) {
+                    "Download rate limit updated and verified."
+                } else {
+                    "Android did not confirm the requested download limit (read back: ${actual.ifBlank { "empty" }})."
+                }
             }
         } catch (t: Throwable) {
             "Network rate limit failed: ${t.javaClass.simpleName}: ${t.message ?: "unknown error"}"
