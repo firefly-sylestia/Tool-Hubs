@@ -106,13 +106,13 @@ class AutoReconnectService : Service() {
         const val PREF_BILLING_DAY = "billing_cycle_day"
         const val PREF_THEME_MODE = "theme_mode"
         const val MAX_HISTORY = 200
-        const val DEFAULT_INTERVAL_MS = 10_000L
+        const val DEFAULT_INTERVAL_MS = 5_000L
         const val MIN_INTERVAL_MS = 5_000L
         const val MAX_INTERVAL_MS = 600_000L
         const val DEFAULT_MAX_ATTEMPTS = 2
         const val MIN_MAX_ATTEMPTS = 1
         const val MAX_MAX_ATTEMPTS = 2
-        const val DEFAULT_RECOVERY_COOLDOWN_MS = 5 * 60_000L
+        const val DEFAULT_RECOVERY_COOLDOWN_MS = 1 * 60_000L
         const val MIN_RECOVERY_COOLDOWN_MS = 1 * 60_000L
         const val MAX_RECOVERY_COOLDOWN_MS = 30 * 60_000L
         const val NO_SERVICE_FAILOVER_DELAY_MS = 45_000L
