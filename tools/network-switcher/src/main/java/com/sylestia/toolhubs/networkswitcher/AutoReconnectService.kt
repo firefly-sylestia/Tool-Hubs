@@ -99,8 +99,8 @@ class AutoReconnectService : Service() {
         const val PREF_BILLING_DAY = "billing_cycle_day"
         const val PREF_THEME_MODE = "theme_mode"
         const val MAX_HISTORY = 200
-        const val DEFAULT_INTERVAL_MS = 30_000L
-        const val MIN_INTERVAL_MS = 30_000L
+        const val DEFAULT_INTERVAL_MS = 10_000L
+        const val MIN_INTERVAL_MS = 5_000L
         const val MAX_INTERVAL_MS = 600_000L
         const val DEFAULT_MAX_ATTEMPTS = 3
         const val MIN_MAX_ATTEMPTS = 1
@@ -121,7 +121,7 @@ class AutoReconnectService : Service() {
         const val DATA_WARNING_CHECK_MS = 5_000L
 
         /** How long we wait for a triggered re-selection to actually land on 5G. */
-        const val SWITCH_CONFIRM_TIMEOUT_MS = 12_000L
+        const val SWITCH_CONFIRM_TIMEOUT_MS = 8_000L
 
         /** Longest single back-off, and the ceiling applied to a value restored after a reboot. */
         const val MAX_BACKOFF_MS = 900_000L
@@ -130,7 +130,7 @@ class AutoReconnectService : Service() {
         const val ENVIRONMENT_RETRY_DELAY_MS = 15_000L
         const val ENVIRONMENT_NOTICE_INTERVAL_MS = 30_000L
 
-        private const val TICK_MS = 1_000L
+        private const val TICK_MS = 500L
         private const val HEALTH_REFRESH_INTERVAL_MS = 2_000L
         private const val LOOP_ERROR_LOG_INTERVAL_MS = 60_000L
         private const val RESULT_TRIGGERED = "5G re-selection triggered"
@@ -563,10 +563,10 @@ class AutoReconnectService : Service() {
     }
 
     private fun backoffFor(failures: Int): Long = when {
-        failures <= 1 -> 30_000L
-        failures == 2 -> 60_000L
-        failures == 3 -> 300_000L
-        else -> MAX_BACKOFF_MS
+        failures <= 1 -> 5_000L
+        failures == 2 -> 10_000L
+        failures == 3 -> 20_000L
+        else -> 60_000L
     }
 
     private suspend fun waitFor5G(timeoutMs: Long): Boolean {
