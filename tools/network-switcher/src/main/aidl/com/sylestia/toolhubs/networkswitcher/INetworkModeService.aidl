@@ -7,4 +7,6 @@ interface INetworkModeService {
     String openSamsungBandSelection() = 3;
     String setThermalStatusOverride(int status) = 4;
     String resetThermalStatus() = 5;
+    String getIngressRateLimit() = 6;
+    String setIngressRateLimit(long bytesPerSecond) = 7;
 }
