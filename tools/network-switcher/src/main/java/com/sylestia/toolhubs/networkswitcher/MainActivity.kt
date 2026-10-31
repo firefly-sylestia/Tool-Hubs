@@ -1550,6 +1550,15 @@ private fun TunePage(
     var pauseDuringCall by rememberSaveable {
         mutableStateOf(store.getBoolean(AutoReconnectService.PREF_PAUSE_DURING_CALL, false))
     }
+    var lteSpeedLimitEnabled by rememberSaveable {
+        mutableStateOf(store.getBoolean(AutoReconnectService.PREF_LTE_SPEED_LIMIT_ENABLED, false))
+    }
+    var lteSpeedLimitMbps by rememberSaveable {
+        mutableFloatStateOf(
+            store.getFloat(AutoReconnectService.PREF_LTE_SPEED_LIMIT_MBPS, AutoReconnectService.DEFAULT_LTE_SPEED_LIMIT_MBPS)
+                .coerceIn(0.1f, 100f)
+        )
+    }
 
     fun refreshWatcher() {
         if (store.getBoolean(AutoReconnectService.PREF_AUTO_ENABLED, false)) context.startWatcher()
@@ -1771,6 +1780,46 @@ private fun TunePage(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                 )
+                Spacer(Modifier.height(10.dp))
+                Text("LTE speed shaping", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(
+                    "Use Android's built-in download limiter while the monitored SIM is on LTE. Shizuku applies it and restores your previous value on 5G.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
+                Spacer(Modifier.height(8.dp))
+                HubToggleRow(
+                    title = "Limit download speed on 4G",
+                    subtitle = "Download only · requires Android rate-limiter support and Shizuku access.",
+                    checked = lteSpeedLimitEnabled,
+                    onCheckedChange = { enabled ->
+                        lteSpeedLimitEnabled = enabled
+                        store.edit().putBoolean(AutoReconnectService.PREF_LTE_SPEED_LIMIT_ENABLED, enabled).apply()
+                        refreshWatcher()
+                    },
+                )
+                if (lteSpeedLimitEnabled) {
+                    Spacer(Modifier.height(8.dp))
+                    HubSliderRow(
+                        title = "Maximum download speed",
+                        valueLabel = String.format(Locale.getDefault(), "%.1f Mbps", lteSpeedLimitMbps),
+                        value = lteSpeedLimitMbps,
+                        range = 0.1f..50f,
+                        steps = 498,
+                        onValueChange = { lteSpeedLimitMbps = it },
+                        onValueChangeFinished = {
+                            store.edit().putFloat(AutoReconnectService.PREF_LTE_SPEED_LIMIT_MBPS, lteSpeedLimitMbps).apply()
+                            refreshWatcher()
+                        },
+                    )
+                    Text(
+                        "Android applies this system limit to all internet networks while active, not just mobile data. Wi-Fi may be limited too if connected at the same time. Upload speed is not limited.",
+                        color = MaterialTheme.colorScheme.tertiary,
+                        fontSize = 10.sp,
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                HubHairline()
                 Spacer(Modifier.height(10.dp))
                 HubToggleRow(
                     title = "Warn when 4G reaches a daily limit",
