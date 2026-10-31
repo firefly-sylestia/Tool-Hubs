@@ -78,6 +78,7 @@ class AutoReconnectService : Service() {
         const val PREF_LTE_SPEED_LIMIT_MBPS = "lte_speed_limit_mbps"
         const val PREF_SPEED_LIMIT_ORIGINAL = "speed_limit_original"
         const val PREF_SPEED_LIMIT_ACTIVE = "speed_limit_active"
+        const val PREF_SPEED_LIMIT_APPLIED_BYTES = "speed_limit_applied_bytes"
         const val DEFAULT_LTE_SPEED_LIMIT_MBPS = 5f
 
         // RAT-driven SIM failover: use a backup SIM while the monitored SIM sits on LTE, then
@@ -634,12 +635,27 @@ class AutoReconnectService : Service() {
             if (store.getBoolean(PREF_SPEED_LIMIT_ACTIVE, false)) restoreLteSpeedLimit()
             return
         }
-        if (store.getBoolean(PREF_SPEED_LIMIT_ACTIVE, false)) return
+        val mbps = store.getFloat(PREF_LTE_SPEED_LIMIT_MBPS, DEFAULT_LTE_SPEED_LIMIT_MBPS)
+            .coerceIn(0.1f, 50f)
+        val bytesPerSecond = (mbps * 125_000f).toLong().coerceAtLeast(1L)
+        val alreadyActive = store.getBoolean(PREF_SPEED_LIMIT_ACTIVE, false)
+        if (alreadyActive && store.getLong(PREF_SPEED_LIMIT_APPLIED_BYTES, -1L) == bytesPerSecond) return
+
         val now = SystemClock.elapsedRealtime()
         if (now - lastSpeedLimitAttemptAt < 10_000L) return
         lastSpeedLimitAttemptAt = now
 
         runCatching {
+            if (alreadyActive) {
+                val updateResult = bridge.setIngressRateLimit(bytesPerSecond)
+                if (updateResult.startsWith("Download rate limit updated")) {
+                    store.edit().putLong(PREF_SPEED_LIMIT_APPLIED_BYTES, bytesPerSecond).apply()
+                    recordHistory(radio.label, "LTE download limit updated · ${mbps} Mbps", "system")
+                } else {
+                    recordHistory(radio.label, "Could not update LTE download limit: $updateResult", "failed")
+                }
+                return
+            }
             val original = bridge.getIngressRateLimit().trim()
             if (NetworkSwitcherBridge.isEnvironmentFailure(original) || original.startsWith("Shizuku operation failed")) {
                 recordHistory(radio.label, "Download limit waiting for Shizuku: $original", "system")
@@ -647,12 +663,12 @@ class AutoReconnectService : Service() {
             }
             val originalValue = original.toLongOrNull() ?: -1L
             store.edit().putLong(PREF_SPEED_LIMIT_ORIGINAL, originalValue).apply()
-            val mbps = store.getFloat(PREF_LTE_SPEED_LIMIT_MBPS, DEFAULT_LTE_SPEED_LIMIT_MBPS)
-                .coerceIn(0.1f, 100f)
-            val bytesPerSecond = (mbps * 125_000f).toLong().coerceAtLeast(1L)
             val result = bridge.setIngressRateLimit(bytesPerSecond)
             if (result.startsWith("Download rate limit updated")) {
-                store.edit().putBoolean(PREF_SPEED_LIMIT_ACTIVE, true).apply()
+                store.edit()
+                    .putBoolean(PREF_SPEED_LIMIT_ACTIVE, true)
+                    .putLong(PREF_SPEED_LIMIT_APPLIED_BYTES, bytesPerSecond)
+                    .apply()
                 recordHistory(radio.label, "LTE download limit applied · ${mbps} Mbps", "system")
                 publishState(radio.label, "LTE download limit active · ${mbps} Mbps")
             } else {
@@ -669,7 +685,11 @@ class AutoReconnectService : Service() {
         val original = store.getLong(PREF_SPEED_LIMIT_ORIGINAL, -1L)
         val result = bridge.setIngressRateLimit(original)
         if (result.startsWith("Download rate limit updated")) {
-            store.edit().putBoolean(PREF_SPEED_LIMIT_ACTIVE, false).remove(PREF_SPEED_LIMIT_ORIGINAL).apply()
+            store.edit()
+                .putBoolean(PREF_SPEED_LIMIT_ACTIVE, false)
+                .remove(PREF_SPEED_LIMIT_ORIGINAL)
+                .remove(PREF_SPEED_LIMIT_APPLIED_BYTES)
+                .apply()
             recordHistory(currentLabel, "Previous Android download limit restored", "system")
         } else {
             recordHistory(currentLabel, "Could not restore previous download limit: $result", "failed")
