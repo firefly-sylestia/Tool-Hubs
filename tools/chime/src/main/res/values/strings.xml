@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Chime</string>
+    <string name="channel_alarms">Alarms and reminders</string>
+    <string name="channel_alarms_desc">Full-screen alarms and reminders when they arrive.</string>
+    <string name="channel_next">Next up</string>
+    <string name="channel_next_desc">A quiet countdown to the next alarm or reminder.</string>
+</resources>

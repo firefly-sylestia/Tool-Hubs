@@ -3,6 +3,9 @@ name: Tool Hubs Android CI
 on:
   push:
     branches: [main, dev]
+    # A release tag is pushed after the version bump, so it has to build too: a tag push started no
+    # run at all before this, which left every release pointing at a commit CI never touched.
+    tags: ['v*']
   pull_request:
     branches: [main, dev]
   workflow_dispatch:
@@ -15,6 +18,58 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  prune:
+    name: Prune stale artifacts and caches
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Scoped to this job on purpose: only the prune steps need write access to the repository's own
+    # Actions data, and the build job checks out and runs repository code, so it must not have it.
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Delete artifacts and caches older than a day
+        # Housekeeping, not verification: it must never turn a run red the way it did when a bare
+        # `gh cache list` had no checkout to read a git remote from and failed the job, which then
+        # skipped the build. Each deletion is guarded, and the log records whatever did not work.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          set -o pipefail
+          repo="$GITHUB_REPOSITORY"
+
+          # Artifact storage is a small, account-wide quota, and its usage figure only refreshes every
+          # 6-12 hours, so waiting for the one-day retention to take effect is not enough: it stayed
+          # over quota, which failed the upload step on every module of every run.
+          gh api --paginate "repos/$repo/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select((.created_at | fromdateiso8601) < (now - 86400)) | .id' \
+            > "$RUNNER_TEMP/stale-artifacts.txt"
+          echo "artifacts older than a day: $(wc -l < "$RUNNER_TEMP/stale-artifacts.txt")"
+          while read -r id; do
+            [ -n "$id" ] || continue
+            gh api -X DELETE "repos/$repo/actions/artifacts/$id" > /dev/null || echo "artifact $id already gone"
+          done < "$RUNNER_TEMP/stale-artifacts.txt"
+
+          # Gradle caches reach gigabytes each and one is written per branch and per run, so they pile
+          # up far past the artifacts. Keep the ten newest so ordinary builds stay warm and delete the
+          # rest; a cache is only a download saved, never data.
+          # The REST route, not `gh cache list`: that command scopes itself to the current branch,
+          # and this job has no checkout, so it reported a handful of caches and the whole step
+          # deleted nothing while claiming to have run. The API lists every ref, newest first.
+          gh api --paginate "repos/$repo/actions/caches?per_page=100" \
+            --jq '.actions_caches[] | .id' > "$RUNNER_TEMP/caches.txt"
+          total=$(wc -l < "$RUNNER_TEMP/caches.txt")
+          echo "caches found: $total (keeping the ten newest)"
+          tail -n +11 "$RUNNER_TEMP/caches.txt" | while read -r id; do
+            [ -n "$id" ] || continue
+            gh api -X DELETE "repos/$repo/actions/caches/$id" > /dev/null \
+              || echo "cache $id: already gone or not deletable"
+          done
+          gh api "repos/$repo/actions/cache/usage" \
+            --jq '"caches after: \(.active_caches_count), \(.active_caches_size_in_bytes / 1048576 | floor) MB"'
+
   build:
     name: Build ${{ matrix.name }} release APK
     runs-on: ubuntu-latest
@@ -23,15 +78,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: calculator
-            task: :tools:calculator:assembleRelease
-            apk: tools/calculator/build/outputs/apk/release/*.apk
-          - name: music-analyzer
-            task: :tools:music-analyzer:assembleRelease
-            apk: tools/music-analyzer/build/outputs/apk/release/*.apk
-          - name: music-visualizer
-            task: :tools:music-visualizer:assembleRelease
-            apk: tools/music-visualizer/build/outputs/apk/release/*.apk
+          - name: chime
+            task: :tools:chime:assembleRelease
+            apk: tools/chime/build/outputs/apk/release/*.apk
           - name: network-switcher
             task: :tools:network-switcher:assembleRelease
             apk: tools/network-switcher/build/outputs/apk/release/*.apk
@@ -90,9 +139,60 @@ jobs:
 
       - name: Upload downloadable release APK
         if: success()
+        # The build is what this workflow is for; the artifact is a convenience. An account-level
+        # artifact storage quota must not turn a successful build into a failed run, which is what
+        # happened while 90-day artifacts from old runs filled the account's storage.
+        continue-on-error: true
         uses: actions/upload-artifact@v6
         with:
           name: tool-hubs-${{ matrix.name }}-${{ github.run_number }}
           path: ${{ matrix.apk }}
           if-no-files-found: error
-          retention-days: 7
+          # One day only: these APKs are debug-signed build outputs, and the 90-day default filled the
+          # account's artifact storage quota, which failed the upload step on every matrix leg.
+          retention-days: 1
+
+  release:
+    name: Attach the APKs to the release
+    # Only a tag build has a release to attach to, and only a tag build should write one.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The one job that may write to the repository's releases. It never checks out code, so it can
+    # hold the write permission the build job must not have.
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download the release APKs
+        uses: actions/download-artifact@v5
+        with:
+          path: apks
+
+      - name: Attach them to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The tag must be downloadable as an installable build, not just a source snapshot, so the
+          # APKs each matrix leg produced become release assets. They are flattened and named after
+          # the module, because the artifact names carry the run number and a downloader should not
+          # have to work out which file is which.
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "No release for $GITHUB_REF_NAME yet; creating one with generated notes."
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              --repo "$GITHUB_REPOSITORY"
+          fi
+          shopt -s nullglob
+          for apk in apks/*/*.apk; do
+            module="$(basename "$(dirname "$apk")")"
+            name="${module#tool-hubs-}"
+            cp "$apk" "release-${name%-*}.apk"
+          done
+          ls -l release-*.apk
+          gh release upload "$GITHUB_REF_NAME" release-*.apk \
+            --clobber \
+            --repo "$GITHUB_REPOSITORY"

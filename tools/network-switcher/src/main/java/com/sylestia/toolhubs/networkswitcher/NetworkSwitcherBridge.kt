@@ -34,6 +34,9 @@ class NetworkSwitcherBridge(private val context: Context) {
     fun switchDefaultDataSubscription(subscriptionId: Int): String =
         withService { it.switchDefaultDataSubscription(subscriptionId) }
 
+    fun setWifiEnabled(enable: Boolean): String =
+        withService { it.setWifiEnabled(enable) }
+
     fun openSamsungBandSelection(): String =
         withService { it.openSamsungBandSelection() }
 

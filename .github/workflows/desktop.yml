@@ -1,0 +1,122 @@
+name: Tool Hubs Desktop CI
+
+# The desktop app is a second, unrelated toolchain: Node and Electron rather than Gradle and the
+# Android SDK. It gets its own workflow so a change to `desktop/` never spends an Android build, and
+# the path filters keep it from starting at all for the Kotlin modules. Path filters are not
+# evaluated for tag pushes, so a tag runs this whenever it is pushed.
+on:
+  push:
+    branches: [main, dev]
+    paths: ['desktop/mc-launcher/**', '.github/workflows/desktop.yml']
+  pull_request:
+    branches: [main, dev]
+    paths: ['desktop/mc-launcher/**', '.github/workflows/desktop.yml']
+  # The installers are only worth producing when someone asks for them or a desktop commit lands, so
+  # the manual run exists for "build me a .exe from the current state of main".
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tool-hubs-desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: desktop/mc-launcher
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out Tool Hubs
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/mc-launcher/package-lock.json
+
+      # `npm ci` rather than `npm install`: the lockfile is committed, so this proves the committed
+      # manifest and lockfile agree instead of quietly rewriting one of them.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Launcher logic checks
+        run: npm run selfcheck
+
+      - name: Renderer tests
+        run: npm run test
+
+      - name: Build main, preload and renderer bundles
+        run: npm run build
+
+      # The installer talks to Mojang's and Fabric's live services, and nothing
+      # else in this workflow does. It is kept non-blocking on purpose: a
+      # metadata service having a bad day must not turn a good build red, but the
+      # log says whether the real endpoints still answer the way the parser
+      # expects.
+      - name: Check the installer against the live metadata services
+        continue-on-error: true
+        run: npm run netcheck
+
+  package:
+    name: Package (${{ matrix.os }})
+    needs: verify
+    # Every desktop run packages, not just a tagged one: the installers are the point of this
+    # workflow, and the path filter already stops it firing for unrelated commits.
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Check out Tool Hubs
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/mc-launcher/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Package the installer for this platform
+        # `--publish never`, and no token in the environment to imply otherwise. A GITHUB_TOKEN here
+        # is what made the first run of this job crash after the installer had been built: it is
+        # enough for electron-builder to treat the build as a publish, and a publisher it then
+        # cannot resolve takes the build down with it. The `publish: null` in electron-builder.yml
+        # says the same thing, so neither change depends on the other alone.
+        run: npx electron-builder --publish never
+
+      - name: Upload the installers
+        # Same rule as the Android workflow: the build is what this workflow is for and the artifact
+        # is a convenience, so an account-level artifact storage quota must not turn a good build red.
+        continue-on-error: true
+        uses: actions/upload-artifact@v6
+        with:
+          name: tool-hubs-mc-launcher-${{ matrix.os }}-${{ github.run_number }}
+          path: |
+            desktop/mc-launcher/release/*.exe
+            desktop/mc-launcher/release/*.dmg
+            desktop/mc-launcher/release/*.AppImage
+            desktop/mc-launcher/release/*.deb
+          if-no-files-found: error
+          # One day, matching the Android workflow: installers are build outputs, Actions storage is
+          # a small account-wide quota, and the prune job in android.yml clears anything older.
+          retention-days: 1

@@ -7,3 +7,7 @@
 /captures/
 .externalNativeBuild/
 .cxx/
+
+# Third-party archives dropped in the root to look at. They are large, they are
+# not ours, and a half-downloaded one is not a build input either way.
+/*.zip

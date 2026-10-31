@@ -1,0 +1,421 @@
+/*
+ * The shell's motion, in one place.
+ *
+ * These are the behaviours rather than one-off styles: a card lifts its border
+ * towards the theme's primary colour on hover instead of jumping to an
+ * elevation, a list row tints rather than highlighting, the page fades up as it
+ * arrives, and the app sits on a slow drifting texture. XMCL's shell is the
+ * reference for all of it — its cards transition their border on hover, its
+ * background layers a grid and a light sweep over the surface colour, and its
+ * launch button is a pill with the play control set into it.
+ *
+ * Everything here is disabled under `prefers-reduced-motion`, which is not
+ * decoration: the sheets are animated CSS, and someone who asked their system
+ * for less motion should get less motion.
+ */
+
+:root {
+  --motion-fast: 0.18s;
+  --motion-medium: 0.25s;
+  --motion-slow: 0.5s;
+  --motion-ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Cards ─────────────────────────────────────────────────────────────── */
+
+.app-card,
+.v-card {
+  transition:
+    border-color var(--motion-slow) ease,
+    box-shadow var(--motion-medium) var(--motion-ease),
+    transform var(--motion-medium) var(--motion-ease);
+}
+
+.v-card:hover {
+  border: 1px solid rgba(var(--v-theme-primary), 0.45);
+}
+
+/* A card that is not a card yet: whatever is being picked up, dropped or waited
+   for pulses rather than appearing all at once. */
+.app-card--busy {
+  animation: app-card-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes app-card-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--v-theme-primary), 0);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.16);
+  }
+}
+
+/* ── Lists and rows ────────────────────────────────────────────────────── */
+
+.v-list-item {
+  transition:
+    background-color var(--motion-fast) ease,
+    padding-inline-start var(--motion-medium) var(--motion-ease);
+}
+
+.v-list-item:hover {
+  background-color: rgba(var(--v-theme-primary), 0.07);
+}
+
+/* Rows arrive one after another rather than all at once, which is what makes a
+   list that just loaded read as loaded rather than as a repaint. */
+.app-stagger > * {
+  animation: app-row-in var(--motion-medium) var(--motion-ease) both;
+}
+
+.app-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.app-stagger > *:nth-child(2) { animation-delay: 24ms; }
+.app-stagger > *:nth-child(3) { animation-delay: 48ms; }
+.app-stagger > *:nth-child(4) { animation-delay: 72ms; }
+.app-stagger > *:nth-child(5) { animation-delay: 96ms; }
+.app-stagger > *:nth-child(n + 6) { animation-delay: 120ms; }
+
+@keyframes app-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── Page transitions ──────────────────────────────────────────────────── */
+
+.page-enter-active,
+.page-leave-active {
+  transition:
+    opacity var(--motion-medium) var(--motion-ease),
+    transform var(--motion-medium) var(--motion-ease);
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* ── The shell's background ────────────────────────────────────────────── */
+
+/*
+ * Two layers over the surface colour: a grid that drifts, and a soft sweep of
+ * the primary colour across it. Both are plain CSS, so nothing has to be drawn
+ * per frame or shipped as an asset.
+ */
+.mood {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 100%;
+  background:
+    linear-gradient(145deg, rgba(var(--v-theme-surface), 0.96), rgba(var(--v-theme-surface), 0.88)),
+    linear-gradient(115deg, rgba(var(--v-theme-primary), 0.14), transparent 42%, rgba(var(--v-theme-primary), 0.1));
+}
+
+.mood::before,
+.mood::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.mood::before {
+  background-image:
+    linear-gradient(rgba(var(--v-theme-on-surface), 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--v-theme-on-surface), 0.045) 1px, transparent 1px);
+  background-size: 48px 48px, 48px 48px;
+  opacity: 0.42;
+  animation: mood-drift 24s linear infinite;
+}
+
+.mood::after {
+  background-image: linear-gradient(115deg, transparent 0 34%, rgba(var(--v-theme-primary), 0.12) 48%, transparent 62%);
+  background-size: 220% 220%;
+  opacity: 0.5;
+  animation: mood-sweep 12s ease-in-out infinite alternate;
+}
+
+.mood > * {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes mood-drift {
+  from {
+    background-position: 0 0, 0 0;
+  }
+  to {
+    background-position: 48px 48px, -48px 48px;
+  }
+}
+
+@keyframes mood-sweep {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 100% 50%;
+  }
+}
+
+/* ── Glass ─────────────────────────────────────────────────────────────── */
+
+/*
+ * The blur is real rather than a flat grey: the shell's background is behind
+ * everything, so a surface that is translucent and blurs what is behind it
+ * reads as a pane over that background instead of as a rectangle on top of it.
+ *
+ * It is one property on the surfaces that float — the bar, the drawer, a dialog,
+ * a menu and a card — so nothing is drawn per frame and nothing is an asset.
+ * The tint is a colour, so it lives here beside the blur rather than in the
+ * theme: a theme decides what colour a surface is, and this decides how much of
+ * what is behind it comes through.
+ */
+:root {
+  --glass-blur: 18px;
+  --glass-tint: 0.72;
+}
+
+.app-bar,
+.app-drawer,
+.v-card,
+.v-overlay__content > .v-list {
+  background-color: rgba(var(--v-theme-surface), var(--glass-tint));
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.12);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.12);
+}
+
+/* A card that is the thing a page is about lets a little more through, which is
+   what separates it from the cards around it. */
+.hero-card {
+  --glass-tint: 0.62;
+}
+
+/* The bar and the drawer sit over the page rather than beside it, so they are
+   the two surfaces whose blur is only visible while the page scrolls under
+   them — tinted a little more heavily so the text on them always reads. */
+.app-bar,
+.app-drawer {
+  --glass-tint: 0.82;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+
+.app-drawer {
+  border-bottom: none;
+  border-inline-end: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+
+/* ── The launch pill ───────────────────────────────────────────────────── */
+
+/*
+ * A pill with the play control set into its leading edge, and the instance
+ * settings set into its trailing edge. Hovering lifts it; clicking the play
+ * control spins it once, which is the only feedback there is that something
+ * started before a window appears.
+ */
+.launch-pill {
+  position: relative;
+  display: inline-flex;
+  transition: transform var(--motion-medium) var(--motion-ease);
+}
+
+.launch-pill:hover {
+  transform: translateY(-1px);
+}
+
+.launch-pill .btn-launch {
+  border-radius: 9999px;
+  height: 64px;
+  min-width: 260px;
+  padding-inline: 72px;
+  font-size: 1.25rem;
+}
+
+.launch-inset {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 52px !important;
+  height: 52px !important;
+  color: #fff !important;
+}
+
+.launch-inset--play {
+  inset-inline-start: 8px;
+  background-color: rgba(255, 255, 255, 0.22) !important;
+}
+
+.launch-inset--menu {
+  inset-inline-end: 8px;
+  background-color: rgba(0, 0, 0, 0.32) !important;
+}
+
+.launch-inset .v-icon {
+  font-size: 28px;
+  transition: transform var(--motion-medium) var(--motion-ease);
+}
+
+.launch-inset--menu .is-active {
+  transform: rotate(90deg);
+}
+
+.launch-inset--play .is-spinning {
+  animation: launch-spin 0.45s var(--motion-ease);
+}
+
+@keyframes launch-spin {
+  from {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.15);
+  }
+  to {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+/* ── State, as something you can see ───────────────────────────────────── */
+
+/*
+ * A state is a dot, a colour and an icon rather than a sentence. The dot is the
+ * one part of the shell that moves on its own, and only while something is
+ * actually live: a game process, or a download still running.
+ */
+.status-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background-color: currentColor;
+  flex: 0 0 auto;
+}
+
+.status-dot--live {
+  animation: status-dot-live 1.8s ease-in-out infinite;
+}
+
+@keyframes status-dot-live {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--v-theme-success), 0.55);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(var(--v-theme-success), 0);
+    opacity: 0.7;
+  }
+}
+
+.state-chip .v-chip__content {
+  gap: 8px;
+}
+
+/* ── Cards that lead somewhere ─────────────────────────────────────────── */
+
+/* The one card a page is about: a little more room, a little more presence. */
+.hero-card {
+  border: 1px solid rgba(var(--v-theme-primary), 0.28);
+}
+
+.hero-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: rgba(var(--v-theme-primary), 0.16);
+  color: rgb(var(--v-theme-primary));
+  font-size: 28px;
+  flex: 0 0 auto;
+}
+
+/* Whatever leads a row: a project icon, a version, a world. */
+.row-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  flex: 0 0 auto;
+}
+
+.row-icon--primary {
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.14);
+}
+
+.row-icon--success {
+  color: rgb(var(--v-theme-success));
+  background: rgba(var(--v-theme-success), 0.14);
+}
+
+.row-icon--warning {
+  color: rgb(var(--v-theme-warning));
+  background: rgba(var(--v-theme-warning), 0.14);
+}
+
+.row-icon--error {
+  color: rgb(var(--v-theme-error));
+  background: rgba(var(--v-theme-error), 0.14);
+}
+
+.row-icon--info {
+  color: rgb(var(--v-theme-info));
+  background: rgba(var(--v-theme-info), 0.14);
+}
+
+.page-pad {
+  padding-block: 20px 32px;
+}
+
+/* ── The keyboard ──────────────────────────────────────────────────────── */
+
+/*
+ * A ring only when the browser says the last input was a keyboard, so a mouse
+ * user never sees it and a keyboard user always does. This pairs with the
+ * shortcuts: nobody uses Ctrl+3 if they cannot see where they landed.
+ */
+:focus-visible {
+  outline: 2px solid rgba(var(--v-theme-primary), 0.8);
+  outline-offset: 2px;
+}
+
+/* ── Reduced motion ────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .mood::before,
+  .mood::after,
+  .app-stagger > *,
+  .app-card--busy,
+  .status-dot--live {
+    animation: none;
+  }
+
+  .page-enter-active,
+  .page-leave-active,
+  .launch-pill,
+  .launch-inset .v-icon,
+  .v-card,
+  .v-list-item {
+    transition: none;
+  }
+
+  .launch-inset--play .is-spinning {
+    animation: none;
+  }
+}
