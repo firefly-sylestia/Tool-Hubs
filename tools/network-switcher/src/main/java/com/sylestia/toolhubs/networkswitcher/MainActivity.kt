@@ -1527,7 +1527,7 @@ private fun TunePage(
         mutableIntStateOf((store.getLong(AutoReconnectService.PREF_RECOVERY_COOLDOWN_MS, AutoReconnectService.DEFAULT_RECOVERY_COOLDOWN_MS) / 60_000L).toInt())
     }
     var maxAttempts by rememberSaveable {
-        mutableIntStateOf(store.getInt(AutoReconnectService.PREF_MAX_ATTEMPTS, AutoReconnectService.DEFAULT_MAX_ATTEMPTS).coerceIn(1, 8))
+        mutableIntStateOf(store.getInt(AutoReconnectService.PREF_MAX_ATTEMPTS, AutoReconnectService.DEFAULT_MAX_ATTEMPTS).coerceIn(1, 2))
     }
     var warningEnabled by rememberSaveable {
         mutableStateOf(store.getBoolean(AutoReconnectService.PREF_LTE_WARNING_ENABLED, false))
@@ -1618,8 +1618,8 @@ private fun TunePage(
                     title = "Failed attempts before cooling down",
                     valueLabel = maxAttempts.toString(),
                     value = maxAttempts.toFloat(),
-                    range = 1f..8f,
-                    steps = 6,
+                    range = 1f..2f,
+                    steps = 0,
                     onValueChange = { maxAttempts = it.toInt() },
                     onValueChangeFinished = {
                         store.edit().putInt(AutoReconnectService.PREF_MAX_ATTEMPTS, maxAttempts).apply()
