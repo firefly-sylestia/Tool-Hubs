@@ -1783,14 +1783,14 @@ private fun TunePage(
                 Spacer(Modifier.height(10.dp))
                 Text("LTE speed shaping", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Text(
-                    "Use Android's built-in download limiter while the monitored SIM is on LTE. Shizuku applies it and restores your previous value on 5G.",
+                    "Uses the same Network download rate limit as Developer options. It turns on during 4G fallback and restores your previous setting when 5G returns.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                 )
                 Spacer(Modifier.height(8.dp))
                 HubToggleRow(
                     title = "Limit download speed on 4G",
-                    subtitle = "Download only · requires Android rate-limiter support and Shizuku access.",
+                    subtitle = "Android download cap · applies to all internet networks, including Wi-Fi · requires Shizuku.",
                     checked = lteSpeedLimitEnabled,
                     onCheckedChange = { enabled ->
                         lteSpeedLimitEnabled = enabled
@@ -1813,7 +1813,7 @@ private fun TunePage(
                         },
                     )
                     Text(
-                        "Android applies this system limit to all internet networks while active, not just mobile data. Wi-Fi may be limited too if connected at the same time. Upload speed is not limited.",
+                        "This is Android's Developer options download limiter. It affects all internet-capable networks (including Wi-Fi) while active. The system setting limits downloads, not uploads.",
                         color = MaterialTheme.colorScheme.tertiary,
                         fontSize = 10.sp,
                     )
