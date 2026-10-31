@@ -46,6 +46,12 @@ class NetworkSwitcherBridge(private val context: Context) {
     fun resetThermalStatus(): String =
         withService { it.resetThermalStatus() }
 
+    fun getIngressRateLimit(): String =
+        withService { it.getIngressRateLimit() }
+
+    fun setIngressRateLimit(bytesPerSecond: Long): String =
+        withService { it.setIngressRateLimit(bytesPerSecond) }
+
     private fun withService(operation: (INetworkModeService) -> String): String {
         ShizukuHealthMonitor.install()
         when (ShizukuHealthMonitor.refresh()) {

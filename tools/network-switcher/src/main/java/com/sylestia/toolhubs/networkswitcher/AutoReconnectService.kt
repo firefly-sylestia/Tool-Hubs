@@ -88,6 +88,14 @@ class AutoReconnectService : Service() {
         const val PREF_LTE_WARNED_DAY = "lte_warned_day"
         const val DEFAULT_LTE_WARNING_BYTES = 2L * 1024L * 1024L * 1024L
 
+        // Developer-options style download shaping (Android 13+ when supported by the device).
+        const val PREF_LTE_SPEED_LIMIT_ENABLED = "lte_speed_limit_enabled"
+        const val PREF_LTE_SPEED_LIMIT_MBPS = "lte_speed_limit_mbps"
+        const val PREF_SPEED_LIMIT_ORIGINAL = "speed_limit_original"
+        const val PREF_SPEED_LIMIT_ACTIVE = "speed_limit_active"
+        const val PREF_SPEED_LIMIT_APPLIED_BYTES = "speed_limit_applied_bytes"
+        const val DEFAULT_LTE_SPEED_LIMIT_MBPS = 5f
+
         // RAT-driven SIM failover: use a backup SIM while the monitored SIM sits on LTE, then
         // return to the primary SIM as soon as 5G is observed again.
         const val PREF_LTE_FAILOVER_ENABLED = "lte_failover_enabled"
@@ -123,13 +131,13 @@ class AutoReconnectService : Service() {
         const val PREF_BILLING_DAY = "billing_cycle_day"
         const val PREF_THEME_MODE = "theme_mode"
         const val MAX_HISTORY = 200
-        const val DEFAULT_INTERVAL_MS = 30_000L
-        const val MIN_INTERVAL_MS = 30_000L
+        const val DEFAULT_INTERVAL_MS = 5_000L
+        const val MIN_INTERVAL_MS = 5_000L
         const val MAX_INTERVAL_MS = 600_000L
-        const val DEFAULT_MAX_ATTEMPTS = 3
+        const val DEFAULT_MAX_ATTEMPTS = 2
         const val MIN_MAX_ATTEMPTS = 1
-        const val MAX_MAX_ATTEMPTS = 8
-        const val DEFAULT_RECOVERY_COOLDOWN_MS = 5 * 60_000L
+        const val MAX_MAX_ATTEMPTS = 2
+        const val DEFAULT_RECOVERY_COOLDOWN_MS = 1 * 60_000L
         const val MIN_RECOVERY_COOLDOWN_MS = 1 * 60_000L
         const val MAX_RECOVERY_COOLDOWN_MS = 30 * 60_000L
         const val NO_SERVICE_FAILOVER_DELAY_MS = 45_000L
@@ -168,7 +176,7 @@ class AutoReconnectService : Service() {
         const val DATA_WARNING_CHECK_MS = 5_000L
 
         /** How long we wait for a triggered re-selection to actually land on 5G. */
-        const val SWITCH_CONFIRM_TIMEOUT_MS = 12_000L
+        const val SWITCH_CONFIRM_TIMEOUT_MS = 8_000L
 
         /** Longest single back-off, and the ceiling applied to a value restored after a reboot. */
         const val MAX_BACKOFF_MS = 900_000L
@@ -239,6 +247,7 @@ class AutoReconnectService : Service() {
     private var noServiceSince = 0L
     private var wifiStruggleSince = 0L
     private var lastLteWarningCheckAt = 0L
+    private var lastSpeedLimitAttemptAt = 0L
     @Volatile private var lteFailoverInFlight = false
     @Volatile private var wifiFailoverInFlight = false
 
@@ -333,6 +342,7 @@ class AutoReconnectService : Service() {
             ACTION_PAUSE -> {
                 paused = true
                 prefs().edit().putBoolean(PREF_PAUSED, true).apply()
+                runCatching { restoreLteSpeedLimit() }
                 publishState(currentNetworkLabel(), "Paused · tap Resume to continue")
             }
 
@@ -373,6 +383,7 @@ class AutoReconnectService : Service() {
     override fun onDestroy() {
         isRunning = false
         runCatching { usageTracker.flush() }
+        runCatching { restoreLteSpeedLimit() }
         runCatching { radioWatcher?.stop() }
         runCatching { ShizukuHealthMonitor.removeListener(healthListener) }
         prefs().edit().putBoolean(PREF_SERVICE_ACTIVE, false).apply()
@@ -683,10 +694,10 @@ class AutoReconnectService : Service() {
     }
 
     private fun backoffFor(failures: Int): Long = when {
-        failures <= 1 -> 30_000L
-        failures == 2 -> 60_000L
-        failures == 3 -> 300_000L
-        else -> MAX_BACKOFF_MS
+        failures <= 1 -> 5_000L
+        failures == 2 -> 10_000L
+        failures == 3 -> 20_000L
+        else -> 60_000L
     }
 
     private suspend fun waitFor5G(timeoutMs: Long): Boolean {
@@ -718,6 +729,7 @@ class AutoReconnectService : Service() {
             publishState(radio.label, statusText(radio), detail)
         }
 
+        updateLteSpeedLimit(radio)
         if (!callPaused) usageTracker.sample(radio.label)
         trackFallbackImpact(radio.label)
         checkLteDataWarning()
@@ -732,6 +744,106 @@ class AutoReconnectService : Service() {
         if (!automationBlocked) {
             maybeNoServiceFailover(radio, now)
             maybeWifiFailover(radio, now)
+        }
+    }
+
+    /**
+     * This is the same Android Developer options "Network download rate limit" setting.
+     * Android applies it to every internet-capable network (including Wi-Fi), not only cellular.
+     * It limits downloads; this Android setting does not expose an upload cap.
+     *
+     * The app owns the setting only while LTE fallback is active. On exit, it restores the
+     * previous value only if the global setting still equals the value this app wrote, avoiding
+     * overwriting a value the user changed manually in Developer options.
+     */
+    private fun updateLteSpeedLimit(radio: RadioState) {
+        val store = prefs()
+        val enabled = store.getBoolean(PREF_LTE_SPEED_LIMIT_ENABLED, false)
+        if (!enabled || !radio.isLteFallback) {
+            if (store.getBoolean(PREF_SPEED_LIMIT_ACTIVE, false)) restoreLteSpeedLimit()
+            return
+        }
+
+        val mbps = store.getFloat(PREF_LTE_SPEED_LIMIT_MBPS, DEFAULT_LTE_SPEED_LIMIT_MBPS)
+            .coerceIn(0.1f, 50f)
+        val bytesPerSecond = (mbps * 125_000f).toLong().coerceAtLeast(1L)
+        val alreadyActive = store.getBoolean(PREF_SPEED_LIMIT_ACTIVE, false)
+        if (alreadyActive && store.getLong(PREF_SPEED_LIMIT_APPLIED_BYTES, -1L) == bytesPerSecond) return
+
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastSpeedLimitAttemptAt < 10_000L) return
+        lastSpeedLimitAttemptAt = now
+
+        runCatching {
+            val original = if (alreadyActive) {
+                store.getLong(PREF_SPEED_LIMIT_ORIGINAL, -1L)
+            } else {
+                val current = bridge.getIngressRateLimit().trim()
+                val parsed = current.toLongOrNull()
+                if (parsed == null) {
+                    recordHistory(radio.label, "Cannot read Android download limit: $current", "failed")
+                    return
+                }
+                parsed
+            }
+
+            val result = bridge.setIngressRateLimit(bytesPerSecond)
+            if (result.startsWith("Download rate limit updated")) {
+                store.edit()
+                    .putLong(PREF_SPEED_LIMIT_ORIGINAL, original)
+                    .putBoolean(PREF_SPEED_LIMIT_ACTIVE, true)
+                    .putLong(PREF_SPEED_LIMIT_APPLIED_BYTES, bytesPerSecond)
+                    .apply()
+                recordHistory(
+                    radio.label,
+                    if (alreadyActive) "LTE download limit updated · $mbps Mbps"
+                    else "Android download limit enabled on LTE · $mbps Mbps",
+                    "system",
+                )
+                publishState(radio.label, "LTE download limit active · $mbps Mbps")
+            } else {
+                recordHistory(radio.label, "Could not apply LTE download limit: $result", "failed")
+            }
+        }.onFailure {
+            recordHistory(radio.label, "Download limit error: ${it.javaClass.simpleName}", "failed")
+        }
+    }
+
+    private fun restoreLteSpeedLimit() {
+        val store = prefs()
+        if (!store.getBoolean(PREF_SPEED_LIMIT_ACTIVE, false)) return
+
+        val currentText = bridge.getIngressRateLimit().trim()
+        val current = currentText.toLongOrNull()
+        if (current == null) {
+            recordHistory(currentLabel, "Could not verify Android download limit before restoring: $currentText", "failed")
+            return
+        }
+
+        val applied = store.getLong(PREF_SPEED_LIMIT_APPLIED_BYTES, -1L)
+        if (current != applied) {
+            // The user or Android changed Developer options while LTE shaping was active.
+            // Respect that newer value rather than restoring over it.
+            store.edit()
+                .putBoolean(PREF_SPEED_LIMIT_ACTIVE, false)
+                .remove(PREF_SPEED_LIMIT_ORIGINAL)
+                .remove(PREF_SPEED_LIMIT_APPLIED_BYTES)
+                .apply()
+            recordHistory(currentLabel, "Android download limit changed externally; left the newer value untouched", "system")
+            return
+        }
+
+        val original = store.getLong(PREF_SPEED_LIMIT_ORIGINAL, -1L)
+        val result = bridge.setIngressRateLimit(original)
+        if (result.startsWith("Download rate limit updated")) {
+            store.edit()
+                .putBoolean(PREF_SPEED_LIMIT_ACTIVE, false)
+                .remove(PREF_SPEED_LIMIT_ORIGINAL)
+                .remove(PREF_SPEED_LIMIT_APPLIED_BYTES)
+                .apply()
+            recordHistory(currentLabel, "Previous Android Developer options download limit restored", "system")
+        } else {
+            recordHistory(currentLabel, "Could not restore previous download limit: $result", "failed")
         }
     }
 

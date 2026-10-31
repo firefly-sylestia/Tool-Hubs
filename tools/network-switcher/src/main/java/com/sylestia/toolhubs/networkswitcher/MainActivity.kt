@@ -2663,7 +2663,7 @@ private fun SettingsPage(
         mutableIntStateOf((store.getLong(AutoReconnectService.PREF_RECOVERY_COOLDOWN_MS, AutoReconnectService.DEFAULT_RECOVERY_COOLDOWN_MS) / 60_000L).toInt())
     }
     var maxAttempts by rememberSaveable {
-        mutableIntStateOf(store.getInt(AutoReconnectService.PREF_MAX_ATTEMPTS, AutoReconnectService.DEFAULT_MAX_ATTEMPTS).coerceIn(1, 8))
+        mutableIntStateOf(store.getInt(AutoReconnectService.PREF_MAX_ATTEMPTS, AutoReconnectService.DEFAULT_MAX_ATTEMPTS).coerceIn(1, 2))
     }
     var warningEnabled by rememberSaveable {
         mutableStateOf(store.getBoolean(AutoReconnectService.PREF_LTE_WARNING_ENABLED, false))
@@ -2686,6 +2686,14 @@ private fun SettingsPage(
     var pauseDuringCall by rememberSaveable {
         mutableStateOf(store.getBoolean(AutoReconnectService.PREF_PAUSE_DURING_CALL, false))
     }
+    var lteSpeedLimitEnabled by rememberSaveable {
+        mutableStateOf(store.getBoolean(AutoReconnectService.PREF_LTE_SPEED_LIMIT_ENABLED, false))
+    }
+    var lteSpeedLimitMbps by rememberSaveable {
+        mutableFloatStateOf(
+            store.getFloat(AutoReconnectService.PREF_LTE_SPEED_LIMIT_MBPS, AutoReconnectService.DEFAULT_LTE_SPEED_LIMIT_MBPS)
+                .coerceIn(0.1f, 100f)
+        )
     var wifiFailover by rememberSaveable {
         mutableStateOf(store.getBoolean(AutoReconnectService.PREF_WIFI_FAILOVER_ENABLED, false))
     }
@@ -2775,8 +2783,8 @@ private fun SettingsPage(
                     title = "Base retry delay",
                     valueLabel = intervalSeconds.toString() + "s",
                     value = intervalSeconds.toFloat(),
-                    range = 30f..600f,
-                    steps = 18,
+                    range = 5f..600f,
+                    steps = 118,
                     onValueChange = { intervalSeconds = it.toInt() },
                     onValueChangeFinished = {
                         store.edit().putLong(AutoReconnectService.PREF_INTERVAL_MS, intervalSeconds * 1000L).apply()
@@ -2787,8 +2795,8 @@ private fun SettingsPage(
                     title = "Failed attempts before cooling down",
                     valueLabel = maxAttempts.toString(),
                     value = maxAttempts.toFloat(),
-                    range = 1f..8f,
-                    steps = 6,
+                    range = 1f..2f,
+                    steps = 0,
                     onValueChange = { maxAttempts = it.toInt() },
                     onValueChangeFinished = {
                         store.edit().putInt(AutoReconnectService.PREF_MAX_ATTEMPTS, maxAttempts).apply()
@@ -2947,6 +2955,46 @@ private fun SettingsPage(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                 )
+                Spacer(Modifier.height(10.dp))
+                Text("LTE speed shaping", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(
+                    "Uses the same Network download rate limit as Developer options. It turns on during 4G fallback and restores your previous setting when 5G returns.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
+                Spacer(Modifier.height(8.dp))
+                HubToggleRow(
+                    title = "Limit download speed on 4G",
+                    subtitle = "Android download cap · applies to all internet networks, including Wi-Fi · requires Shizuku.",
+                    checked = lteSpeedLimitEnabled,
+                    onCheckedChange = { enabled ->
+                        lteSpeedLimitEnabled = enabled
+                        store.edit().putBoolean(AutoReconnectService.PREF_LTE_SPEED_LIMIT_ENABLED, enabled).apply()
+                        refreshWatcher()
+                    },
+                )
+                if (lteSpeedLimitEnabled) {
+                    Spacer(Modifier.height(8.dp))
+                    HubSliderRow(
+                        title = "Maximum download speed",
+                        valueLabel = String.format(Locale.getDefault(), "%.1f Mbps", lteSpeedLimitMbps),
+                        value = lteSpeedLimitMbps,
+                        range = 0.1f..50f,
+                        steps = 498,
+                        onValueChange = { lteSpeedLimitMbps = it },
+                        onValueChangeFinished = {
+                            store.edit().putFloat(AutoReconnectService.PREF_LTE_SPEED_LIMIT_MBPS, lteSpeedLimitMbps).apply()
+                            refreshWatcher()
+                        },
+                    )
+                    Text(
+                        "This is Android's Developer options download limiter. It affects all internet-capable networks (including Wi-Fi) while active. The system setting limits downloads, not uploads.",
+                        color = MaterialTheme.colorScheme.tertiary,
+                        fontSize = 10.sp,
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                HubHairline()
                 Spacer(Modifier.height(10.dp))
                 HubToggleRow(
                     title = "Warn when 4G reaches a daily limit",

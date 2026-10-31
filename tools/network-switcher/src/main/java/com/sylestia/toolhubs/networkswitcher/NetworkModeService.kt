@@ -38,6 +38,44 @@ class NetworkModeService(private val context: Context) : INetworkModeService.Stu
         }
     }
 
+    override fun getIngressRateLimit(): String = runSettingsCommand("get")
+
+    override fun setIngressRateLimit(bytesPerSecond: Long): String {
+        if (bytesPerSecond < -1L || bytesPerSecond > Int.MAX_VALUE.toLong()) {
+            return "Invalid download limit."
+        }
+        return runSettingsCommand("put", bytesPerSecond.toString())
+    }
+
+    private fun runSettingsCommand(action: String, value: String? = null): String {
+        return try {
+            val command = mutableListOf("settings", action, "global", "ingress_rate_limit_bytes_per_second")
+            if (value != null) command.add(value)
+            val process = ProcessBuilder(command).redirectErrorStream(true).start()
+            val output = process.inputStream.bufferedReader().use { it.readText().trim() }
+            val exit = process.waitFor()
+            if (exit != 0) {
+                "Android rejected the network rate limit: " + output.ifBlank { "exit code $exit" }
+            } else if (action == "get") {
+                if (output.isBlank() || output.equals("null", ignoreCase = true)) "-1" else output
+            } else {
+                // A successful settings write alone does not prove the value stuck. Read it back.
+                val verify = ProcessBuilder(
+                    "settings", "get", "global", "ingress_rate_limit_bytes_per_second"
+                ).redirectErrorStream(true).start()
+                val actual = verify.inputStream.bufferedReader().use { it.readText().trim() }
+                val verifyExit = verify.waitFor()
+                if (verifyExit == 0 && actual.toLongOrNull() == value?.toLongOrNull()) {
+                    "Download rate limit updated and verified."
+                } else {
+                    "Android did not confirm the requested download limit (read back: ${actual.ifBlank { "empty" }})."
+                }
+            }
+        } catch (t: Throwable) {
+            "Network rate limit failed: ${t.javaClass.simpleName}: ${t.message ?: "unknown error"}"
+        }
+    }
+
     override fun openSamsungBandSelection(): String {
         // Samsung has moved/renamed this activity across One UI releases. The
         // hiddennetworksetting (singular) form is the known path on older firmware,
