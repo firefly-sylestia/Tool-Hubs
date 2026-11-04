@@ -1,8 +1,27 @@
 # Changelog
 
+## [Ludo Club 0.1.2]
+
+### Fixed
+- Add the app-local light and dark Android window themes required by the manifest, fixing resource
+  linking in the release APK build.
+
+## [Ludo Club 0.1.1]
+
+### Changed
+- Bundle the Kenney CC0 die faces and four OGG sound effects directly in the app, so the dice and
+  game feedback are ready offline from first launch.
+
+## [Ludo Club 0.1.0]
+
+### Added
+- New standalone offline Ludo module for 2–6 local seats, with configurable human players and bots,
+  a six-seat circular board, legal move handling, captures, safe cells, bonus turns, three-six
+  forfeits, exact home finishes, Kenney CC0 dice sprites and bundled OGG sound effects.
+
 All notable changes to Tool-Hubs are recorded here, newest first.
 
-Network Switcher is the actively developed module. Some earlier release bumps were made without a
+Network Switcher and Ludo Club are actively developed modules. Some earlier release bumps were made without a
 version-named commit, so the entries below `0.7.1` are reconstructed from commit history and grouped
 conservatively rather than split into invented version numbers.
 
