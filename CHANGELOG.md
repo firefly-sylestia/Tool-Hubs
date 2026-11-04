@@ -1,5 +1,11 @@
 # Changelog
 
+## [Ludo Club 0.1.2]
+
+### Fixed
+- Add the app-local light and dark Android window themes required by the manifest, fixing resource
+  linking in the release APK build.
+
 ## [Ludo Club 0.1.1]
 
 ### Changed

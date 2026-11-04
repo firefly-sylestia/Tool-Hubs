@@ -5,7 +5,7 @@ plugins {
 android {
     namespace = "com.sylestia.toolhubs.ludo"
     compileSdk = 37
-    defaultConfig { applicationId = "com.sylestia.toolhubs.ludo"; minSdk = 26; targetSdk = 37; versionCode = 2; versionName = "0.1.1" }
+    defaultConfig { applicationId = "com.sylestia.toolhubs.ludo"; minSdk = 26; targetSdk = 37; versionCode = 3; versionName = "0.1.2" }
     buildFeatures { compose = true; buildConfig = true }
     val releaseKeystorePath = System.getenv("RELEASE_KEYSTORE_PATH")
     val hasReleaseKeystore = !releaseKeystorePath.isNullOrBlank()
