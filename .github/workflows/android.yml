@@ -81,6 +81,9 @@ jobs:
           - name: chime
             task: :tools:chime:assembleRelease
             apk: tools/chime/build/outputs/apk/release/*.apk
+          - name: ludo
+            task: :tools:ludo:assembleRelease
+            apk: tools/ludo/build/outputs/apk/release/*.apk
           - name: network-switcher
             task: :tools:network-switcher:assembleRelease
             apk: tools/network-switcher/build/outputs/apk/release/*.apk

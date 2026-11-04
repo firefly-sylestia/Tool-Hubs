@@ -10,6 +10,7 @@ Electron app on a separate toolchain and does not build through Gradle.
 | Module | App | Status |
 | --- | --- | --- |
 | `:tools:chime` | Chime — alarms, reminders and a chiming clock | **Active development** |
+| `:tools:ludo` | Ludo Club — offline 2–6 player board game with local bots | **New** |
 | `:tools:network-switcher` | 5G Reconnect — network observability and automatic 5G recovery | **Active development** |
 | `:tools:data-warden` | Data Warden — mobile data protection | Frozen |
 
@@ -27,10 +28,16 @@ Desktop (not a Gradle module, so it is not part of the Android build):
 | --- | --- | --- |
 | `desktop/mc-launcher` | MC Launcher — a desktop launcher for an existing Minecraft installation | Newly imported |
 
-> **Current focus: `:tools:chime` and `:tools:network-switcher`.** The calculator, Music Analyzer and
+> **Current focus: `:tools:chime`, `:tools:ludo` and `:tools:network-switcher`.** The calculator, Music Analyzer and
 > Music Visualizer apps have been removed from the repository, and Data Warden is left untouched —
 > the shared theme tokens, header and metric primitives keep their existing values so it goes on
 > rendering exactly as it did. See [`AGENTS.md`](AGENTS.md) for the working rules.
+
+## Ludo Club
+
+Ludo Club is a fully local board game for 2–6 seats. Players can mix local human players and
+computer-controlled opponents, with a custom six-seat circular board, animated dice presentation,
+and optional sound and vibration feedback. It does not request internet access or create accounts.
 
 ## Network Switcher (5G Reconnect)
 
@@ -105,6 +112,7 @@ that touches the radio.
 ```bash
 # Release APK for the currently active tool
 gradle :tools:chime:assembleRelease
+gradle :tools:ludo:assembleRelease
 gradle :tools:network-switcher:assembleRelease
 
 # Debug APK during development

@@ -6,7 +6,7 @@ silently picking one.
 
 ## 1. Scope
 
-- **The active modules are `:tools:chime` and `:tools:network-switcher`, plus the desktop app at
+- **The active modules are `:tools:chime`, `:tools:ludo` and `:tools:network-switcher`, plus the desktop app at
   `desktop/mc-launcher`.** Everything else is out of scope until the user says otherwise.
 - **`desktop/mc-launcher` is not a Gradle module.** It is an Electron + Vue + TypeScript app on its own
   toolchain, so nothing in §2's Gradle list applies to it and it must never be added to
@@ -39,7 +39,7 @@ silently picking one.
 
 Each tool carries its own version, in its own module build file
 ([`tools/network-switcher/build.gradle.kts`](tools/network-switcher/build.gradle.kts),
-[`tools/chime/build.gradle.kts`](tools/chime/build.gradle.kts); for the desktop app,
+[`tools/chime/build.gradle.kts`](tools/chime/build.gradle.kts), [`tools/ludo/build.gradle.kts`](tools/ludo/build.gradle.kts); for the desktop app,
 [`desktop/mc-launcher/package.json`](desktop/mc-launcher/package.json) plays that role):
 
 ```kotlin
