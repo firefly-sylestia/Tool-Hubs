@@ -12,7 +12,7 @@ Standalone offline Android Ludo game for 2–6 local seats.
 
 ## Implementation
 
-- Kotlin + Jetpack Compose, following Tool-Hubs' shared ToolHubsTheme.
+- Kotlin + Jetpack Compose, following Tool-Hubs' shared ToolHubsTheme and the module-local light/dark Android window styles.
 - Rules and bot selection live in LudoEngine.kt; screen and board rendering live in MainActivity.kt.
 - Kenney dice sprites and OGG cues are bundled in app resources and loaded locally with Compose and SoundPool.
 
