@@ -1,5 +1,11 @@
 # Changelog
 
+## [Ludo Club 0.1.1]
+
+### Changed
+- Bundle the Kenney CC0 die faces and four OGG sound effects directly in the app, so the dice and
+  game feedback are ready offline from first launch.
+
 ## [Ludo Club 0.1.0]
 
 ### Added
