@@ -19,17 +19,17 @@ object JournalKeyStore {
     private const val PREFS = "june_secure_storage"
     private const val KEY_BLOB = "encrypted_database_passphrase"
 
-    fun getDatabasePassphrase(context: Context): ByteArray {
+    fun getDatabasePassphrase(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stored = prefs.getString(KEY_BLOB, null)
-        if (stored != null) return decrypt(Base64.decode(stored, Base64.NO_WRAP))
+        if (stored != null) return Base64.encodeToString(decrypt(Base64.decode(stored, Base64.NO_WRAP)), Base64.NO_WRAP)
 
         val passphrase = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
         val encrypted = encrypt(passphrase)
         check(prefs.edit().putString(KEY_BLOB, Base64.encodeToString(encrypted, Base64.NO_WRAP)).commit()) {
             "Could not persist the encrypted JUNE database key."
         }
-        return passphrase
+        return Base64.encodeToString(passphrase, Base64.NO_WRAP)
     }
 
     private fun key(): SecretKey {
