@@ -67,6 +67,7 @@ private enum class Destination { TODAY, JOURNAL, YEARSTREAM, ARCHIVE }
 private fun JuneApp(database: JournalDatabase) {
     var destination by rememberSaveable { mutableStateOf(Destination.TODAY) }
     var entries by remember { mutableStateOf(emptyList<JournalEntry>()) }
+    var trashEntries by remember { mutableStateOf(emptyList<JournalEntry>()) }
     var editing by remember { mutableStateOf<JournalEntry?>(null) }
     var reading by remember { mutableStateOf<JournalEntry?>(null) }
     var selectedDay by remember { mutableStateOf<LocalDate?>(null) }
@@ -74,6 +75,7 @@ private fun JuneApp(database: JournalDatabase) {
 
     suspend fun refresh() {
         entries = withContext(Dispatchers.IO) { database.all(includeArchived = true) }
+        trashEntries = withContext(Dispatchers.IO) { database.trash() }
     }
 
     LaunchedEffect(Unit) { refresh() }
@@ -110,8 +112,10 @@ private fun JuneApp(database: JournalDatabase) {
             Destination.JOURNAL -> JournalScreen(entries.filter { !it.archived }, Modifier.padding(padding), { reading = it })
             Destination.YEARSTREAM -> YearstreamScreen(entries.filter { !it.archived }, Modifier.padding(padding), { selectedDay = it })
             Destination.ARCHIVE -> ArchiveScreen(
-                entries, Modifier.padding(padding), { reading = it },
-                { entry -> scope.launch { withContext(Dispatchers.IO) { database.setArchived(entry.id, false) }; refresh() } }
+                entries, trashEntries, Modifier.padding(padding), { reading = it },
+                { entry -> scope.launch { withContext(Dispatchers.IO) { database.setArchived(entry.id, false) }; refresh() } },
+                { entry -> scope.launch { withContext(Dispatchers.IO) { database.restore(entry.id) }; refresh() } },
+                { entry -> scope.launch { withContext(Dispatchers.IO) { database.permanentlyDelete(entry.id) }; refresh() } }
             )
         }
     }
@@ -294,9 +298,12 @@ private fun YearstreamScreen(entries: List<JournalEntry>, modifier: Modifier, on
 @Composable
 private fun ArchiveScreen(
     entries: List<JournalEntry>,
+    trash: List<JournalEntry>,
     modifier: Modifier,
     onOpen: (JournalEntry) -> Unit,
-    onRestore: (JournalEntry) -> Unit
+    onRestore: (JournalEntry) -> Unit,
+    onRestoreTrash: (JournalEntry) -> Unit,
+    onDeleteForever: (JournalEntry) -> Unit
 ) {
     val visible = entries.filter { it.deletedAt == null }
     val archived = visible.filter { it.archived }
@@ -319,6 +326,21 @@ private fun ArchiveScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.weight(1f)) { EntryRow(entry) { onOpen(entry) } }
                         TextButton(onClick = { onRestore(entry) }) { Text("Restore") }
+                    }
+                }
+            }
+            if (trash.isNotEmpty()) {
+                item {
+                    Text("Recently deleted", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 28.dp, bottom = 8.dp))
+                    Text("Restore an entry or remove it permanently.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                items(trash, key = { "trash-" + it.id }) { entry ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { EntryRow(entry) { onOpen(entry) } }
+                        Column(horizontalAlignment = Alignment.End) {
+                            TextButton(onClick = { onRestoreTrash(entry) }) { Text("Restore") }
+                            TextButton(onClick = { onDeleteForever(entry) }) { Text("Delete") }
+                        }
                     }
                 }
             }
