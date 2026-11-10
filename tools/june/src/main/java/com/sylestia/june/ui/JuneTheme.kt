@@ -43,9 +43,14 @@ private val JuneTypography = androidx.compose.material3.Typography(
 )
 
 @Composable
-fun JUNETheme(content: @Composable () -> Unit) {
+fun JUNETheme(themeMode: String = "system", content: @Composable () -> Unit) {
+    val useDark = when (themeMode) {
+        "light" -> false
+        "dark" -> true
+        else -> isSystemInDarkTheme()
+    }
     MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) Dark else Light,
+        colorScheme = if (useDark) Dark else Light,
         typography = JuneTypography,
         content = content
     )
