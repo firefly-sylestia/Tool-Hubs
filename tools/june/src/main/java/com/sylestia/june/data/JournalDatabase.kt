@@ -2,8 +2,8 @@ package com.sylestia.june.data
 
 import android.content.ContentValues
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
+import net.sqlcipher.database.SQLiteDatabase
+import net.sqlcipher.database.SQLiteOpenHelper
 import java.time.LocalDate
 
 data class JournalEntry(
@@ -21,9 +21,10 @@ data class JournalEntry(
 class JournalDatabase(context: Context) :
     SQLiteOpenHelper(context.applicationContext, "june-journal.db", null, 1) {
 
-    override fun onConfigure(db: SQLiteDatabase) {
-        super.onConfigure(db)
-        db.setForeignKeyConstraintsEnabled(true)
+    private val passphrase = JournalKeyStore.getDatabasePassphrase(context)
+
+    init {
+        SQLiteDatabase.loadLibs(context.applicationContext)
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -45,8 +46,11 @@ class JournalDatabase(context: Context) :
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Schema changes must be explicit and non-destructive.
+        // Schema changes must use explicit, non-destructive migrations.
     }
+
+    private fun writable() = getWritableDatabase(passphrase)
+    private fun readable() = getReadableDatabase(passphrase)
 
     fun save(entry: JournalEntry): JournalEntry {
         val now = System.currentTimeMillis()
@@ -60,10 +64,9 @@ class JournalDatabase(context: Context) :
             put("archived", if (entry.archived) 1 else 0)
             put("deleted_at", entry.deletedAt)
         }
-        val id = if (entry.id == 0L) {
-            writableDatabase.insertOrThrow("entries", null, values)
-        } else {
-            writableDatabase.update("entries", values, "id = ?", arrayOf(entry.id.toString()))
+        val db = writable()
+        val id = if (entry.id == 0L) db.insertOrThrow("entries", null, values) else {
+            db.update("entries", values, "id = ?", arrayOf(entry.id.toString()))
             entry.id
         }
         return entry.copy(id = id, updatedAt = now)
@@ -90,26 +93,26 @@ class JournalDatabase(context: Context) :
         query("SELECT * FROM entries WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")
 
     fun setArchived(id: Long, value: Boolean) {
-        writableDatabase.execSQL("UPDATE entries SET archived = ?, updated_at = ? WHERE id = ?",
+        writable().execSQL("UPDATE entries SET archived = ?, updated_at = ? WHERE id = ?",
             arrayOf(if (value) 1 else 0, System.currentTimeMillis(), id))
     }
 
     fun moveToTrash(id: Long) {
-        writableDatabase.execSQL("UPDATE entries SET deleted_at = ? WHERE id = ?",
+        writable().execSQL("UPDATE entries SET deleted_at = ? WHERE id = ?",
             arrayOf(System.currentTimeMillis(), id))
     }
 
     fun restore(id: Long) {
-        writableDatabase.execSQL("UPDATE entries SET deleted_at = NULL WHERE id = ?", arrayOf(id))
+        writable().execSQL("UPDATE entries SET deleted_at = NULL WHERE id = ?", arrayOf(id))
     }
 
     fun permanentlyDelete(id: Long) {
-        writableDatabase.delete("entries", "id = ?", arrayOf(id.toString()))
+        writable().delete("entries", "id = ?", arrayOf(id.toString()))
     }
 
     private fun query(sql: String, args: Array<String> = emptyArray()): List<JournalEntry> {
         val result = mutableListOf<JournalEntry>()
-        readableDatabase.rawQuery(sql, args).use { cursor ->
+        readable().rawQuery(sql, args).use { cursor ->
             while (cursor.moveToNext()) {
                 val deletedIndex = cursor.getColumnIndexOrThrow("deleted_at")
                 result += JournalEntry(
