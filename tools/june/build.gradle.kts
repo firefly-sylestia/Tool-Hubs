@@ -45,6 +45,7 @@ android {
 }
 
 dependencies {
+    implementation("net.zetetic:android-database-sqlcipher:4.5.4")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
