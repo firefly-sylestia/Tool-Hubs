@@ -87,6 +87,9 @@ jobs:
           - name: data-warden
             task: :tools:data-warden:assembleRelease
             apk: tools/data-warden/build/outputs/apk/release/*.apk
+          - name: june
+            task: :tools:june:assembleRelease
+            apk: tools/june/build/outputs/apk/release/*.apk
 
     steps:
       - name: Check out Tool Hubs
