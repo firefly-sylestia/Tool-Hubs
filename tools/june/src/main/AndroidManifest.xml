@@ -3,8 +3,10 @@
     <application
         android:allowBackup="false"
         android:label="JUNE"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:theme="@style/Theme.June"
         android:usesCleartextTraffic="false">
         <activity
             android:name=".MainActivity"
