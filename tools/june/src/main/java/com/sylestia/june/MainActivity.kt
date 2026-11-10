@@ -25,6 +25,7 @@ import androidx.compose.material.icons.outlined.FormatBold
 import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatListBulleted
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -57,14 +58,23 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val database = JournalDatabase(applicationContext)
-        setContent { JUNETheme { JuneApp(database) } }
+        val preferences = getSharedPreferences("june_preferences", MODE_PRIVATE)
+        setContent {
+            var themeMode by remember { mutableStateOf(preferences.getString("theme_mode", "system") ?: "system") }
+            JUNETheme(themeMode) {
+                JuneApp(database, themeMode) { next ->
+                    themeMode = next
+                    preferences.edit().putString("theme_mode", next).apply()
+                }
+            }
+        }
     }
 }
 
-private enum class Destination { TODAY, JOURNAL, YEARSTREAM, ARCHIVE }
+private enum class Destination { TODAY, JOURNAL, YEARSTREAM, ARCHIVE, SETTINGS }
 
 @Composable
-private fun JuneApp(database: JournalDatabase) {
+private fun JuneApp(database: JournalDatabase, themeMode: String, onThemeModeChange: (String) -> Unit) {
     var destination by rememberSaveable { mutableStateOf(Destination.TODAY) }
     var entries by remember { mutableStateOf(emptyList<JournalEntry>()) }
     var trashEntries by remember { mutableStateOf(emptyList<JournalEntry>()) }
@@ -95,10 +105,11 @@ private fun JuneApp(database: JournalDatabase) {
                 NavigationBarItem(destination == Destination.JOURNAL, { destination = Destination.JOURNAL }, { Icon(Icons.Outlined.Book, null) }, label = { Text("Journal") }, colors = juneNavColors())
                 NavigationBarItem(destination == Destination.YEARSTREAM, { destination = Destination.YEARSTREAM }, { Icon(Icons.Outlined.CalendarMonth, null) }, label = { Text("Yearstream") }, colors = juneNavColors())
                 NavigationBarItem(destination == Destination.ARCHIVE, { destination = Destination.ARCHIVE }, { Icon(Icons.Outlined.Archive, null) }, label = { Text("Archive") }, colors = juneNavColors())
+                NavigationBarItem(destination == Destination.SETTINGS, { destination = Destination.SETTINGS }, { Icon(Icons.Outlined.Settings, null) }, label = { Text("Settings") }, colors = juneNavColors())
             }
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
+            if (destination != Destination.SETTINGS) ExtendedFloatingActionButton(
                 onClick = { newEntry() },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -117,6 +128,7 @@ private fun JuneApp(database: JournalDatabase) {
                 { entry -> scope.launch { withContext(Dispatchers.IO) { database.restore(entry.id) }; refresh() } },
                 { entry -> scope.launch { withContext(Dispatchers.IO) { database.permanentlyDelete(entry.id) }; refresh() } }
             )
+            Destination.SETTINGS -> SettingsScreen(themeMode, onThemeModeChange, Modifier.padding(padding))
         }
     }
 
@@ -158,6 +170,46 @@ private fun JuneApp(database: JournalDatabase) {
             { selectedDay = null }, { reading = it; selectedDay = null },
             { selectedDay = null; newEntry(date) }
         )
+    }
+}
+
+@Composable
+private fun SettingsScreen(
+    themeMode: String,
+    onThemeModeChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 26.dp),
+        verticalArrangement = Arrangement.spacedBy(22.dp)
+    ) {
+        PageHeader("Make this space yours", "Settings", "A quieter journal, arranged your way.")
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("APPEARANCE", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary, letterSpacing = 1.2.sp)
+            Text("Choose how JUNE looks.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("system" to "System", "light" to "Light", "dark" to "Dark").forEach { (value, label) ->
+                    FilterChip(
+                        selected = themeMode == value,
+                        onClick = { onThemeModeChange(value) },
+                        label = { Text(label) }
+                    )
+                }
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("YOUR PRIVACY", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary, letterSpacing = 1.2.sp)
+            Text("Your journal is stored on this device in an encrypted local database. JUNE does not require an account or send your entries to a server.", style = MaterialTheme.typography.bodyLarge)
+            Text("Keep a device backup if your writing matters to you. Uninstalling the app or clearing its data can remove local entries.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("ABOUT JUNE", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary, letterSpacing = 1.2.sp)
+            Text("A small place to keep the days.", style = MaterialTheme.typography.titleLarge)
+            Text("Version 1.0.0", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.height(80.dp))
     }
 }
 
